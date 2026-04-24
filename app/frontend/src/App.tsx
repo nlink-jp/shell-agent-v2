@@ -1,4 +1,10 @@
 import {useState, useEffect, useRef, useCallback} from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+// remark-breaks removed: it injects <br> inside code blocks.
+// Whitespace preservation handled via CSS white-space on .message-content p.
+import rehypeHighlight from 'rehype-highlight'
+import 'highlight.js/styles/github-dark.css'
 import './App.css'
 
 declare global {
@@ -28,6 +34,11 @@ declare global {
 interface ChatMessage {
     role: 'user' | 'assistant' | 'system';
     content: string;
+    timestamp: string;
+}
+
+function nowTime(): string {
+    return new Date().toLocaleTimeString('en-GB', {hour: '2-digit', minute: '2-digit', second: '2-digit'})
 }
 
 interface Finding {
@@ -120,15 +131,15 @@ function App() {
         if (!msg || state === 'busy') return
 
         setInput('')
-        setMessages(prev => [...prev, {role: 'user', content: msg}])
+        setMessages(prev => [...prev, {role: 'user', content: msg, timestamp: nowTime()}])
         setState('busy')
         setStreaming('')
 
         try {
             const response = await window.go.main.Bindings.Send(msg)
-            setMessages(prev => [...prev, {role: 'assistant', content: response}])
+            setMessages(prev => [...prev, {role: 'assistant', content: response, timestamp: nowTime()}])
         } catch (err: any) {
-            setMessages(prev => [...prev, {role: 'system', content: `Error: ${err.message || err}`}])
+            setMessages(prev => [...prev, {role: 'system', content: `Error: ${err.message || err}`, timestamp: nowTime()}])
         } finally {
             setState('idle')
             setStreaming('')
@@ -198,14 +209,37 @@ function App() {
                 <div className="messages">
                     {messages.map((msg, i) => (
                         <div key={i} className={`message ${msg.role}`}>
-                            <div className="message-role">{msg.role}</div>
-                            <div className="message-content">{msg.content}</div>
+                            <div className="message-header">
+                                <span className="message-role">{msg.role}</span>
+                                <span className="message-time">{msg.timestamp || ''}</span>
+                            </div>
+                            <div className="message-content">
+                                <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+                                    {msg.content}
+                                </ReactMarkdown>
+                            </div>
+                            <div className="message-footer">
+                                <button className="message-copy" onClick={(e) => {
+                                    navigator.clipboard.writeText(msg.content)
+                                    const b = e.currentTarget; b.classList.add('copied')
+                                    setTimeout(() => b.classList.remove('copied'), 1000)
+                                }} title="Copy">
+                                    <span className="copy-icon">{'\u2398'}</span>
+                                    <span className="copy-check">{'\u2713'}</span>
+                                </button>
+                            </div>
                         </div>
                     ))}
                     {streaming && (
                         <div className="message assistant streaming">
-                            <div className="message-role">assistant</div>
-                            <div className="message-content">{streaming}</div>
+                            <div className="message-header">
+                                <span className="message-role">assistant</span>
+                            </div>
+                            <div className="message-content">
+                                <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+                                    {streaming}
+                                </ReactMarkdown>
+                            </div>
                         </div>
                     )}
                     <div ref={messagesEndRef} />
