@@ -151,6 +151,73 @@ func (b *Bindings) HasData() bool {
 	return b.analysis.HasData()
 }
 
+// --- Findings bindings ---
+
+// FindingsResult is the JSON-serializable findings data for the frontend.
+type FindingsResult struct {
+	ID            string   `json:"id"`
+	Content       string   `json:"content"`
+	SessionID     string   `json:"session_id"`
+	SessionTitle  string   `json:"session_title"`
+	Tags          []string `json:"tags"`
+	CreatedLabel  string   `json:"created_label"`
+}
+
+// GetFindings returns all global findings.
+func (b *Bindings) GetFindings() []FindingsResult {
+	all := b.agent.Findings()
+	results := make([]FindingsResult, len(all))
+	for i, f := range all {
+		results[i] = FindingsResult{
+			ID:           f.ID,
+			Content:      f.Content,
+			SessionID:    f.OriginSessionID,
+			SessionTitle: f.OriginSessionTitle,
+			Tags:         f.Tags,
+			CreatedLabel: f.CreatedLabel,
+		}
+	}
+	return results
+}
+
+// --- Settings bindings ---
+
+// SettingsData is the JSON-serializable settings for the frontend.
+type SettingsData struct {
+	DefaultBackend string `json:"default_backend"`
+	LocalEndpoint  string `json:"local_endpoint"`
+	LocalModel     string `json:"local_model"`
+	VertexProject  string `json:"vertex_project"`
+	VertexRegion   string `json:"vertex_region"`
+	VertexModel    string `json:"vertex_model"`
+	Theme          string `json:"theme"`
+}
+
+// GetSettings returns current settings.
+func (b *Bindings) GetSettings() SettingsData {
+	return SettingsData{
+		DefaultBackend: string(b.cfg.LLM.DefaultBackend),
+		LocalEndpoint:  b.cfg.LLM.Local.Endpoint,
+		LocalModel:     b.cfg.LLM.Local.Model,
+		VertexProject:  b.cfg.LLM.VertexAI.ProjectID,
+		VertexRegion:   b.cfg.LLM.VertexAI.Region,
+		VertexModel:    b.cfg.LLM.VertexAI.Model,
+		Theme:          b.cfg.UI.Theme,
+	}
+}
+
+// SaveSettings persists updated settings.
+func (b *Bindings) SaveSettings(s SettingsData) error {
+	b.cfg.LLM.DefaultBackend = config.LLMBackend(s.DefaultBackend)
+	b.cfg.LLM.Local.Endpoint = s.LocalEndpoint
+	b.cfg.LLM.Local.Model = s.LocalModel
+	b.cfg.LLM.VertexAI.ProjectID = s.VertexProject
+	b.cfg.LLM.VertexAI.Region = s.VertexRegion
+	b.cfg.LLM.VertexAI.Model = s.VertexModel
+	b.cfg.UI.Theme = s.Theme
+	return b.cfg.Save()
+}
+
 // --- Info ---
 
 // Version returns the application version.

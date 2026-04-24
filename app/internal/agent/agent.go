@@ -147,6 +147,11 @@ func (a *Agent) SetAnalysis(engine *analysis.Engine) {
 	a.analysis = engine
 }
 
+// Findings returns all global findings.
+func (a *Agent) Findings() []findings.Finding {
+	return a.findings.All()
+}
+
 // --- internal ---
 
 func (a *Agent) agentLoop(ctx context.Context, userMessage string) (string, error) {
