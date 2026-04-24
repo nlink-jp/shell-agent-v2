@@ -44,6 +44,12 @@ func (b *Bindings) startup(ctx context.Context) {
 			"done":  done,
 		})
 	})
+	b.agent.SetTitleHandler(func(sessionID, title string) {
+		wailsRuntime.EventsEmit(b.ctx, "session:title", map[string]any{
+			"session_id": sessionID,
+			"title":      title,
+		})
+	})
 
 	// Restore window position and size
 	w := cfg.UI.Window
@@ -136,19 +142,59 @@ func (b *Bindings) NewSession() (string, error) {
 	return session.ID, nil
 }
 
-// LoadSession switches to an existing session.
-func (b *Bindings) LoadSession(sessionID string) error {
+// LoadSession switches to an existing session and returns its messages.
+func (b *Bindings) LoadSession(sessionID string) ([]MessageData, error) {
 	if b.IsBusy() {
-		return fmt.Errorf("agent is busy")
+		return nil, fmt.Errorf("agent is busy")
 	}
 
 	session, err := memory.LoadSession(sessionID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	b.switchAnalysis(sessionID)
-	return b.agent.LoadSession(session)
+	if err := b.agent.LoadSession(session); err != nil {
+		return nil, err
+	}
+
+	var msgs []MessageData
+	for _, r := range session.Records {
+		if r.Role == "summary" {
+			continue
+		}
+		msgs = append(msgs, MessageData{
+			Role:      r.Role,
+			Content:   r.Content,
+			Timestamp: r.Timestamp.Format("15:04:05"),
+		})
+	}
+	return msgs, nil
+}
+
+// ListSessions returns all sessions.
+func (b *Bindings) ListSessions() ([]memory.SessionInfo, error) {
+	return memory.ListSessions()
+}
+
+// RenameSession updates a session title.
+func (b *Bindings) RenameSession(sessionID, title string) error {
+	return memory.RenameSession(sessionID, title)
+}
+
+// DeleteSession removes a session.
+func (b *Bindings) DeleteSession(sessionID string) error {
+	if b.IsBusy() {
+		return fmt.Errorf("agent is busy")
+	}
+	return memory.DeleteSessionDir(sessionID)
+}
+
+// MessageData is a message for the frontend.
+type MessageData struct {
+	Role      string `json:"role"`
+	Content   string `json:"content"`
+	Timestamp string `json:"timestamp"`
 }
 
 // --- Analysis bindings ---

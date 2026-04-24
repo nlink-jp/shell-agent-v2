@@ -18,6 +18,10 @@ declare global {
                     GetBackend(): Promise<string>;
                     Version(): Promise<string>;
                     NewSession(): Promise<string>;
+                    LoadSession(id: string): Promise<MessageData[]>;
+                    ListSessions(): Promise<SessionInfo[]>;
+                    RenameSession(id: string, title: string): Promise<void>;
+                    DeleteSession(id: string): Promise<void>;
                     HasData(): Promise<boolean>;
                     GetFindings(): Promise<Finding[]>;
                     GetSettings(): Promise<Settings>;
@@ -33,6 +37,18 @@ declare global {
 
 interface ChatMessage {
     role: 'user' | 'assistant' | 'system';
+    content: string;
+    timestamp: string;
+}
+
+interface SessionInfo {
+    id: string;
+    title: string;
+    updated_at: string;
+}
+
+interface MessageData {
+    role: string;
     content: string;
     timestamp: string;
 }
@@ -69,21 +85,31 @@ function App() {
     const [streaming, setStreaming] = useState('')
     const [backend, setBackend] = useState('')
     const [sidebarTab, setSidebarTab] = useState<SidebarTab>('sessions')
+    const [sessions, setSessions] = useState<SessionInfo[]>([])
+    const [currentSessionId, setCurrentSessionId] = useState<string>('')
     const [findings, setFindings] = useState<Finding[]>([])
     const [showSettings, setShowSettings] = useState(false)
+    const [editingSession, setEditingSession] = useState<string | null>(null)
+    const [editTitle, setEditTitle] = useState('')
     const [settings, setSettings] = useState<Settings | null>(null)
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const composingRef = useRef(false)
 
     useEffect(() => {
         if (window.runtime) {
-            return window.runtime.EventsOn('agent:stream', (data: any) => {
+            const cleanupStream = window.runtime.EventsOn('agent:stream', (data: any) => {
                 if (data.done) {
                     setStreaming('')
                 } else {
                     setStreaming(prev => prev + data.token)
                 }
             })
+            const cleanupTitle = window.runtime.EventsOn('session:title', (data: any) => {
+                setSessions(prev => prev.map(s =>
+                    s.id === data.session_id ? {...s, title: data.title} : s
+                ))
+            })
+            return () => { cleanupStream(); cleanupTitle() }
         }
     }, [])
 
@@ -95,6 +121,104 @@ function App() {
         if (window.go) {
             window.go.main.Bindings.GetBackend().then(setBackend)
         }
+    }, [])
+
+    const refreshSessions = useCallback(async () => {
+        if (window.go) {
+            const s = await window.go.main.Bindings.ListSessions()
+            setSessions(s || [])
+        }
+    }, [])
+
+    const handleNewSession = useCallback(async () => {
+        if (window.go && state === 'idle') {
+            const id = await window.go.main.Bindings.NewSession()
+            setCurrentSessionId(id)
+            setMessages([])
+            setStreaming('')
+            await refreshSessions()
+        }
+    }, [state, refreshSessions])
+
+    const handleLoadSession = useCallback(async (id: string) => {
+        if (window.go && state === 'idle') {
+            const msgs = await window.go.main.Bindings.LoadSession(id)
+            setCurrentSessionId(id)
+            setMessages((msgs || []).map(m => ({
+                role: m.role as ChatMessage['role'],
+                content: m.content,
+                timestamp: m.timestamp,
+            })))
+            setStreaming('')
+        }
+    }, [state])
+
+    const handleDeleteSession = useCallback(async (id: string) => {
+        if (window.go && state === 'idle') {
+            await window.go.main.Bindings.DeleteSession(id)
+            const remaining = await window.go.main.Bindings.ListSessions()
+            if (!remaining || remaining.length === 0) {
+                // No sessions left — auto-create one
+                const newId = await window.go.main.Bindings.NewSession()
+                setCurrentSessionId(newId)
+                setMessages([])
+                const refreshed = await window.go.main.Bindings.ListSessions()
+                setSessions(refreshed || [])
+            } else {
+                setSessions(remaining)
+                if (id === currentSessionId) {
+                    // Switch to the first remaining session
+                    const msgs = await window.go.main.Bindings.LoadSession(remaining[0].id)
+                    setCurrentSessionId(remaining[0].id)
+                    setMessages((msgs || []).map(m => ({
+                        role: m.role as ChatMessage['role'],
+                        content: m.content,
+                        timestamp: m.timestamp,
+                    })))
+                }
+            }
+        }
+    }, [state, currentSessionId])
+
+    const startRename = useCallback((id: string, currentTitle: string) => {
+        setEditingSession(id)
+        setEditTitle(currentTitle)
+    }, [])
+
+    const commitRename = useCallback(async () => {
+        if (!editingSession || !editTitle.trim()) {
+            setEditingSession(null)
+            return
+        }
+        if (window.go) {
+            await window.go.main.Bindings.RenameSession(editingSession, editTitle.trim())
+            await refreshSessions()
+        }
+        setEditingSession(null)
+    }, [editingSession, editTitle, refreshSessions])
+
+    // On startup: load sessions, auto-create if none exist
+    useEffect(() => {
+        (async () => {
+            if (!window.go) return
+            const s = await window.go.main.Bindings.ListSessions()
+            setSessions(s || [])
+            if (!s || s.length === 0) {
+                const id = await window.go.main.Bindings.NewSession()
+                setCurrentSessionId(id)
+                const refreshed = await window.go.main.Bindings.ListSessions()
+                setSessions(refreshed || [])
+            } else {
+                // Load the most recent session
+                const msgs = await window.go.main.Bindings.LoadSession(s[0].id)
+                setCurrentSessionId(s[0].id)
+                setMessages((msgs || []).map(m => ({
+                    role: m.role as ChatMessage['role'],
+                    content: m.content,
+                    timestamp: m.timestamp,
+                })))
+            }
+        })()
     }, [])
 
     const refreshFindings = useCallback(async () => {
@@ -126,9 +250,11 @@ function App() {
         setShowSettings(true)
     }, [])
 
+    const canChat = state === 'idle' && currentSessionId !== ''
+
     const handleSend = useCallback(async () => {
         const msg = input.trim()
-        if (!msg || state === 'busy') return
+        if (!msg || state === 'busy' || !currentSessionId) return
 
         setInput('')
         setMessages(prev => [...prev, {role: 'user', content: msg, timestamp: nowTime()}])
@@ -171,7 +297,38 @@ function App() {
 
                 {sidebarTab === 'sessions' && (
                     <div className="sidebar-panel">
-                        <p className="sidebar-hint">Session list (coming soon)</p>
+                        <button className="new-session-btn" onClick={handleNewSession} disabled={state === 'busy'}>+ New Session</button>
+                        {sessions.length === 0 ? (
+                            <p className="sidebar-hint">No sessions yet</p>
+                        ) : sessions.map(s => (
+                            <div key={s.id} className={`session-item ${s.id === currentSessionId ? 'active' : ''}`} onClick={() => handleLoadSession(s.id)}>
+                                {editingSession === s.id ? (
+                                    <input
+                                        className="session-title-edit"
+                                        value={editTitle}
+                                        onChange={e => setEditTitle(e.target.value)}
+                                        onBlur={commitRename}
+                                        onKeyDown={e => {
+                                            if (e.key === 'Enter' && !composingRef.current) commitRename()
+                                            if (e.key === 'Escape') setEditingSession(null)
+                                        }}
+                                        onCompositionStart={() => { composingRef.current = true }}
+                                        onCompositionEnd={() => { setTimeout(() => { composingRef.current = false }, 50) }}
+                                        autoFocus
+                                        onClick={e => e.stopPropagation()}
+                                    />
+                                ) : (
+                                    <div className="session-title" onDoubleClick={(e) => { e.stopPropagation(); startRename(s.id, s.title) }}>{s.title}</div>
+                                )}
+                                <div className="session-meta">
+                                    <span className="session-date">{s.updated_at}</span>
+                                    <div className="session-actions">
+                                        <button onClick={(e) => { e.stopPropagation(); startRename(s.id, s.title) }} title="Rename">&#x270E;</button>
+                                        <button onClick={(e) => { e.stopPropagation(); handleDeleteSession(s.id) }} title="Delete">&#x2715;</button>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
                     </div>
                 )}
 
@@ -251,14 +408,14 @@ function App() {
                         onKeyDown={handleKeyDown}
                         onCompositionStart={() => { composingRef.current = true }}
                         onCompositionEnd={() => { setTimeout(() => { composingRef.current = false }, 50) }}
-                        placeholder={state === 'idle' ? 'Type a message... (Cmd+Enter to send)' : 'Agent is busy...'}
-                        disabled={state === 'busy'}
+                        placeholder={canChat ? 'Type a message... (Cmd+Enter to send)' : 'Agent is busy...'}
+                        disabled={!canChat}
                         rows={3}
                     />
                     {state === 'busy' ? (
                         <button className="abort-btn" onClick={handleAbort}>Abort</button>
                     ) : (
-                        <button className="send-btn" onClick={handleSend} disabled={!input.trim()}>Send</button>
+                        <button className="send-btn" onClick={handleSend} disabled={!canChat || !input.trim()}>Send</button>
                     )}
                 </div>
             </div>

@@ -33,6 +33,9 @@ var ErrBusy = errors.New("agent is busy")
 // StreamHandler receives streaming tokens from the agent.
 type StreamHandler func(token string, done bool)
 
+// TitleHandler is called when the session title is auto-generated.
+type TitleHandler func(sessionID, title string)
+
 // Agent orchestrates chat, analysis, tool execution, and memory.
 type Agent struct {
 	cfg     *config.Config
@@ -48,6 +51,7 @@ type Agent struct {
 	pinned   *memory.PinnedStore
 
 	streamHandler StreamHandler
+	titleHandler  TitleHandler
 }
 
 // New creates a new Agent with the given configuration.
@@ -77,6 +81,13 @@ func (a *Agent) SetStreamHandler(h StreamHandler) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.streamHandler = h
+}
+
+// SetTitleHandler sets the callback for auto-generated session titles.
+func (a *Agent) SetTitleHandler(h TitleHandler) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.titleHandler = h
 }
 
 // CurrentBackend returns the name of the active LLM backend.
@@ -190,6 +201,7 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string) (string, erro
 		// No tool calls — final response
 		if len(resp.ToolCalls) == 0 {
 			a.session.AddAssistantMessage(resp.Content)
+			go a.generateTitleIfNeeded(ctx)
 			return resp.Content, nil
 		}
 
@@ -317,6 +329,49 @@ func (a *Agent) setBackend(backend config.LLMBackend) {
 		a.backend = llm.NewVertex(a.cfg.LLM.VertexAI)
 	default:
 		a.backend = llm.NewLocal(a.cfg.LLM.Local)
+	}
+}
+
+// generateTitleIfNeeded generates a session title from the first user message.
+func (a *Agent) generateTitleIfNeeded(ctx context.Context) {
+	if a.session == nil || a.session.Title != "New Session" {
+		return
+	}
+
+	var firstUser string
+	for _, r := range a.session.Records {
+		if r.Role == "user" && r.Tier == memory.TierHot {
+			firstUser = r.Content
+			break
+		}
+	}
+	if firstUser == "" {
+		return
+	}
+
+	messages := []llm.Message{
+		{Role: "system", Content: "Generate a very short title (under 30 chars) for a chat that starts with the following message. Reply with ONLY the title, no quotes, no explanation. Use the same language as the message."},
+		{Role: "user", Content: firstUser},
+	}
+
+	resp, err := a.backend.Chat(ctx, messages, nil)
+	if err != nil {
+		return
+	}
+
+	title := strings.TrimSpace(resp.Content)
+	if title == "" || len(title) > 60 {
+		return
+	}
+
+	a.session.Title = title
+	_ = a.session.Save()
+
+	a.mu.Lock()
+	h := a.titleHandler
+	a.mu.Unlock()
+	if h != nil {
+		h(a.session.ID, title)
 	}
 }
 
