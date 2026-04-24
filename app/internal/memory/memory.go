@@ -25,6 +25,8 @@ type Record struct {
 	Role         string     `json:"role"`
 	Content      string     `json:"content"`
 	Tier         Tier       `json:"tier"`
+	ToolCallID   string     `json:"tool_call_id,omitempty"`
+	ToolName     string     `json:"tool_name,omitempty"`
 	SummaryRange *TimeRange `json:"summary_range,omitempty"`
 }
 
@@ -39,6 +41,38 @@ type Session struct {
 	ID      string   `json:"id"`
 	Title   string   `json:"title"`
 	Records []Record `json:"records"`
+}
+
+// AddUserMessage appends a user message to the session.
+func (s *Session) AddUserMessage(content string) {
+	s.Records = append(s.Records, Record{
+		Timestamp: time.Now(),
+		Role:      "user",
+		Content:   content,
+		Tier:      TierHot,
+	})
+}
+
+// AddAssistantMessage appends an assistant message to the session.
+func (s *Session) AddAssistantMessage(content string) {
+	s.Records = append(s.Records, Record{
+		Timestamp: time.Now(),
+		Role:      "assistant",
+		Content:   content,
+		Tier:      TierHot,
+	})
+}
+
+// AddToolResult appends a tool result to the session.
+func (s *Session) AddToolResult(toolCallID, toolName, content string) {
+	s.Records = append(s.Records, Record{
+		Timestamp:  time.Now(),
+		Role:       "tool",
+		Content:    content,
+		ToolCallID: toolCallID,
+		ToolName:   toolName,
+		Tier:       TierHot,
+	})
 }
 
 // SessionDir returns the directory for a given session.
