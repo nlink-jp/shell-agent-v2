@@ -1,0 +1,66 @@
+package memory
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestPinnedSetAndGet(t *testing.T) {
+	s := &PinnedStore{path: "/tmp/test-pinned.json", facts: []PinnedFact{}}
+
+	s.Set("name", "Alice")
+	f, ok := s.Get("name")
+	if !ok {
+		t.Fatal("expected to find fact")
+	}
+	if f.Content != "Alice" {
+		t.Errorf("content = %v, want Alice", f.Content)
+	}
+
+	// Update
+	s.Set("name", "Bob")
+	f, _ = s.Get("name")
+	if f.Content != "Bob" {
+		t.Errorf("updated content = %v, want Bob", f.Content)
+	}
+	if len(s.All()) != 1 {
+		t.Errorf("facts count = %d, want 1 (update should not duplicate)", len(s.All()))
+	}
+}
+
+func TestPinnedDelete(t *testing.T) {
+	s := &PinnedStore{path: "/tmp/test-pinned.json", facts: []PinnedFact{}}
+
+	s.Set("key1", "value1")
+	s.Set("key2", "value2")
+
+	if !s.Delete("key1") {
+		t.Error("delete should return true for existing key")
+	}
+	if s.Delete("nonexistent") {
+		t.Error("delete should return false for missing key")
+	}
+	if len(s.All()) != 1 {
+		t.Errorf("facts count = %d, want 1", len(s.All()))
+	}
+}
+
+func TestPinnedFormatForPrompt(t *testing.T) {
+	s := &PinnedStore{path: "/tmp/test-pinned.json", facts: []PinnedFact{}}
+
+	// Empty
+	if s.FormatForPrompt() != "" {
+		t.Error("empty store should return empty string")
+	}
+
+	s.Set("name", "Alice")
+	s.Set("role", "data scientist")
+
+	prompt := s.FormatForPrompt()
+	if !strings.Contains(prompt, "Alice") {
+		t.Error("prompt missing name")
+	}
+	if !strings.Contains(prompt, "data scientist") {
+		t.Error("prompt missing role")
+	}
+}

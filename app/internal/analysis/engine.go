@@ -41,6 +41,15 @@ func New(sessionID string) *Engine {
 	}
 }
 
+// NewWithPath creates an engine with an explicit database path (for testing).
+func NewWithPath(sessionID, dbPath string) *Engine {
+	return &Engine{
+		sessionID: sessionID,
+		dbPath:    dbPath,
+		tables:    make(map[string]*TableMeta),
+	}
+}
+
 // Open opens or creates the DuckDB instance.
 func (e *Engine) Open() error {
 	e.mu.Lock()

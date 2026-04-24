@@ -165,6 +165,7 @@ func (b *Bindings) switchAnalysis(sessionID string) {
 		b.analysis.Close()
 	}
 	b.analysis = analysis.New(sessionID)
+	b.agent.SetAnalysis(b.analysis)
 }
 
 func nowUnixMilli() int64 {

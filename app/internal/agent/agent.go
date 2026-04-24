@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/nlink-jp/shell-agent-v2/internal/analysis"
 	"github.com/nlink-jp/shell-agent-v2/internal/chat"
 	"github.com/nlink-jp/shell-agent-v2/internal/config"
 	"github.com/nlink-jp/shell-agent-v2/internal/findings"
@@ -43,6 +44,8 @@ type Agent struct {
 	chat     *chat.Engine
 	session  *memory.Session
 	findings *findings.Store
+	analysis *analysis.Engine
+	pinned   *memory.PinnedStore
 
 	streamHandler StreamHandler
 }
@@ -53,10 +56,12 @@ func New(cfg *config.Config) *Agent {
 		cfg:      cfg,
 		state:    StateIdle,
 		findings: findings.NewStore(),
+		pinned:   memory.NewPinnedStore(),
 		chat:     chat.New(defaultSystemPrompt),
 	}
 	a.setBackend(cfg.LLM.DefaultBackend)
 	_ = a.findings.Load()
+	_ = a.pinned.Load()
 	return a
 }
 
@@ -135,6 +140,13 @@ func (a *Agent) LoadSession(session *memory.Session) error {
 	return nil
 }
 
+// SetAnalysis sets the analysis engine for the current session.
+func (a *Agent) SetAnalysis(engine *analysis.Engine) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.analysis = engine
+}
+
 // --- internal ---
 
 func (a *Agent) agentLoop(ctx context.Context, userMessage string) (string, error) {
@@ -154,7 +166,7 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string) (string, erro
 
 		messages := a.chat.BuildMessages(
 			a.session,
-			"", // TODO: pinned context
+			a.pinned.FormatForPrompt(),
 			a.findings.FormatForPrompt(),
 		)
 
@@ -197,19 +209,35 @@ func (a *Agent) executeTool(tc llm.ToolCall) string {
 			return fmt.Sprintf("Error: %v", err)
 		}
 		return result
+	case "load-data", "describe-data", "query-sql", "list-tables", "reset-analysis", "promote-finding":
+		if a.analysis == nil {
+			return "Error: no analysis engine available"
+		}
+		result, err := a.executeAnalysisTool(tc.Name, tc.Arguments)
+		if err != nil {
+			return fmt.Sprintf("Error: %v", err)
+		}
+		return result
 	default:
 		return fmt.Sprintf("Error: unknown tool %q", tc.Name)
 	}
 }
 
 func (a *Agent) buildToolDefs() []llm.ToolDef {
-	return []llm.ToolDef{
+	tools := []llm.ToolDef{
 		{
 			Name:        "resolve-date",
 			Description: "Resolve relative date expressions to absolute dates. Use when you need to calculate dates like 'last Thursday', '3 weeks ago', 'first Monday of last month'.",
 			Parameters:  chat.ResolveDateToolDef(),
 		},
 	}
+
+	// Add analysis tools (dynamically filtered by data presence)
+	if a.analysis != nil {
+		tools = append(tools, analysisTools(a.analysis.HasData())...)
+	}
+
+	return tools
 }
 
 func (a *Agent) handleCommand(message string) (string, error) {
@@ -288,4 +316,8 @@ func (a *Agent) setBackend(backend config.LLMBackend) {
 }
 
 const defaultSystemPrompt = `You are a helpful assistant with data analysis capabilities.
-You can use tools to help answer questions. When asked about dates, use the resolve-date tool if you are unsure about the calculation.`
+You can use tools to help answer questions.
+
+When asked about dates, use the resolve-date tool if you are unsure about the calculation.
+
+When you discover a significant analysis insight (a pattern, anomaly, or conclusion that would be valuable across sessions), use the promote-finding tool to save it to the global findings store. This allows other sessions to reference the insight without re-analyzing the data.`
