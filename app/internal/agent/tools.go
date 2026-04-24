@@ -1,8 +1,10 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/nlink-jp/shell-agent-v2/internal/analysis"
 	"github.com/nlink-jp/shell-agent-v2/internal/llm"
@@ -15,7 +17,7 @@ func analysisTools(hasData bool) []llm.ToolDef {
 	tools := []llm.ToolDef{
 		{
 			Name:        "load-data",
-			Description: "Load a CSV file into the analysis database. Creates or replaces the table.",
+			Description: "Load a data file (CSV, JSON, JSONL) into the analysis database. Creates or replaces the table.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -88,6 +90,42 @@ func analysisTools(hasData bool) []llm.ToolDef {
 			},
 		},
 		{
+			Name:        "query-preview",
+			Description: "Generate and execute a SQL query from a natural language question. The system generates the SQL, validates it, and runs it.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"question": map[string]any{
+						"type":        "string",
+						"description": "Natural language question about the data",
+					},
+				},
+				"required": []string{"question"},
+			},
+		},
+		{
+			Name:        "suggest-analysis",
+			Description: "Suggest 3-5 analysis perspectives for the loaded data, including what to look for and sample SQL queries.",
+			Parameters: map[string]any{
+				"type":       "object",
+				"properties": map[string]any{},
+			},
+		},
+		{
+			Name:        "quick-summary",
+			Description: "Execute a SQL query and generate a natural language summary of the results.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"sql": map[string]any{
+						"type":        "string",
+						"description": "SQL SELECT query to execute and summarize",
+					},
+				},
+				"required": []string{"sql"},
+			},
+		},
+		{
 			Name:        "promote-finding",
 			Description: "Promote an analysis insight to the global findings store so it can be referenced across sessions. Use this when you discover a significant result worth remembering.",
 			Parameters: map[string]any{
@@ -122,6 +160,12 @@ func (a *Agent) executeAnalysisTool(name string, argsJSON string) (string, error
 		return a.toolQuerySQL(argsJSON)
 	case "list-tables":
 		return a.toolListTables()
+	case "query-preview":
+		return a.toolQueryPreview(argsJSON)
+	case "suggest-analysis":
+		return a.toolSuggestAnalysis()
+	case "quick-summary":
+		return a.toolQuickSummary(argsJSON)
 	case "reset-analysis":
 		return a.toolResetAnalysis()
 	case "promote-finding":
@@ -143,7 +187,7 @@ func (a *Agent) toolLoadData(argsJSON string) (string, error) {
 		return "", fmt.Errorf("file_path and table_name are required")
 	}
 
-	if err := a.analysis.LoadCSV(args.TableName, args.FilePath); err != nil {
+	if err := a.analysis.LoadFile(args.TableName, args.FilePath); err != nil {
 		return "", err
 	}
 
@@ -253,6 +297,105 @@ func (a *Agent) toolPromoteFinding(argsJSON string) (string, error) {
 	}
 
 	return fmt.Sprintf("Finding promoted: %s (%s)", f.Content, f.CreatedLabel), nil
+}
+
+func (a *Agent) toolQueryPreview(argsJSON string) (string, error) {
+	var args struct {
+		Question string `json:"question"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return "", fmt.Errorf("invalid arguments: %w", err)
+	}
+
+	schema := a.analysis.Schema()
+	if schema == "" {
+		return "", fmt.Errorf("no tables loaded")
+	}
+
+	// Generate SQL via LLM
+	messages := []llm.Message{
+		{Role: "system", Content: "Generate a SQL query for DuckDB to answer the user's question. " +
+			"Only generate SELECT statements. Never generate INSERT, UPDATE, DELETE, DROP, or any DDL statements. " +
+			"Respond with ONLY the SQL query. No explanation, no markdown fences.\n\n" +
+			"Database schema:\n" + schema},
+		{Role: "user", Content: args.Question},
+	}
+
+	resp, err := a.backend.Chat(context.Background(), messages, nil)
+	if err != nil {
+		return "", fmt.Errorf("SQL generation: %w", err)
+	}
+
+	sql := strings.TrimSpace(resp.Content)
+	sql = strings.TrimPrefix(sql, "```sql")
+	sql = strings.TrimPrefix(sql, "```")
+	sql = strings.TrimSuffix(sql, "```")
+	sql = strings.TrimSpace(sql)
+
+	// Execute the generated SQL
+	results, err := a.analysis.QuerySQL(sql)
+	if err != nil {
+		return "", fmt.Errorf("query execution: %w (SQL: %s)", err, sql)
+	}
+
+	data, _ := json.MarshalIndent(results, "", "  ")
+	return fmt.Sprintf("Generated SQL:\n```sql\n%s\n```\n\nResults (%d rows):\n%s", sql, len(results), string(data)), nil
+}
+
+func (a *Agent) toolSuggestAnalysis() (string, error) {
+	schema := a.analysis.Schema()
+	if schema == "" {
+		return "", fmt.Errorf("no tables loaded")
+	}
+
+	messages := []llm.Message{
+		{Role: "system", Content: "You are a data analyst. Given the database schema, suggest 3-5 analysis perspectives. " +
+			"For each, provide: a title, what to look for, and a sample SQL query. " +
+			"Use the same language as the table/column names suggest. Format as markdown."},
+		{Role: "user", Content: "Database schema:\n" + schema},
+	}
+
+	resp, err := a.backend.Chat(context.Background(), messages, nil)
+	if err != nil {
+		return "", fmt.Errorf("suggest analysis: %w", err)
+	}
+
+	return resp.Content, nil
+}
+
+func (a *Agent) toolQuickSummary(argsJSON string) (string, error) {
+	var args struct {
+		SQL string `json:"sql"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return "", fmt.Errorf("invalid arguments: %w", err)
+	}
+
+	results, err := a.analysis.QuerySQL(args.SQL)
+	if err != nil {
+		return "", err
+	}
+
+	data, _ := json.MarshalIndent(results, "", "  ")
+	resultText := string(data)
+	if len(resultText) > 30000 {
+		resultText = resultText[:30000] + "\n... (truncated)"
+	}
+
+	// Summarize via LLM
+	messages := []llm.Message{
+		{Role: "system", Content: "Summarize the following SQL query results in natural language. " +
+			"Highlight key patterns, outliers, and insights. Be concise. " +
+			"Use the same language as the data suggests."},
+		{Role: "user", Content: fmt.Sprintf("SQL:\n```sql\n%s\n```\n\nResults (%d rows):\n%s", args.SQL, len(results), resultText)},
+	}
+
+	resp, err := a.backend.Chat(context.Background(), messages, nil)
+	if err != nil {
+		return fmt.Sprintf("Results (%d rows):\n%s\n\n(Summary generation failed: %v)", len(results), resultText, err), nil
+	}
+
+	return fmt.Sprintf("```sql\n%s\n```\n\nResults: %d rows\n\n%s", args.SQL, len(results), resp.Content), nil
 }
 
 func formatTableMeta(t *analysis.TableMeta) string {

@@ -254,7 +254,7 @@ func (a *Agent) executeTool(tc llm.ToolCall) string {
 			return fmt.Sprintf("Error: %v", err)
 		}
 		return result
-	case "load-data", "describe-data", "query-sql", "list-tables", "reset-analysis", "promote-finding":
+	case "load-data", "describe-data", "query-sql", "query-preview", "suggest-analysis", "quick-summary", "list-tables", "reset-analysis", "promote-finding":
 		if a.analysis == nil {
 			return "Error: no analysis engine available"
 		}

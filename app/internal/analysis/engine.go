@@ -118,6 +118,21 @@ func (e *Engine) HasData() bool {
 	return len(e.tables) > 0
 }
 
+// LoadFile loads a data file into a table, auto-detecting format by extension.
+func (e *Engine) LoadFile(tableName, filePath string) error {
+	ext := strings.ToLower(filepath.Ext(filePath))
+	switch ext {
+	case ".csv", ".tsv":
+		return e.LoadCSV(tableName, filePath)
+	case ".json":
+		return e.LoadJSON(tableName, filePath)
+	case ".jsonl", ".ndjson":
+		return e.LoadJSONL(tableName, filePath)
+	default:
+		return fmt.Errorf("unsupported file format: %s (supported: csv, tsv, json, jsonl)", ext)
+	}
+}
+
 // LoadCSV loads a CSV file into a table.
 func (e *Engine) LoadCSV(tableName, filePath string) error {
 	if err := e.Open(); err != nil {
@@ -136,6 +151,62 @@ func (e *Engine) LoadCSV(tableName, filePath string) error {
 	}
 
 	return e.refreshTableMeta(tableName)
+}
+
+// LoadJSON loads a JSON file (array of objects) into a table.
+func (e *Engine) LoadJSON(tableName, filePath string) error {
+	if err := e.Open(); err != nil {
+		return err
+	}
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	query := fmt.Sprintf(
+		"CREATE OR REPLACE TABLE %s AS SELECT * FROM read_json_auto('%s')",
+		sanitizeIdentifier(tableName), filePath,
+	)
+	if _, err := e.db.Exec(query); err != nil {
+		return fmt.Errorf("load JSON: %w", err)
+	}
+
+	return e.refreshTableMeta(tableName)
+}
+
+// LoadJSONL loads a JSONL/NDJSON file into a table.
+func (e *Engine) LoadJSONL(tableName, filePath string) error {
+	if err := e.Open(); err != nil {
+		return err
+	}
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	query := fmt.Sprintf(
+		"CREATE OR REPLACE TABLE %s AS SELECT * FROM read_json_auto('%s', format='newline_delimited')",
+		sanitizeIdentifier(tableName), filePath,
+	)
+	if _, err := e.db.Exec(query); err != nil {
+		return fmt.Errorf("load JSONL: %w", err)
+	}
+
+	return e.refreshTableMeta(tableName)
+}
+
+// Schema returns a text representation of all table schemas for LLM prompts.
+func (e *Engine) Schema() string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	var sb strings.Builder
+	for _, t := range e.tables {
+		sb.WriteString(fmt.Sprintf("Table: %s (%d rows)\n", t.Name, t.RowCount))
+		if t.Description != "" {
+			sb.WriteString(fmt.Sprintf("  Description: %s\n", t.Description))
+		}
+		sb.WriteString(fmt.Sprintf("  Columns: %s\n\n", strings.Join(t.Columns, ", ")))
+	}
+	return sb.String()
 }
 
 // QuerySQL executes a read-only SQL query and returns results.
