@@ -15,6 +15,7 @@ import (
 	"github.com/nlink-jp/shell-agent-v2/internal/findings"
 	"github.com/nlink-jp/shell-agent-v2/internal/llm"
 	"github.com/nlink-jp/shell-agent-v2/internal/memory"
+	"github.com/nlink-jp/shell-agent-v2/internal/toolcall"
 )
 
 // State represents the agent's execution state.
@@ -36,6 +37,17 @@ type StreamHandler func(token string, done bool)
 // TitleHandler is called when the session title is auto-generated.
 type TitleHandler func(sessionID, title string)
 
+// MITLRequest represents a tool call awaiting MITL approval.
+type MITLRequest struct {
+	ToolName  string `json:"tool_name"`
+	Arguments string `json:"arguments"`
+	Category  string `json:"category"`
+}
+
+// MITLHandler is called when a tool requires Man-In-The-Loop approval.
+// Returns true if approved, false if rejected.
+type MITLHandler func(req MITLRequest) bool
+
 // Agent orchestrates chat, analysis, tool execution, and memory.
 type Agent struct {
 	cfg     *config.Config
@@ -52,16 +64,22 @@ type Agent struct {
 
 	streamHandler StreamHandler
 	titleHandler  TitleHandler
+	mitlHandler   MITLHandler
+	toolRegistry  *toolcall.Registry
 }
 
 // New creates a new Agent with the given configuration.
 func New(cfg *config.Config) *Agent {
+	registry := toolcall.NewRegistry()
+	_ = registry.ScanDir(cfg.Tools.ScriptDir)
+
 	a := &Agent{
-		cfg:      cfg,
-		state:    StateIdle,
-		findings: findings.NewStore(),
-		pinned:   memory.NewPinnedStore(),
-		chat:     chat.New(defaultSystemPrompt),
+		cfg:          cfg,
+		state:        StateIdle,
+		findings:     findings.NewStore(),
+		pinned:       memory.NewPinnedStore(),
+		chat:         chat.New(defaultSystemPrompt),
+		toolRegistry: registry,
 	}
 	a.setBackend(cfg.LLM.DefaultBackend)
 	_ = a.findings.Load()
@@ -88,6 +106,13 @@ func (a *Agent) SetTitleHandler(h TitleHandler) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.titleHandler = h
+}
+
+// SetMITLHandler sets the callback for tool approval requests.
+func (a *Agent) SetMITLHandler(h MITLHandler) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.mitlHandler = h
 }
 
 // CurrentBackend returns the name of the active LLM backend.
@@ -198,6 +223,9 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string) (string, erro
 			return "", fmt.Errorf("LLM: %w", err)
 		}
 
+		// Clean thinking tags from response
+		resp.Content = chat.CleanResponse(resp.Content)
+
 		// No tool calls — final response
 		if len(resp.ToolCalls) == 0 {
 			a.session.AddAssistantMessage(resp.Content)
@@ -236,6 +264,30 @@ func (a *Agent) executeTool(tc llm.ToolCall) string {
 		}
 		return result
 	default:
+		// Check shell script tool registry
+		if tool, ok := a.toolRegistry.Get(tc.Name); ok {
+			// MITL check for write/execute tools
+			if tool.NeedsMITL() {
+				a.mu.Lock()
+				h := a.mitlHandler
+				a.mu.Unlock()
+				if h != nil {
+					approved := h(MITLRequest{
+						ToolName:  tc.Name,
+						Arguments: tc.Arguments,
+						Category:  string(tool.Category),
+					})
+					if !approved {
+						return "Tool execution rejected by user."
+					}
+				}
+			}
+			result, err := toolcall.Execute(context.Background(), tool, tc.Arguments)
+			if err != nil {
+				return fmt.Sprintf("Error: %v", err)
+			}
+			return result
+		}
 		return fmt.Sprintf("Error: unknown tool %q", tc.Name)
 	}
 }
@@ -252,6 +304,15 @@ func (a *Agent) buildToolDefs() []llm.ToolDef {
 	// Add analysis tools (dynamically filtered by data presence)
 	if a.analysis != nil {
 		tools = append(tools, analysisTools(a.analysis.HasData())...)
+	}
+
+	// Add shell script tools from registry
+	for _, t := range a.toolRegistry.All() {
+		tools = append(tools, llm.ToolDef{
+			Name:        t.Name,
+			Description: t.Description,
+			Parameters:  t.ToolDefParams(),
+		})
 	}
 
 	return tools

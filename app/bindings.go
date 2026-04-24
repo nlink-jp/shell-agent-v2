@@ -16,10 +16,11 @@ import (
 // Bindings is the thin Wails binding layer.
 // All business logic is delegated to the agent and analysis packages.
 type Bindings struct {
-	ctx      context.Context
-	agent    *agent.Agent
-	cfg      *config.Config
-	analysis *analysis.Engine
+	ctx        context.Context
+	agent      *agent.Agent
+	cfg        *config.Config
+	analysis   *analysis.Engine
+	mitlChan   chan bool
 }
 
 // NewBindings creates a new Bindings instance.
@@ -49,6 +50,15 @@ func (b *Bindings) startup(ctx context.Context) {
 			"session_id": sessionID,
 			"title":      title,
 		})
+	})
+	b.mitlChan = make(chan bool, 1)
+	b.agent.SetMITLHandler(func(req agent.MITLRequest) bool {
+		wailsRuntime.EventsEmit(b.ctx, "mitl:request", map[string]any{
+			"tool_name": req.ToolName,
+			"arguments": req.Arguments,
+			"category":  req.Category,
+		})
+		return <-b.mitlChan
 	})
 
 	// Restore window position and size
@@ -195,6 +205,24 @@ type MessageData struct {
 	Role      string `json:"role"`
 	Content   string `json:"content"`
 	Timestamp string `json:"timestamp"`
+}
+
+// --- MITL bindings ---
+
+// ApproveMITL approves the pending tool execution.
+func (b *Bindings) ApproveMITL() {
+	select {
+	case b.mitlChan <- true:
+	default:
+	}
+}
+
+// RejectMITL rejects the pending tool execution.
+func (b *Bindings) RejectMITL() {
+	select {
+	case b.mitlChan <- false:
+	default:
+	}
 }
 
 // --- Analysis bindings ---

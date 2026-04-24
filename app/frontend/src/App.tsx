@@ -26,6 +26,8 @@ declare global {
                     GetFindings(): Promise<Finding[]>;
                     GetSettings(): Promise<Settings>;
                     SaveSettings(s: Settings): Promise<void>;
+                    ApproveMITL(): Promise<void>;
+                    RejectMITL(): Promise<void>;
                 };
             };
         };
@@ -91,6 +93,7 @@ function App() {
     const [showSettings, setShowSettings] = useState(false)
     const [editingSession, setEditingSession] = useState<string | null>(null)
     const [editTitle, setEditTitle] = useState('')
+    const [mitlRequest, setMitlRequest] = useState<{tool_name: string; arguments: string; category: string} | null>(null)
     const [settings, setSettings] = useState<Settings | null>(null)
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const composingRef = useRef(false)
@@ -104,12 +107,15 @@ function App() {
                     setStreaming(prev => prev + data.token)
                 }
             })
+            const cleanupMitl = window.runtime.EventsOn('mitl:request', (data: any) => {
+                setMitlRequest(data)
+            })
             const cleanupTitle = window.runtime.EventsOn('session:title', (data: any) => {
                 setSessions(prev => prev.map(s =>
                     s.id === data.session_id ? {...s, title: data.title} : s
                 ))
             })
-            return () => { cleanupStream(); cleanupTitle() }
+            return () => { cleanupStream(); cleanupMitl(); cleanupTitle() }
         }
     }, [])
 
@@ -419,6 +425,30 @@ function App() {
                     )}
                 </div>
             </div>
+
+            {mitlRequest && (
+                <div className="mitl-dialog">
+                    <div className="mitl-header">
+                        <span className="mitl-icon">&#9888;</span>
+                        <span>Tool Approval Required</span>
+                    </div>
+                    <div className="mitl-body">
+                        <div className="mitl-tool-name">
+                            <span className="mitl-label">Tool:</span>
+                            <code>{mitlRequest.tool_name}</code>
+                            <span className={`tool-category ${mitlRequest.category}`}>{mitlRequest.category}</span>
+                        </div>
+                        <div className="mitl-args">
+                            <span className="mitl-label">Arguments:</span>
+                            <pre>{(() => { try { return JSON.stringify(JSON.parse(mitlRequest.arguments), null, 2) } catch { return mitlRequest.arguments } })()}</pre>
+                        </div>
+                    </div>
+                    <div className="mitl-actions">
+                        <button className="mitl-approve" onClick={() => { setMitlRequest(null); window.go.main.Bindings.ApproveMITL() }}>Approve</button>
+                        <button className="mitl-reject" onClick={() => { setMitlRequest(null); window.go.main.Bindings.RejectMITL() }}>Reject</button>
+                    </div>
+                </div>
+            )}
 
             {showSettings && settings && (
                 <div className="settings-overlay" onClick={() => setShowSettings(false)}>
