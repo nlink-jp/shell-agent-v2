@@ -44,9 +44,27 @@ func (b *Bindings) startup(ctx context.Context) {
 			"done":  done,
 		})
 	})
+
+	// Restore window position and size
+	w := cfg.UI.Window
+	if w.Width > 0 && w.Height > 0 {
+		wailsRuntime.WindowSetSize(ctx, w.Width, w.Height)
+		wailsRuntime.WindowSetPosition(ctx, w.X, w.Y)
+	}
 }
 
 func (b *Bindings) shutdown(_ context.Context) {
+	// Save window position and size
+	if b.ctx != nil && b.cfg != nil {
+		w, h := wailsRuntime.WindowGetSize(b.ctx)
+		x, y := wailsRuntime.WindowGetPosition(b.ctx)
+		b.cfg.UI.Window.X = x
+		b.cfg.UI.Window.Y = y
+		b.cfg.UI.Window.Width = w
+		b.cfg.UI.Window.Height = h
+		_ = b.cfg.Save()
+	}
+
 	if b.analysis != nil {
 		b.analysis.Close()
 	}

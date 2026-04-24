@@ -55,18 +55,28 @@ type ToolsConfig struct {
 	MCPGuardian MCPGuardianConfig `json:"mcp_guardian"`
 }
 
+// WindowConfig holds window position and size for restoration.
+type WindowConfig struct {
+	X      int `json:"x"`
+	Y      int `json:"y"`
+	Width  int `json:"width"`
+	Height int `json:"height"`
+}
+
 // UIConfig holds UI-related settings.
 type UIConfig struct {
-	Theme       string `json:"theme"`
-	StartupMode string `json:"startup_mode"`
+	Theme       string       `json:"theme"`
+	StartupMode string       `json:"startup_mode"`
+	Window      WindowConfig `json:"window"`
 }
 
 // Config is the root application configuration.
 type Config struct {
-	LLM    LLMConfig    `json:"llm"`
-	Memory MemoryConfig `json:"memory"`
-	Tools  ToolsConfig  `json:"tools"`
-	UI     UIConfig     `json:"ui"`
+	LLM         LLMConfig    `json:"llm"`
+	Memory      MemoryConfig `json:"memory"`
+	Tools       ToolsConfig  `json:"tools"`
+	UI          UIConfig     `json:"ui"`
+	LastSession string       `json:"last_session,omitempty"`
 }
 
 // Default returns a Config with default values.

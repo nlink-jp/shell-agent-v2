@@ -11,7 +11,7 @@
     left: 0;
     right: 0;
     height: 28px;
-    -webkit-app-region: drag;
+    --wails-draggable: drag;
     z-index: 100;
 }
 
@@ -41,6 +41,7 @@
     font-weight: 600;
     cursor: pointer;
     border-bottom: 2px solid transparent;
+    --wails-draggable: no-drag;
 }
 
 .sidebar-tabs button.active {
@@ -56,6 +57,7 @@
     flex: 1;
     overflow-y: auto;
     padding: 12px;
+    --wails-draggable: no-drag;
 }
 
 .sidebar-hint {
@@ -68,6 +70,25 @@
 .sidebar-footer {
     padding: 8px 12px;
     border-top: 1px solid #2a3a4a;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    --wails-draggable: no-drag;
+}
+
+.settings-btn {
+    border: none;
+    background: transparent;
+    color: #6688aa;
+    font-size: 18px;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+.settings-btn:hover {
+    background: #2a3a4a;
+    color: #aaccee;
 }
 
 /* Backend badge */
@@ -135,48 +156,118 @@
     font-size: 10px;
 }
 
-/* Settings */
-.settings-panel label {
-    display: block;
-    margin-bottom: 10px;
-    font-size: 12px;
-    color: #8899aa;
+/* Settings Modal */
+.settings-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+    --wails-draggable: no-drag;
 }
 
-.settings-panel select,
-.settings-panel input {
-    display: block;
-    width: 100%;
-    margin-top: 4px;
-    padding: 6px 8px;
-    border: 1px solid #3a4a5a;
-    border-radius: 4px;
-    background: #0d1520;
-    color: #e0e0e0;
+.settings-modal {
+    background: #1e2e3e;
+    border-radius: 12px;
+    width: 420px;
+    max-height: 80vh;
+    overflow-y: auto;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.settings-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid #2a3a4a;
+}
+
+.settings-header h2 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0;
+}
+
+.settings-body {
+    padding: 20px;
+    overflow-y: auto;
+    max-height: 60vh;
+}
+
+.settings-section {
+    margin-bottom: 24px;
+}
+
+.settings-section h3 {
+    font-size: 13px;
+    font-weight: 600;
+    color: #6688aa;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin: 0 0 12px 0;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #2a3a4a;
+}
+
+.settings-section label {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 10px;
     font-size: 13px;
 }
 
-.settings-panel h3 {
-    font-size: 12px;
-    color: #6688aa;
-    margin: 14px 0 8px;
-    font-weight: 600;
+.settings-section label span {
+    min-width: 120px;
+    color: #8899aa;
+    flex-shrink: 0;
 }
 
-.save-btn {
-    width: 100%;
-    margin-top: 12px;
-    padding: 8px;
-    border: 1px solid #3a6a9a;
+.settings-section input,
+.settings-section select {
+    flex: 1;
+    padding: 7px 10px;
+    background: #0d1520;
+    border: 1px solid #3a4a5a;
     border-radius: 6px;
-    background: #1a3a5a;
-    color: #aaccee;
+    color: #e0e0e0;
+    font-size: 13px;
+    font-family: 'SF Mono', 'Menlo', monospace;
+}
+
+.settings-section select {
+    font-family: inherit;
+    cursor: pointer;
+}
+
+.settings-section input:focus,
+.settings-section select:focus {
+    outline: none;
+    border-color: #5a8abf;
+}
+
+.settings-footer {
+    display: flex;
+    justify-content: flex-end;
+    padding: 16px 20px;
+    border-top: 1px solid #2a3a4a;
+}
+
+.settings-close-btn {
+    padding: 8px 24px;
+    background: #2a3a4a;
+    border: 1px solid #3a4a5a;
+    border-radius: 6px;
+    color: #aabbcc;
     cursor: pointer;
     font-size: 13px;
 }
 
-.save-btn:hover {
-    background: #2a4a6a;
+.settings-close-btn:hover {
+    background: #3a4a5a;
 }
 
 /* Main area */
@@ -192,6 +283,7 @@
     flex: 1;
     overflow-y: auto;
     padding: 12px;
+    --wails-draggable: no-drag;
 }
 
 .message {
@@ -242,7 +334,7 @@
     border-top: 1px solid #2a3a4a;
 }
 
-.input-area input {
+.input-area textarea {
     flex: 1;
     padding: 10px 14px;
     border: 1px solid #3a4a5a;
@@ -250,14 +342,17 @@
     background: #0d1520;
     color: #e0e0e0;
     font-size: 14px;
+    font-family: inherit;
     outline: none;
+    resize: none;
+    --wails-draggable: no-drag;
 }
 
-.input-area input:focus {
+.input-area textarea:focus {
     border-color: #5a8abf;
 }
 
-.input-area input:disabled {
+.input-area textarea:disabled {
     opacity: 0.5;
     cursor: not-allowed;
 }

@@ -49,7 +49,7 @@ interface Settings {
     theme: string;
 }
 
-type SidebarTab = 'sessions' | 'findings' | 'settings';
+type SidebarTab = 'sessions' | 'findings';
 
 function App() {
     const [state, setState] = useState<'idle' | 'busy'>('idle')
@@ -59,8 +59,10 @@ function App() {
     const [backend, setBackend] = useState('')
     const [sidebarTab, setSidebarTab] = useState<SidebarTab>('sessions')
     const [findings, setFindings] = useState<Finding[]>([])
+    const [showSettings, setShowSettings] = useState(false)
     const [settings, setSettings] = useState<Settings | null>(null)
     const messagesEndRef = useRef<HTMLDivElement>(null)
+    const composingRef = useRef(false)
 
     useEffect(() => {
         if (window.runtime) {
@@ -91,17 +93,27 @@ function App() {
         }
     }, [])
 
-    const loadSettings = useCallback(async () => {
+    useEffect(() => {
+        if (sidebarTab === 'findings') refreshFindings()
+    }, [sidebarTab, refreshFindings])
+
+    // Auto-save settings on change
+    const updateSetting = useCallback(async (patch: Partial<Settings>) => {
+        if (!settings) return
+        const updated = {...settings, ...patch}
+        setSettings(updated)
+        if (window.go) {
+            await window.go.main.Bindings.SaveSettings(updated)
+        }
+    }, [settings])
+
+    const openSettings = useCallback(async () => {
         if (window.go) {
             const s = await window.go.main.Bindings.GetSettings()
             setSettings(s)
         }
+        setShowSettings(true)
     }, [])
-
-    useEffect(() => {
-        if (sidebarTab === 'findings') refreshFindings()
-        if (sidebarTab === 'settings') loadSettings()
-    }, [sidebarTab, refreshFindings, loadSettings])
 
     const handleSend = useCallback(async () => {
         const msg = input.trim()
@@ -131,17 +143,11 @@ function App() {
     }, [])
 
     const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-        if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+        if (e.key === 'Enter' && e.metaKey && !composingRef.current) {
             e.preventDefault()
             handleSend()
         }
     }, [handleSend])
-
-    const handleSaveSettings = useCallback(async () => {
-        if (settings && window.go) {
-            await window.go.main.Bindings.SaveSettings(settings)
-        }
-    }, [settings])
 
     return (
         <div className="app">
@@ -150,7 +156,6 @@ function App() {
                 <div className="sidebar-tabs">
                     <button className={sidebarTab === 'sessions' ? 'active' : ''} onClick={() => setSidebarTab('sessions')}>Sessions</button>
                     <button className={sidebarTab === 'findings' ? 'active' : ''} onClick={() => setSidebarTab('findings')}>Findings</button>
-                    <button className={sidebarTab === 'settings' ? 'active' : ''} onClick={() => setSidebarTab('settings')}>Settings</button>
                 </div>
 
                 {sidebarTab === 'sessions' && (
@@ -184,43 +189,9 @@ function App() {
                     </div>
                 )}
 
-                {sidebarTab === 'settings' && settings && (
-                    <div className="sidebar-panel settings-panel">
-                        <label>
-                            Default Backend
-                            <select value={settings.default_backend} onChange={e => setSettings({...settings, default_backend: e.target.value})}>
-                                <option value="local">Local LLM</option>
-                                <option value="vertex_ai">Vertex AI</option>
-                            </select>
-                        </label>
-                        <h3>Local LLM</h3>
-                        <label>
-                            Endpoint
-                            <input value={settings.local_endpoint} onChange={e => setSettings({...settings, local_endpoint: e.target.value})} />
-                        </label>
-                        <label>
-                            Model
-                            <input value={settings.local_model} onChange={e => setSettings({...settings, local_model: e.target.value})} />
-                        </label>
-                        <h3>Vertex AI</h3>
-                        <label>
-                            Project ID
-                            <input value={settings.vertex_project} onChange={e => setSettings({...settings, vertex_project: e.target.value})} />
-                        </label>
-                        <label>
-                            Region
-                            <input value={settings.vertex_region} onChange={e => setSettings({...settings, vertex_region: e.target.value})} />
-                        </label>
-                        <label>
-                            Model
-                            <input value={settings.vertex_model} onChange={e => setSettings({...settings, vertex_model: e.target.value})} />
-                        </label>
-                        <button className="save-btn" onClick={handleSaveSettings}>Save</button>
-                    </div>
-                )}
-
                 <div className="sidebar-footer">
                     <span className={`backend-badge ${backend}`}>{backend || '...'}</span>
+                    <button className="settings-btn" onClick={openSettings} title="Settings">&#x2699;</button>
                 </div>
             </div>
             <div className="main">
@@ -240,13 +211,15 @@ function App() {
                     <div ref={messagesEndRef} />
                 </div>
                 <div className="input-area">
-                    <input
-                        type="text"
+                    <textarea
                         value={input}
                         onChange={e => setInput(e.target.value)}
                         onKeyDown={handleKeyDown}
-                        placeholder={state === 'idle' ? 'Type a message...' : 'Agent is busy...'}
+                        onCompositionStart={() => { composingRef.current = true }}
+                        onCompositionEnd={() => { setTimeout(() => { composingRef.current = false }, 50) }}
+                        placeholder={state === 'idle' ? 'Type a message... (Cmd+Enter to send)' : 'Agent is busy...'}
                         disabled={state === 'busy'}
+                        rows={3}
                     />
                     {state === 'busy' ? (
                         <button className="abort-btn" onClick={handleAbort}>Abort</button>
@@ -255,6 +228,57 @@ function App() {
                     )}
                 </div>
             </div>
+
+            {showSettings && settings && (
+                <div className="settings-overlay" onClick={() => setShowSettings(false)}>
+                    <div className="settings-modal" onClick={e => e.stopPropagation()}>
+                        <div className="settings-header">
+                            <h2>Settings</h2>
+                        </div>
+                        <div className="settings-body">
+                            <div className="settings-section">
+                                <h3>General</h3>
+                                <label>
+                                    <span>Default Backend</span>
+                                    <select value={settings.default_backend} onChange={e => updateSetting({default_backend: e.target.value})}>
+                                        <option value="local">Local LLM</option>
+                                        <option value="vertex_ai">Vertex AI</option>
+                                    </select>
+                                </label>
+                            </div>
+                            <div className="settings-section">
+                                <h3>Local LLM</h3>
+                                <label>
+                                    <span>Endpoint</span>
+                                    <input value={settings.local_endpoint} onChange={e => updateSetting({local_endpoint: e.target.value})} />
+                                </label>
+                                <label>
+                                    <span>Model</span>
+                                    <input value={settings.local_model} onChange={e => updateSetting({local_model: e.target.value})} />
+                                </label>
+                            </div>
+                            <div className="settings-section">
+                                <h3>Vertex AI</h3>
+                                <label>
+                                    <span>Project ID</span>
+                                    <input value={settings.vertex_project} onChange={e => updateSetting({vertex_project: e.target.value})} />
+                                </label>
+                                <label>
+                                    <span>Region</span>
+                                    <input value={settings.vertex_region} onChange={e => updateSetting({vertex_region: e.target.value})} />
+                                </label>
+                                <label>
+                                    <span>Model</span>
+                                    <input value={settings.vertex_model} onChange={e => updateSetting({vertex_model: e.target.value})} />
+                                </label>
+                            </div>
+                        </div>
+                        <div className="settings-footer">
+                            <button className="settings-close-btn" onClick={() => setShowSettings(false)}>Close</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }
