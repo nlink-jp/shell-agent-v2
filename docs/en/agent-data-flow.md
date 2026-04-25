@@ -69,9 +69,12 @@ SendWithImages(ctx, message, imageURLs)
               │   ├── Warm/Cold summaries first
               │   ├── Hot records (skip empty assistant records)
               │   ├── Guard-wrap user and tool content
+              │   ├── Preserve application-level roles (NO mapping here)
               │   └── Latest image: full data URL; older: text reference
               │
-              ├── Call LLM (ChatStream with tools or nil)
+              ├── Call LLM: Backend.Chat() (non-streaming for all rounds)
+              │   └── Backend handles role mapping internally
+              │       (see docs/en/llm-abstraction.md)
               │
               ├── Clean response:
               │   ├── strip.ThinkTags()
