@@ -1,0 +1,158 @@
+/* Theme definitions using CSS custom properties */
+
+:root,
+[data-theme="dark"] {
+  --bg-primary: rgba(20, 20, 20, 0.9);
+  --bg-sidebar: rgba(30, 30, 30, 0.95);
+  --bg-input: rgba(25, 25, 25, 0.95);
+  --bg-input-field: rgba(40, 40, 40, 0.8);
+  --bg-msg-user: rgba(80, 120, 200, 0.25);
+  --bg-msg-assistant: rgba(60, 60, 60, 0.6);
+  --bg-msg-error: rgba(200, 60, 60, 0.2);
+  --bg-msg-tool: rgba(40, 80, 40, 0.2);
+  --bg-hover: rgba(255, 255, 255, 0.08);
+  --bg-code: rgba(0, 0, 0, 0.4);
+  --bg-inline-code: rgba(255, 255, 255, 0.1);
+  --bg-btn-primary: rgba(80, 120, 200, 0.4);
+  --bg-btn-primary-hover: rgba(80, 120, 200, 0.6);
+  --bg-mitl: rgba(50, 40, 20, 0.8);
+  --border-primary: rgba(255, 255, 255, 0.1);
+  --border-input: rgba(255, 255, 255, 0.15);
+  --border-msg-user: rgba(80, 120, 200, 0.3);
+  --border-msg-assistant: rgba(255, 255, 255, 0.08);
+  --border-msg-error: rgba(200, 60, 60, 0.3);
+  --border-msg-tool: rgba(80, 180, 80, 0.2);
+  --border-mitl: rgba(220, 160, 40, 0.5);
+  --border-accent: rgba(80, 120, 200, 0.5);
+  --text-primary: #e0e0e0;
+  --text-secondary: #aaa;
+  --text-muted: #888;
+  --text-dim: #666;
+  --text-very-dim: #555;
+  --text-accent: #c0d0f0;
+  --text-link: #6090d0;
+  --text-error: #f08080;
+  --text-tool: #80c080;
+  --text-mitl: #e0b040;
+  --text-mcp: #b090e0;
+  --accent-spinner: #5078c8;
+  --scrollbar-thumb: rgba(255, 255, 255, 0.15);
+  --scrollbar-hover: rgba(255, 255, 255, 0.25);
+}
+
+[data-theme="light"] {
+  --bg-primary: rgba(232, 232, 225, 0.96);
+  --bg-sidebar: rgba(222, 222, 215, 0.98);
+  --bg-input: rgba(226, 226, 219, 0.98);
+  --bg-input-field: rgba(240, 240, 234, 0.95);
+  --bg-msg-user: rgba(50, 110, 180, 0.1);
+  --bg-msg-assistant: rgba(240, 240, 234, 0.85);
+  --bg-msg-error: rgba(200, 55, 55, 0.1);
+  --bg-msg-tool: rgba(40, 130, 50, 0.08);
+  --bg-hover: rgba(50, 110, 180, 0.06);
+  --bg-code: rgba(50, 110, 180, 0.05);
+  --bg-inline-code: rgba(50, 110, 180, 0.08);
+  --bg-btn-primary: rgba(30, 100, 200, 0.2);
+  --bg-btn-primary-hover: rgba(30, 100, 200, 0.32);
+  --bg-mitl: rgba(255, 248, 230, 0.95);
+  --border-primary: rgba(140, 125, 100, 0.15);
+  --border-input: rgba(140, 125, 100, 0.2);
+  --border-msg-user: rgba(50, 110, 180, 0.2);
+  --border-msg-assistant: rgba(140, 125, 100, 0.1);
+  --border-msg-error: rgba(200, 55, 55, 0.2);
+  --border-msg-tool: rgba(40, 130, 50, 0.15);
+  --border-mitl: rgba(190, 145, 30, 0.35);
+  --border-accent: rgba(30, 100, 200, 0.45);
+  --text-primary: #2a2520;
+  --text-secondary: #4a4540;
+  --text-muted: #6a6560;
+  --text-dim: #8a8580;
+  --text-very-dim: #aaa5a0;
+  --text-accent: #1a60b8;
+  --text-link: #1058b0;
+  --text-error: #c04040;
+  --text-tool: #2a7a30;
+  --text-mitl: #a08020;
+  --text-mcp: #5a50a0;
+  --accent-spinner: #2a6ab0;
+  --scrollbar-thumb: rgba(140, 125, 100, 0.2);
+  --scrollbar-hover: rgba(140, 125, 100, 0.35);
+}
+
+[data-theme="warm"] {
+  --bg-primary: rgba(35, 28, 22, 0.95);
+  --bg-sidebar: rgba(40, 32, 25, 0.98);
+  --bg-input: rgba(38, 30, 24, 0.98);
+  --bg-input-field: rgba(50, 40, 32, 0.8);
+  --bg-msg-user: rgba(160, 110, 60, 0.18);
+  --bg-msg-assistant: rgba(55, 45, 35, 0.7);
+  --bg-msg-error: rgba(180, 60, 50, 0.18);
+  --bg-msg-tool: rgba(60, 100, 50, 0.18);
+  --bg-hover: rgba(200, 160, 100, 0.08);
+  --bg-code: rgba(0, 0, 0, 0.25);
+  --bg-inline-code: rgba(200, 160, 100, 0.12);
+  --bg-btn-primary: rgba(180, 120, 60, 0.3);
+  --bg-btn-primary-hover: rgba(180, 120, 60, 0.45);
+  --bg-mitl: rgba(60, 45, 20, 0.85);
+  --border-primary: rgba(180, 140, 90, 0.12);
+  --border-input: rgba(180, 140, 90, 0.18);
+  --border-msg-user: rgba(180, 120, 60, 0.25);
+  --border-msg-assistant: rgba(180, 140, 90, 0.1);
+  --border-msg-error: rgba(180, 60, 50, 0.25);
+  --border-msg-tool: rgba(80, 140, 60, 0.2);
+  --border-mitl: rgba(200, 150, 40, 0.4);
+  --border-accent: rgba(200, 140, 70, 0.4);
+  --text-primary: #e0d5c8;
+  --text-secondary: #b8a898;
+  --text-muted: #90806e;
+  --text-dim: #786858;
+  --text-very-dim: #605048;
+  --text-accent: #e0c8a0;
+  --text-link: #c8a870;
+  --text-error: #d88070;
+  --text-tool: #88b870;
+  --text-mitl: #d0a840;
+  --text-mcp: #b898c8;
+  --accent-spinner: #c89860;
+  --scrollbar-thumb: rgba(180, 140, 90, 0.18);
+  --scrollbar-hover: rgba(180, 140, 90, 0.3);
+}
+
+[data-theme="midnight"] {
+  --bg-primary: rgba(10, 12, 20, 0.95);
+  --bg-sidebar: rgba(15, 18, 30, 0.98);
+  --bg-input: rgba(12, 15, 25, 0.98);
+  --bg-input-field: rgba(20, 25, 40, 0.8);
+  --bg-msg-user: rgba(60, 80, 180, 0.2);
+  --bg-msg-assistant: rgba(25, 30, 50, 0.7);
+  --bg-msg-error: rgba(180, 40, 40, 0.2);
+  --bg-msg-tool: rgba(30, 60, 30, 0.3);
+  --bg-hover: rgba(100, 120, 200, 0.08);
+  --bg-code: rgba(0, 0, 0, 0.5);
+  --bg-inline-code: rgba(100, 120, 200, 0.12);
+  --bg-btn-primary: rgba(60, 80, 180, 0.35);
+  --bg-btn-primary-hover: rgba(60, 80, 180, 0.55);
+  --bg-mitl: rgba(40, 35, 15, 0.9);
+  --border-primary: rgba(80, 100, 180, 0.15);
+  --border-input: rgba(80, 100, 180, 0.2);
+  --border-msg-user: rgba(60, 80, 180, 0.3);
+  --border-msg-assistant: rgba(80, 100, 180, 0.1);
+  --border-msg-error: rgba(180, 40, 40, 0.3);
+  --border-msg-tool: rgba(60, 160, 60, 0.2);
+  --border-mitl: rgba(200, 150, 30, 0.4);
+  --border-accent: rgba(80, 100, 200, 0.5);
+  --text-primary: #c0c8e0;
+  --text-secondary: #8090b0;
+  --text-muted: #607090;
+  --text-dim: #4a5a78;
+  --text-very-dim: #3a4a60;
+  --text-accent: #90a8e0;
+  --text-link: #7090d0;
+  --text-error: #e07070;
+  --text-tool: #70b070;
+  --text-mitl: #d0a830;
+  --text-mcp: #a080d0;
+  --accent-spinner: #4060c0;
+  --scrollbar-thumb: rgba(80, 100, 180, 0.2);
+  --scrollbar-hover: rgba(80, 100, 180, 0.35);
+}

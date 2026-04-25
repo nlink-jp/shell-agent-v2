@@ -14,6 +14,7 @@ import (
 	"github.com/nlink-jp/shell-agent-v2/internal/config"
 	"github.com/nlink-jp/shell-agent-v2/internal/findings"
 	"github.com/nlink-jp/shell-agent-v2/internal/llm"
+	"github.com/nlink-jp/shell-agent-v2/internal/logger"
 	"github.com/nlink-jp/shell-agent-v2/internal/memory"
 	"github.com/nlink-jp/shell-agent-v2/internal/toolcall"
 )
@@ -65,6 +66,7 @@ type Agent struct {
 	streamHandler StreamHandler
 	titleHandler  TitleHandler
 	mitlHandler   MITLHandler
+	reportHandler func(title, content string)
 	toolRegistry  *toolcall.Registry
 }
 
@@ -113,6 +115,13 @@ func (a *Agent) SetMITLHandler(h MITLHandler) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.mitlHandler = h
+}
+
+// SetReportHandler sets the callback for report creation.
+func (a *Agent) SetReportHandler(h func(title, content string)) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.reportHandler = h
 }
 
 // CurrentBackend returns the name of the active LLM backend.
@@ -200,6 +209,8 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, imageURLs []s
 		a.session = &memory.Session{ID: "default", Records: []memory.Record{}}
 	}
 
+	logger.Info("agentLoop: session=%s message=%s images=%d", a.session.ID, logger.Truncate(userMessage, 100), len(imageURLs))
+
 	// Add user message to session (with optional images)
 	a.session.AddUserMessage(userMessage)
 	// Attach images to the last user message for LLM
@@ -208,11 +219,23 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, imageURLs []s
 		last.ImageURLs = imageURLs
 	}
 
-	tools := a.buildToolDefs()
+	allTools := a.buildToolDefs()
+	logger.Debug("agentLoop: %d tools available", len(allTools))
+	toolsExecutedLastRound := false
 
 	for round := 0; round < maxToolRounds; round++ {
 		if err := ctx.Err(); err != nil {
 			return "(Cancelled)", nil
+		}
+
+		// Per LM Studio docs: after tool execution, call WITHOUT tools
+		// to force LLM to generate a text response instead of looping.
+		var tools []llm.ToolDef
+		if toolsExecutedLastRound {
+			tools = nil
+			toolsExecutedLastRound = false
+		} else {
+			tools = allTools
 		}
 
 		messages := a.chat.BuildMessages(
@@ -220,6 +243,8 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, imageURLs []s
 			a.pinned.FormatForPrompt(),
 			a.findings.FormatForPrompt(),
 		)
+
+		logger.Debug("agentLoop: round=%d messages=%d tools=%d backend=%s", round, len(messages), len(tools), a.backend.Name())
 
 		resp, err := a.backend.ChatStream(ctx, messages, tools, func(token string, toolCalls []llm.ToolCall, done bool) {
 			a.mu.Lock()
@@ -230,15 +255,24 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, imageURLs []s
 			}
 		})
 		if err != nil {
+			logger.Error("agentLoop: LLM error: %v", err)
 			return "", fmt.Errorf("LLM: %w", err)
 		}
 
-		// Clean thinking tags from response
+		// Clean thinking tags and gemma-style text tool calls from response
 		resp.Content = chat.CleanResponse(resp.Content)
+		resp.Content = stripGemmaToolCallTags(resp.Content)
+		resp.Content = strings.TrimSpace(resp.Content)
+		logger.Debug("agentLoop: response content=%s toolCalls=%d", logger.Truncate(resp.Content, 200), len(resp.ToolCalls))
 
 		// No tool calls — final response
 		if len(resp.ToolCalls) == 0 {
-			a.session.AddAssistantMessage(resp.Content)
+			if resp.Content == "" {
+				// Empty response — don't loop, just end
+				logger.Debug("agentLoop: empty final response, ending")
+			} else {
+				a.session.AddAssistantMessage(resp.Content)
+			}
 			go a.generateTitleIfNeeded(ctx)
 			return resp.Content, nil
 		}
@@ -248,9 +282,12 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, imageURLs []s
 
 		// Execute tool calls
 		for _, tc := range resp.ToolCalls {
+			logger.Info("agentLoop: tool_call name=%s args=%s", tc.Name, logger.Truncate(tc.Arguments, 200))
 			result := a.executeTool(tc)
+			logger.Debug("agentLoop: tool_result name=%s result=%s", tc.Name, logger.Truncate(result, 200))
 			a.session.AddToolResult(tc.ID, tc.Name, result)
 		}
+		toolsExecutedLastRound = true
 	}
 
 	return "(Max tool rounds reached)", nil
@@ -264,7 +301,7 @@ func (a *Agent) executeTool(tc llm.ToolCall) string {
 			return fmt.Sprintf("Error: %v", err)
 		}
 		return result
-	case "load-data", "describe-data", "query-sql", "query-preview", "suggest-analysis", "quick-summary", "list-tables", "reset-analysis", "promote-finding":
+	case "load-data", "describe-data", "query-sql", "query-preview", "suggest-analysis", "quick-summary", "list-tables", "reset-analysis", "create-report", "promote-finding":
 		if a.analysis == nil {
 			return "Error: no analysis engine available"
 		}
@@ -451,4 +488,37 @@ You can use tools to help answer questions.
 
 When asked about dates, use the resolve-date tool if you are unsure about the calculation.
 
-When you discover a significant analysis insight (a pattern, anomaly, or conclusion that would be valuable across sessions), use the promote-finding tool to save it to the global findings store. This allows other sessions to reference the insight without re-analyzing the data.`
+When you discover a significant analysis insight (a pattern, anomaly, or conclusion that would be valuable across sessions), use the promote-finding tool to save it to the global findings store.
+
+When the user asks you to create a report, summary document, or formatted output, you MUST use the create-report tool. Do not write the report as a chat message — always call the create-report tool so the report is properly structured and rendered with full markdown support.
+
+When the user shares images in the conversation, the image data is included in the conversation context. If asked to include images in a report or reference earlier images, you can do so.`
+
+// stripGemmaToolCallTags removes gemma-style text tool call tags from content.
+// These occur when the model outputs tool calls as text instead of structured API calls.
+func stripGemmaToolCallTags(text string) string {
+	result := text
+	for {
+		start := strings.Index(result, "<|tool_call>")
+		if start < 0 {
+			start = strings.Index(result, "<tool_call>")
+			if start < 0 {
+				break
+			}
+		}
+
+		end := strings.Index(result[start:], "<tool_call|>")
+		endLen := len("<tool_call|>")
+		if end < 0 {
+			end = strings.Index(result[start:], "</tool_call>")
+			endLen = len("</tool_call>")
+			if end < 0 {
+				// No closing tag — strip from start to end of string
+				result = result[:start]
+				break
+			}
+		}
+		result = result[:start] + result[start+end+endLen:]
+	}
+	return strings.TrimSpace(result)
+}

@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/nlink-jp/shell-agent-v2/internal/agent"
+	"github.com/nlink-jp/shell-agent-v2/internal/logger"
 	"github.com/nlink-jp/shell-agent-v2/internal/analysis"
 	"github.com/nlink-jp/shell-agent-v2/internal/config"
 	"github.com/nlink-jp/shell-agent-v2/internal/memory"
@@ -40,6 +42,9 @@ func (b *Bindings) startup(ctx context.Context) {
 	}
 	b.cfg = cfg
 
+	_ = logger.Init(config.DataDir())
+	logger.Info("shell-agent-v2 starting, config=%s", config.ConfigPath())
+
 	b.objects = objstore.NewStore()
 	_ = b.objects.Load()
 
@@ -54,6 +59,12 @@ func (b *Bindings) startup(ctx context.Context) {
 		wailsRuntime.EventsEmit(b.ctx, "session:title", map[string]any{
 			"session_id": sessionID,
 			"title":      title,
+		})
+	})
+	b.agent.SetReportHandler(func(title, content string) {
+		wailsRuntime.EventsEmit(b.ctx, "report:created", map[string]any{
+			"title":   title,
+			"content": content,
 		})
 	})
 	b.mitlChan = make(chan bool, 1)
@@ -92,6 +103,8 @@ func (b *Bindings) shutdown(_ context.Context) {
 	if b.agent != nil {
 		b.agent.Close()
 	}
+	logger.Info("shell-agent-v2 shutdown complete")
+	logger.Close()
 }
 
 // --- Agent bindings ---
@@ -334,6 +347,22 @@ func (b *Bindings) SaveImage(dataURL string) (string, error) {
 // GetImageDataURL loads an image by ID and returns a data URL.
 func (b *Bindings) GetImageDataURL(id string) (string, error) {
 	return b.objects.LoadAsDataURL(id)
+}
+
+// --- Report bindings ---
+
+// SaveReport saves markdown content to a file via save dialog.
+func (b *Bindings) SaveReport(content, filename string) error {
+	path, err := wailsRuntime.SaveFileDialog(b.ctx, wailsRuntime.SaveDialogOptions{
+		DefaultFilename: filename,
+		Filters: []wailsRuntime.FileFilter{
+			{DisplayName: "Markdown", Pattern: "*.md"},
+		},
+	})
+	if err != nil || path == "" {
+		return err
+	}
+	return os.WriteFile(path, []byte(content), 0644)
 }
 
 // --- Info ---

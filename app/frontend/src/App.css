@@ -1,8 +1,8 @@
 .app {
     display: flex;
     height: 100vh;
-    background: #1b2636;
-    color: #e0e0e0;
+    background: var(--bg-primary, #1b2636);
+    color: var(--text-primary, #e0e0e0);
 }
 
 .titlebar-drag {
@@ -19,7 +19,8 @@
 .sidebar {
     width: 280px;
     padding: 36px 0 0;
-    border-right: 1px solid #2a3a4a;
+    background: var(--bg-sidebar, rgba(30, 30, 30, 0.95));
+    border-right: 1px solid var(--border-primary, #2a3a4a);
     display: flex;
     flex-direction: column;
 }
@@ -28,7 +29,7 @@
     display: flex;
     padding: 0 8px;
     gap: 2px;
-    border-bottom: 1px solid #2a3a4a;
+    border-bottom: 1px solid var(--border-primary, #2a3a4a);
 }
 
 .sidebar-tabs button {
@@ -36,7 +37,7 @@
     padding: 8px 4px;
     border: none;
     background: transparent;
-    color: #6688aa;
+    color: var(--text-muted, #6688aa);
     font-size: 12px;
     font-weight: 600;
     cursor: pointer;
@@ -45,12 +46,12 @@
 }
 
 .sidebar-tabs button.active {
-    color: #aaccee;
-    border-bottom-color: #5a8abf;
+    color: var(--text-accent, #aaccee);
+    border-bottom-color: var(--border-accent, #5a8abf);
 }
 
 .sidebar-tabs button:hover {
-    color: #99bbdd;
+    color: var(--text-secondary, #99bbdd);
 }
 
 .sidebar-panel {
@@ -61,7 +62,7 @@
 }
 
 .sidebar-hint {
-    color: #556677;
+    color: var(--text-dim, #556677);
     font-size: 13px;
     text-align: center;
     margin-top: 24px;
@@ -72,19 +73,19 @@
     width: 100%;
     padding: 8px;
     margin-bottom: 8px;
-    border: 1px dashed #3a4a5a;
+    border: 1px dashed var(--border-input, #3a4a5a);
     border-radius: 6px;
     background: transparent;
-    color: #6688aa;
+    color: var(--text-muted, #6688aa);
     cursor: pointer;
     font-size: 13px;
     --wails-draggable: no-drag;
 }
 
 .new-session-btn:hover {
-    background: #1a2a3a;
-    border-color: #5a8abf;
-    color: #aaccee;
+    background: var(--bg-hover, #1a2a3a);
+    border-color: var(--border-accent, #5a8abf);
+    color: var(--text-accent, #aaccee);
 }
 
 .new-session-btn:disabled {
@@ -97,15 +98,16 @@
     border-radius: 6px;
     cursor: pointer;
     margin-bottom: 2px;
+    color: var(--text-primary, #e0e0e0);
     --wails-draggable: no-drag;
 }
 
 .session-item:hover {
-    background: #1a2a3a;
+    background: var(--bg-hover, #1a2a3a);
 }
 
 .session-item.active {
-    background: #1a3a5a;
+    background: var(--bg-btn-primary, #1a3a5a);
 }
 
 .session-title,
@@ -121,16 +123,17 @@
     overflow: hidden;
     text-overflow: ellipsis;
     cursor: pointer;
+    color: var(--text-primary, #e0e0e0);
 }
 
 .session-title-edit {
     width: 100%;
     padding: 0 2px;
     margin: 0;
-    border: 1px solid #5a8abf;
+    border: 1px solid var(--border-accent, #5a8abf);
     border-radius: 3px;
-    background: #0d1520;
-    color: #e0e0e0;
+    background: var(--bg-input-field, #0d1520);
+    color: var(--text-primary, #e0e0e0);
     outline: none;
     font-family: inherit;
 }
@@ -144,7 +147,7 @@
 
 .session-date {
     font-size: 11px;
-    color: #556677;
+    color: var(--text-dim, #556677);
 }
 
 .session-actions {
@@ -161,7 +164,7 @@
 .session-actions button {
     border: none;
     background: transparent;
-    color: #556677;
+    color: var(--text-dim, #556677);
     cursor: pointer;
     font-size: 12px;
     padding: 1px 4px;
@@ -175,7 +178,7 @@
 
 .sidebar-footer {
     padding: 8px 12px;
-    border-top: 1px solid #2a3a4a;
+    border-top: 1px solid var(--border-primary, #2a3a4a);
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -185,7 +188,7 @@
 .settings-btn {
     border: none;
     background: transparent;
-    color: #6688aa;
+    color: var(--text-muted, #6688aa);
     font-size: 18px;
     cursor: pointer;
     padding: 2px 6px;
@@ -405,7 +408,7 @@
 
 .settings-header {
     padding: 16px 20px;
-    border-bottom: 1px solid #2a3a4a;
+    border-bottom: 1px solid var(--border-primary, #2a3a4a);
 }
 
 .settings-header h2 {
@@ -432,7 +435,7 @@
     letter-spacing: 0.5px;
     margin: 0 0 12px 0;
     padding-bottom: 6px;
-    border-bottom: 1px solid #2a3a4a;
+    border-bottom: 1px solid var(--border-primary, #2a3a4a);
 }
 
 .settings-section label {
@@ -476,7 +479,7 @@
     display: flex;
     justify-content: flex-end;
     padding: 16px 20px;
-    border-top: 1px solid #2a3a4a;
+    border-top: 1px solid var(--border-primary, #2a3a4a);
 }
 
 .settings-close-btn {
@@ -592,18 +595,18 @@
 }
 
 .message.user .message-content {
-    background: #1a2a3a;
-    border: 1px solid #2a3a4a;
+    background: var(--bg-msg-user, #1a2a3a);
+    border: 1px solid var(--border-msg-user, #2a3a4a);
 }
 
 .message.assistant .message-content {
-    background: #1e2e3e;
-    border: 1px solid #2a3a4a;
+    background: var(--bg-msg-assistant, #1e2e3e);
+    border: 1px solid var(--border-msg-assistant, #2a3a4a);
 }
 
 .message.system .message-content {
-    background: #3a2020;
-    border: 1px solid #4a2a2a;
+    background: var(--bg-msg-error, #3a2020);
+    border: 1px solid var(--border-msg-error, #4a2a2a);
     font-size: 13px;
 }
 
@@ -671,7 +674,7 @@
 
 .message-content hr {
     border: none;
-    border-top: 1px solid #2a3a4a;
+    border-top: 1px solid var(--border-primary, #2a3a4a);
     margin: 12px 0;
 }
 
@@ -696,7 +699,7 @@
     display: flex;
     flex-direction: column;
     padding: 12px;
-    border-top: 1px solid #2a3a4a;
+    border-top: 1px solid var(--border-primary, #2a3a4a);
 }
 
 .send-btn {

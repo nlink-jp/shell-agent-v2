@@ -41,6 +41,24 @@ func analysisTools(hasData bool) []llm.ToolDef {
 				"properties": map[string]any{},
 			},
 		},
+		{
+			Name:        "create-report",
+			Description: "Create a structured markdown report. Use this when the user asks for a report, summary document, or formatted output. You can include images by referencing earlier conversation images with markdown syntax.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"title": map[string]any{
+						"type":        "string",
+						"description": "Report title",
+					},
+					"content": map[string]any{
+						"type":        "string",
+						"description": "Full markdown content of the report",
+					},
+				},
+				"required": []string{"title", "content"},
+			},
+		},
 	}
 
 	if !hasData {
@@ -168,6 +186,8 @@ func (a *Agent) executeAnalysisTool(name string, argsJSON string) (string, error
 		return a.toolQuickSummary(argsJSON)
 	case "reset-analysis":
 		return a.toolResetAnalysis()
+	case "create-report":
+		return a.toolCreateReport(argsJSON)
 	case "promote-finding":
 		return a.toolPromoteFinding(argsJSON)
 	default:
@@ -396,6 +416,28 @@ func (a *Agent) toolQuickSummary(argsJSON string) (string, error) {
 	}
 
 	return fmt.Sprintf("```sql\n%s\n```\n\nResults: %d rows\n\n%s", args.SQL, len(results), resp.Content), nil
+}
+
+func (a *Agent) toolCreateReport(argsJSON string) (string, error) {
+	var args struct {
+		Title   string `json:"title"`
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return "", fmt.Errorf("invalid arguments: %w", err)
+	}
+
+	// Send report to frontend via handler
+	// Note: image references (object:ID) will be resolved in a future version
+	// via the central object repository
+	a.mu.Lock()
+	h := a.reportHandler
+	a.mu.Unlock()
+	if h != nil {
+		h(args.Title, fmt.Sprintf("# %s\n\n%s", args.Title, args.Content))
+	}
+
+	return fmt.Sprintf("SUCCESS: Report '%s' has been rendered in the user's interface. Do NOT call create-report again. Respond to the user with a brief confirmation message.", args.Title), nil
 }
 
 func formatTableMeta(t *analysis.TableMeta) string {

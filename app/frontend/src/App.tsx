@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
 import ChatInput from './ChatInput'
 import 'highlight.js/styles/github-dark.css'
+import './themes.css'
 import './App.css'
 
 declare global {
@@ -110,6 +111,13 @@ function App() {
                     setStreaming(prev => prev + data.token)
                 }
             })
+            const cleanupReport = window.runtime.EventsOn('report:created', (data: any) => {
+                setMessages(prev => [...prev, {
+                    role: 'assistant' as const,
+                    content: data.content,
+                    timestamp: nowTime(),
+                }])
+            })
             const cleanupMitl = window.runtime.EventsOn('mitl:request', (data: any) => {
                 setMitlRequest(data)
             })
@@ -118,7 +126,7 @@ function App() {
                     s.id === data.session_id ? {...s, title: data.title} : s
                 ))
             })
-            return () => { cleanupStream(); cleanupMitl(); cleanupTitle() }
+            return () => { cleanupStream(); cleanupReport(); cleanupMitl(); cleanupTitle() }
         }
     }, [])
 
@@ -129,6 +137,10 @@ function App() {
     useEffect(() => {
         if (window.go) {
             window.go.main.Bindings.GetBackend().then(setBackend)
+            // Apply saved theme on startup
+            window.go.main.Bindings.GetSettings().then(s => {
+                if (s.theme) document.documentElement.setAttribute('data-theme', s.theme)
+            })
         }
     }, [])
 
@@ -275,7 +287,9 @@ function App() {
             const response = images.length > 0
                 ? await window.go.main.Bindings.SendWithImages(text, images)
                 : await window.go.main.Bindings.Send(text)
-            setMessages(prev => [...prev, {role: 'assistant', content: response, timestamp: nowTime()}])
+            if (response && response.trim()) {
+                setMessages(prev => [...prev, {role: 'assistant', content: response, timestamp: nowTime()}])
+            }
         } catch (err: any) {
             setMessages(prev => [...prev, {role: 'system', content: `Error: ${err.message || err}`, timestamp: nowTime()}])
         } finally {
@@ -369,7 +383,7 @@ function App() {
             </div>
             <div className="main">
                 <div className="messages">
-                    {messages.map((msg, i) => (
+                    {messages.filter(msg => msg.role !== 'tool').map((msg, i) => (
                         <div key={i} className={`message ${msg.role}`}>
                             <div className="message-header">
                                 <span className="message-role">{msg.role}</span>
@@ -467,6 +481,18 @@ function App() {
                                     <select value={settings.default_backend} onChange={e => updateSetting({default_backend: e.target.value})}>
                                         <option value="local">Local LLM</option>
                                         <option value="vertex_ai">Vertex AI</option>
+                                    </select>
+                                </label>
+                                <label>
+                                    <span>Theme</span>
+                                    <select value={settings.theme || 'dark'} onChange={e => {
+                                        updateSetting({theme: e.target.value})
+                                        document.documentElement.setAttribute('data-theme', e.target.value)
+                                    }}>
+                                        <option value="dark">Dark</option>
+                                        <option value="light">Light</option>
+                                        <option value="warm">Warm</option>
+                                        <option value="midnight">Midnight</option>
                                     </select>
                                 </label>
                             </div>
