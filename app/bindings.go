@@ -9,6 +9,7 @@ import (
 	"github.com/nlink-jp/shell-agent-v2/internal/analysis"
 	"github.com/nlink-jp/shell-agent-v2/internal/config"
 	"github.com/nlink-jp/shell-agent-v2/internal/memory"
+	"github.com/nlink-jp/shell-agent-v2/internal/objstore"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -21,6 +22,7 @@ type Bindings struct {
 	cfg        *config.Config
 	analysis   *analysis.Engine
 	mitlChan   chan bool
+	objects    *objstore.Store
 }
 
 // NewBindings creates a new Bindings instance.
@@ -37,6 +39,9 @@ func (b *Bindings) startup(ctx context.Context) {
 		cfg = config.Default()
 	}
 	b.cfg = cfg
+
+	b.objects = objstore.NewStore()
+	_ = b.objects.Load()
 
 	b.agent = agent.New(cfg)
 	b.agent.SetStreamHandler(func(token string, done bool) {
@@ -102,6 +107,11 @@ func (b *Bindings) IsBusy() bool {
 // Send sends a user message to the agent.
 func (b *Bindings) Send(message string) (string, error) {
 	return b.agent.Send(b.ctx, message)
+}
+
+// SendWithImages sends a user message with images to the agent.
+func (b *Bindings) SendWithImages(message string, imageDataURLs []string) (string, error) {
+	return b.agent.SendWithImages(b.ctx, message, imageDataURLs)
 }
 
 // Abort cancels the current agent task.
@@ -308,6 +318,22 @@ func (b *Bindings) SaveSettings(s SettingsData) error {
 	b.cfg.LLM.VertexAI.Model = s.VertexModel
 	b.cfg.UI.Theme = s.Theme
 	return b.cfg.Save()
+}
+
+// --- Image bindings ---
+
+// SaveImage stores a data URL image and returns its ID.
+func (b *Bindings) SaveImage(dataURL string) (string, error) {
+	meta, err := b.objects.SaveDataURL(dataURL)
+	if err != nil {
+		return "", err
+	}
+	return meta.ID, nil
+}
+
+// GetImageDataURL loads an image by ID and returns a data URL.
+func (b *Bindings) GetImageDataURL(id string) (string, error) {
+	return b.objects.LoadAsDataURL(id)
 }
 
 // --- Info ---

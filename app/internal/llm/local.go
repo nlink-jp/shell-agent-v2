@@ -45,7 +45,17 @@ type chatRequest struct {
 
 type requestMessage struct {
 	Role    string `json:"role"`
-	Content string `json:"content"`
+	Content any    `json:"content"` // string or []contentPart for multimodal
+}
+
+type contentPart struct {
+	Type     string    `json:"type"`
+	Text     string    `json:"text,omitempty"`
+	ImageURL *imageURL `json:"image_url,omitempty"`
+}
+
+type imageURL struct {
+	URL string `json:"url"`
 }
 
 type requestTool struct {
@@ -220,10 +230,25 @@ func (l *Local) buildRequest(messages []Message, tools []ToolDef, stream bool) [
 		Stream: stream,
 	}
 	for _, m := range messages {
-		req.Messages = append(req.Messages, requestMessage{
-			Role:    m.Role,
-			Content: m.Content,
-		})
+		if len(m.ImageURLs) > 0 {
+			// Multimodal: content as array of parts (OpenAI Vision format)
+			parts := []contentPart{{Type: "text", Text: m.Content}}
+			for _, imgURL := range m.ImageURLs {
+				parts = append(parts, contentPart{
+					Type:     "image_url",
+					ImageURL: &imageURL{URL: imgURL},
+				})
+			}
+			req.Messages = append(req.Messages, requestMessage{
+				Role:    m.Role,
+				Content: parts,
+			})
+		} else {
+			req.Messages = append(req.Messages, requestMessage{
+				Role:    m.Role,
+				Content: m.Content,
+			})
+		}
 	}
 	for _, t := range tools {
 		req.Tools = append(req.Tools, requestTool{

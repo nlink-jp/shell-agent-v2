@@ -55,8 +55,9 @@ func (e *Engine) BuildMessages(session *memory.Session, pinnedContext, findingsC
 			}
 		}
 		messages = append(messages, llm.Message{
-			Role:    r.Role,
-			Content: content,
+			Role:      r.Role,
+			Content:   content,
+			ImageURLs: r.ImageURLs,
 		})
 	}
 

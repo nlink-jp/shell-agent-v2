@@ -127,6 +127,11 @@ func (a *Agent) CurrentBackend() string {
 
 // Send processes a user message. Returns ErrBusy if the agent is not idle.
 func (a *Agent) Send(ctx context.Context, message string) (string, error) {
+	return a.SendWithImages(ctx, message, nil)
+}
+
+// SendWithImages processes a user message with optional images.
+func (a *Agent) SendWithImages(ctx context.Context, message string, imageURLs []string) (string, error) {
 	a.mu.Lock()
 	if a.state != StateIdle {
 		a.mu.Unlock()
@@ -148,7 +153,7 @@ func (a *Agent) Send(ctx context.Context, message string) (string, error) {
 		return a.handleCommand(message)
 	}
 
-	return a.agentLoop(ctx, message)
+	return a.agentLoop(ctx, message, imageURLs)
 }
 
 // Abort cancels the current task.
@@ -190,13 +195,18 @@ func (a *Agent) Findings() []findings.Finding {
 
 // --- internal ---
 
-func (a *Agent) agentLoop(ctx context.Context, userMessage string) (string, error) {
+func (a *Agent) agentLoop(ctx context.Context, userMessage string, imageURLs []string) (string, error) {
 	if a.session == nil {
 		a.session = &memory.Session{ID: "default", Records: []memory.Record{}}
 	}
 
-	// Add user message to session
+	// Add user message to session (with optional images)
 	a.session.AddUserMessage(userMessage)
+	// Attach images to the last user message for LLM
+	if len(imageURLs) > 0 {
+		last := &a.session.Records[len(a.session.Records)-1]
+		last.ImageURLs = imageURLs
+	}
 
 	tools := a.buildToolDefs()
 

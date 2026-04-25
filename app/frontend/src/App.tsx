@@ -1,9 +1,8 @@
 import {useState, useEffect, useRef, useCallback} from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-// remark-breaks removed: it injects <br> inside code blocks.
-// Whitespace preservation handled via CSS white-space on .message-content p.
 import rehypeHighlight from 'rehype-highlight'
+import ChatInput from './ChatInput'
 import 'highlight.js/styles/github-dark.css'
 import './App.css'
 
@@ -28,6 +27,9 @@ declare global {
                     SaveSettings(s: Settings): Promise<void>;
                     ApproveMITL(): Promise<void>;
                     RejectMITL(): Promise<void>;
+                    SendWithImages(message: string, imageDataURLs: string[]): Promise<string>;
+                    SaveImage(dataURL: string): Promise<string>;
+                    GetImageDataURL(id: string): Promise<string>;
                 };
             };
         };
@@ -41,6 +43,7 @@ interface ChatMessage {
     role: 'user' | 'assistant' | 'system';
     content: string;
     timestamp: string;
+    imageUrls?: string[];
 }
 
 interface SessionInfo {
@@ -83,7 +86,6 @@ type SidebarTab = 'sessions' | 'findings';
 function App() {
     const [state, setState] = useState<'idle' | 'busy'>('idle')
     const [messages, setMessages] = useState<ChatMessage[]>([])
-    const [input, setInput] = useState('')
     const [streaming, setStreaming] = useState('')
     const [backend, setBackend] = useState('')
     const [sidebarTab, setSidebarTab] = useState<SidebarTab>('sessions')
@@ -94,6 +96,7 @@ function App() {
     const [editingSession, setEditingSession] = useState<string | null>(null)
     const [editTitle, setEditTitle] = useState('')
     const [mitlRequest, setMitlRequest] = useState<{tool_name: string; arguments: string; category: string} | null>(null)
+    const [lightboxImage, setLightboxImage] = useState<string | null>(null)
     const [settings, setSettings] = useState<Settings | null>(null)
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const composingRef = useRef(false)
@@ -258,17 +261,20 @@ function App() {
 
     const canChat = state === 'idle' && currentSessionId !== ''
 
-    const handleSend = useCallback(async () => {
-        const msg = input.trim()
-        if (!msg || state === 'busy' || !currentSessionId) return
+    const handleSend = useCallback(async (text: string, images: string[]) => {
+        if ((!text && images.length === 0) || state === 'busy' || !currentSessionId) return
 
-        setInput('')
-        setMessages(prev => [...prev, {role: 'user', content: msg, timestamp: nowTime()}])
+        setMessages(prev => [...prev, {
+            role: 'user', content: text, timestamp: nowTime(),
+            imageUrls: images.length > 0 ? images : undefined,
+        }])
         setState('busy')
         setStreaming('')
 
         try {
-            const response = await window.go.main.Bindings.Send(msg)
+            const response = images.length > 0
+                ? await window.go.main.Bindings.SendWithImages(text, images)
+                : await window.go.main.Bindings.Send(text)
             setMessages(prev => [...prev, {role: 'assistant', content: response, timestamp: nowTime()}])
         } catch (err: any) {
             setMessages(prev => [...prev, {role: 'system', content: `Error: ${err.message || err}`, timestamp: nowTime()}])
@@ -279,18 +285,11 @@ function App() {
                 window.go.main.Bindings.GetBackend().then(setBackend)
             }
         }
-    }, [input, state])
+    }, [state, currentSessionId])
 
     const handleAbort = useCallback(async () => {
         if (window.go) await window.go.main.Bindings.Abort()
     }, [])
-
-    const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-        if (e.key === 'Enter' && e.metaKey && !composingRef.current) {
-            e.preventDefault()
-            handleSend()
-        }
-    }, [handleSend])
 
     return (
         <div className="app">
@@ -376,8 +375,19 @@ function App() {
                                 <span className="message-role">{msg.role}</span>
                                 <span className="message-time">{msg.timestamp || ''}</span>
                             </div>
+                            {msg.imageUrls && msg.imageUrls.length > 0 && (
+                                <div className="message-images">
+                                    {msg.imageUrls.map((url, j) => (
+                                        <img key={j} src={url} alt="" className="message-image" onClick={() => setLightboxImage(url)} />
+                                    ))}
+                                </div>
+                            )}
                             <div className="message-content">
-                                <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+                                <ReactMarkdown
+                                    remarkPlugins={[remarkGfm]}
+                                    rehypePlugins={[rehypeHighlight]}
+                                    components={{img: ({src, alt}) => <img src={src} alt={alt || ''} className="message-image" onClick={() => src && setLightboxImage(src)} />}}
+                                >
                                     {msg.content}
                                 </ReactMarkdown>
                             </div>
@@ -407,23 +417,16 @@ function App() {
                     )}
                     <div ref={messagesEndRef} />
                 </div>
-                <div className="input-area">
-                    <textarea
-                        value={input}
-                        onChange={e => setInput(e.target.value)}
-                        onKeyDown={handleKeyDown}
-                        onCompositionStart={() => { composingRef.current = true }}
-                        onCompositionEnd={() => { setTimeout(() => { composingRef.current = false }, 50) }}
-                        placeholder={canChat ? 'Type a message... (Cmd+Enter to send)' : 'Agent is busy...'}
-                        disabled={!canChat}
-                        rows={3}
-                    />
-                    {state === 'busy' ? (
-                        <button className="abort-btn" onClick={handleAbort}>Abort</button>
-                    ) : (
-                        <button className="send-btn" onClick={handleSend} disabled={!canChat || !input.trim()}>Send</button>
-                    )}
-                </div>
+                {state === 'busy' ? (
+                    <div className="input-area">
+                        <div className="input-row">
+                            <textarea disabled rows={3} placeholder="Agent is busy..." />
+                            <button className="abort-btn" onClick={handleAbort}>Abort</button>
+                        </div>
+                    </div>
+                ) : (
+                    <ChatInput onSend={handleSend} disabled={!canChat} />
+                )}
             </div>
 
             {mitlRequest && (
@@ -498,6 +501,13 @@ function App() {
                             <button className="settings-close-btn" onClick={() => setShowSettings(false)}>Close</button>
                         </div>
                     </div>
+                </div>
+            )}
+
+            {lightboxImage && (
+                <div className="lightbox-overlay" onClick={() => setLightboxImage(null)}>
+                    <img src={lightboxImage} alt="" className="lightbox-image" onClick={e => e.stopPropagation()} />
+                    <button className="lightbox-close" onClick={() => setLightboxImage(null)}>&#x2715;</button>
                 </div>
             )}
         </div>

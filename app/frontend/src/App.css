@@ -694,32 +694,9 @@
 /* Input area */
 .input-area {
     display: flex;
-    gap: 8px;
+    flex-direction: column;
     padding: 12px;
     border-top: 1px solid #2a3a4a;
-}
-
-.input-area textarea {
-    flex: 1;
-    padding: 10px 14px;
-    border: 1px solid #3a4a5a;
-    border-radius: 8px;
-    background: #0d1520;
-    color: #e0e0e0;
-    font-size: 14px;
-    font-family: inherit;
-    outline: none;
-    resize: none;
-    --wails-draggable: no-drag;
-}
-
-.input-area textarea:focus {
-    border-color: #5a8abf;
-}
-
-.input-area textarea:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
 }
 
 .send-btn {
@@ -753,4 +730,169 @@
 
 .abort-btn:hover {
     background: #331111;
+}
+
+/* ChatInput component */
+.input-row {
+    display: flex;
+    gap: 8px;
+    align-items: flex-end;
+}
+
+.input-row textarea {
+    flex: 1;
+    padding: 10px 14px;
+    border: 1px solid #3a4a5a;
+    border-radius: 8px;
+    background: #0d1520;
+    color: #e0e0e0;
+    font-size: 14px;
+    font-family: inherit;
+    outline: none;
+    resize: none;
+    --wails-draggable: no-drag;
+}
+
+.input-row textarea:focus {
+    border-color: #5a8abf;
+}
+
+.input-row textarea:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.input-row button {
+    padding: 10px 16px;
+    border: 1px solid #3a6a9a;
+    border-radius: 8px;
+    background: #1a3a5a;
+    color: #aaccee;
+    cursor: pointer;
+    font-size: 14px;
+    white-space: nowrap;
+    --wails-draggable: no-drag;
+}
+
+.input-row button:hover {
+    background: #2a4a6a;
+}
+
+.input-row button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.attach-btn {
+    border: 1px solid #3a4a5a !important;
+    background: transparent !important;
+    color: #6688aa !important;
+    font-size: 16px !important;
+    padding: 8px 10px !important;
+}
+
+.attach-btn:hover {
+    background: #1a2a3a !important;
+}
+
+/* Pending images */
+.pending-images {
+    display: flex;
+    gap: 8px;
+    padding: 8px 0;
+    flex-wrap: wrap;
+}
+
+.pending-image {
+    position: relative;
+    width: 60px;
+    height: 60px;
+}
+
+.pending-image img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 6px;
+    border: 1px solid #3a4a5a;
+}
+
+.pending-image-remove {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    border: none;
+    background: #aa4444;
+    color: white;
+    font-size: 10px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Message images */
+.message-images {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+}
+
+.message-image {
+    max-width: 300px;
+    max-height: 200px;
+    border-radius: 6px;
+    cursor: pointer;
+    border: 1px solid #2a3a4a;
+}
+
+.message-image:hover {
+    border-color: #5a8abf;
+}
+
+/* Lightbox */
+.lightbox-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.85);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 500;
+    --wails-draggable: no-drag;
+}
+
+.lightbox-image {
+    max-width: 90vw;
+    max-height: 90vh;
+    border-radius: 8px;
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
+}
+
+.lightbox-close {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    border: none;
+    background: rgba(255, 255, 255, 0.15);
+    color: white;
+    font-size: 20px;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.lightbox-close:hover {
+    background: rgba(255, 255, 255, 0.3);
 }
