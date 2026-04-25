@@ -344,7 +344,7 @@ func (b *Bindings) SaveSettings(s SettingsData) error {
 
 // SaveImage stores a data URL image and returns its ID.
 func (b *Bindings) SaveImage(dataURL string) (string, error) {
-	meta, err := b.objects.SaveDataURL(dataURL)
+	meta, err := b.objects.SaveDataURL(dataURL, "")
 	if err != nil {
 		return "", err
 	}

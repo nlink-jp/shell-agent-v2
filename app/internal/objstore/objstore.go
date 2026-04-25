@@ -1,5 +1,6 @@
-// Package objstore provides a central repository for images and blobs.
+// Package objstore provides a central repository for images, blobs, and reports.
 // Objects are stored as files with 12-char hex IDs.
+// Design: docs/en/object-storage.md
 package objstore
 
 import (
@@ -12,23 +13,36 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/nlink-jp/shell-agent-v2/internal/config"
 )
 
+// ObjectType identifies the kind of stored object.
+type ObjectType string
+
+const (
+	TypeImage  ObjectType = "image"
+	TypeBlob   ObjectType = "blob"
+	TypeReport ObjectType = "report"
+)
+
 // ObjectMeta holds metadata for a stored object.
 type ObjectMeta struct {
-	ID       string `json:"id"`
-	MimeType string `json:"mime_type"`
-	OrigName string `json:"orig_name"`
-	Size     int64  `json:"size"`
+	ID        string     `json:"id"`
+	Type      ObjectType `json:"type"`
+	MimeType  string     `json:"mime_type"`
+	OrigName  string     `json:"orig_name"`
+	CreatedAt time.Time  `json:"created_at"`
+	SessionID string     `json:"session_id,omitempty"`
+	Size      int64      `json:"size"`
 }
 
 // Store manages binary objects on disk.
 type Store struct {
-	baseDir  string
-	dataDir  string
-	index    map[string]*ObjectMeta
+	baseDir   string
+	dataDir   string
+	index     map[string]*ObjectMeta
 	indexPath string
 }
 
@@ -73,7 +87,7 @@ func (s *Store) Save() error {
 }
 
 // Store saves a blob and returns its metadata.
-func (s *Store) Store(reader io.Reader, mimeType, origName string) (*ObjectMeta, error) {
+func (s *Store) Store(reader io.Reader, objType ObjectType, mimeType, origName, sessionID string) (*ObjectMeta, error) {
 	if err := os.MkdirAll(s.dataDir, 0700); err != nil {
 		return nil, err
 	}
@@ -94,10 +108,13 @@ func (s *Store) Store(reader io.Reader, mimeType, origName string) (*ObjectMeta,
 	}
 
 	meta := &ObjectMeta{
-		ID:       id,
-		MimeType: mimeType,
-		OrigName: origName,
-		Size:     size,
+		ID:        id,
+		Type:      objType,
+		MimeType:  mimeType,
+		OrigName:  origName,
+		CreatedAt: time.Now(),
+		SessionID: sessionID,
+		Size:      size,
 	}
 	s.index[id] = meta
 
@@ -142,15 +159,55 @@ func (s *Store) All() []*ObjectMeta {
 	return result
 }
 
+// ListByType returns objects matching the given type.
+func (s *Store) ListByType(objType ObjectType) []*ObjectMeta {
+	var result []*ObjectMeta
+	for _, m := range s.index {
+		if m.Type == objType {
+			result = append(result, m)
+		}
+	}
+	return result
+}
+
+// ListBySession returns objects created by the given session.
+func (s *Store) ListBySession(sessionID string) []*ObjectMeta {
+	var result []*ObjectMeta
+	for _, m := range s.index {
+		if m.SessionID == sessionID {
+			result = append(result, m)
+		}
+	}
+	return result
+}
+
+// DeleteBySession removes all objects created by the given session.
+func (s *Store) DeleteBySession(sessionID string) error {
+	var toDelete []string
+	for id, m := range s.index {
+		if m.SessionID == sessionID {
+			toDelete = append(toDelete, id)
+		}
+	}
+	for _, id := range toDelete {
+		path := filepath.Join(s.dataDir, id)
+		os.Remove(path)
+		delete(s.index, id)
+	}
+	if len(toDelete) > 0 {
+		return s.Save()
+	}
+	return nil
+}
+
 // SaveDataURL parses a data URL and stores the binary data.
-func (s *Store) SaveDataURL(dataURL string) (*ObjectMeta, error) {
-	// Format: data:image/png;base64,iVBOR...
+func (s *Store) SaveDataURL(dataURL, sessionID string) (*ObjectMeta, error) {
 	parts := strings.SplitN(dataURL, ",", 2)
 	if len(parts) != 2 {
 		return nil, fmt.Errorf("invalid data URL format")
 	}
 
-	header := parts[0] // "data:image/png;base64"
+	header := parts[0]
 	mimeType := ""
 	if strings.HasPrefix(header, "data:") {
 		mimeType = strings.TrimPrefix(header, "data:")
@@ -162,7 +219,13 @@ func (s *Store) SaveDataURL(dataURL string) (*ObjectMeta, error) {
 		return nil, fmt.Errorf("decode base64: %w", err)
 	}
 
-	return s.Store(strings.NewReader(string(decoded)), mimeType, "")
+	// Determine type from MIME
+	objType := TypeBlob
+	if strings.HasPrefix(mimeType, "image/") {
+		objType = TypeImage
+	}
+
+	return s.Store(strings.NewReader(string(decoded)), objType, mimeType, "", sessionID)
 }
 
 // LoadAsDataURL reads an object and returns it as a data URL.
