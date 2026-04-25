@@ -64,6 +64,17 @@ func (s *Session) AddAssistantMessage(content string) {
 	})
 }
 
+// AddReportMessage appends a report to the session.
+func (s *Session) AddReportMessage(title, content string) {
+	s.Records = append(s.Records, Record{
+		Timestamp: time.Now(),
+		Role:      "report",
+		Content:   content,
+		ToolName:  title, // reuse ToolName for report title
+		Tier:      TierHot,
+	})
+}
+
 // AddToolResult appends a tool result to the session.
 func (s *Session) AddToolResult(toolCallID, toolName, content string) {
 	s.Records = append(s.Records, Record{

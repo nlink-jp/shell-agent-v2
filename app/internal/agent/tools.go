@@ -418,6 +418,8 @@ func (a *Agent) toolQuickSummary(argsJSON string) (string, error) {
 	return fmt.Sprintf("```sql\n%s\n```\n\nResults: %d rows\n\n%s", args.SQL, len(results), resp.Content), nil
 }
 
+// toolCreateReport creates a report and stores it in session records.
+// Design: docs/en/agent-data-flow.md Section 6
 func (a *Agent) toolCreateReport(argsJSON string) (string, error) {
 	var args struct {
 		Title   string `json:"title"`
@@ -427,17 +429,22 @@ func (a *Agent) toolCreateReport(argsJSON string) (string, error) {
 		return "", fmt.Errorf("invalid arguments: %w", err)
 	}
 
-	// Send report to frontend via handler
-	// Note: image references (object:ID) will be resolved in a future version
-	// via the central object repository
+	reportContent := fmt.Sprintf("# %s\n\n%s", args.Title, args.Content)
+
+	// Store report in session records (persisted on reload)
+	if a.session != nil {
+		a.session.AddReportMessage(args.Title, reportContent)
+	}
+
+	// Notify frontend for immediate display
 	a.mu.Lock()
 	h := a.reportHandler
 	a.mu.Unlock()
 	if h != nil {
-		h(args.Title, fmt.Sprintf("# %s\n\n%s", args.Title, args.Content))
+		h(args.Title, reportContent)
 	}
 
-	return fmt.Sprintf("SUCCESS: Report '%s' has been rendered in the user's interface. Do NOT call create-report again. Respond to the user with a brief confirmation message.", args.Title), nil
+	return fmt.Sprintf("SUCCESS: Report '%s' has been created and displayed to the user. Do not repeat the report content. Simply confirm to the user that the report has been created.", args.Title), nil
 }
 
 func formatTableMeta(t *analysis.TableMeta) string {

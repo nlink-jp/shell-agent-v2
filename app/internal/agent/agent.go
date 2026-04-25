@@ -300,6 +300,8 @@ func (a *Agent) LLMStatus() struct {
 
 // --- internal ---
 
+// agentLoop implements the core agent execution loop.
+// Design: docs/en/agent-data-flow.md Section 2.2
 func (a *Agent) agentLoop(ctx context.Context, userMessage string, imageURLs []string) (string, error) {
 	if a.session == nil {
 		a.session = &memory.Session{ID: "default", Records: []memory.Record{}}
@@ -307,29 +309,29 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, imageURLs []s
 
 	logger.Info("agentLoop: session=%s message=%s images=%d", a.session.ID, logger.Truncate(userMessage, 100), len(imageURLs))
 
-	// Add user message to session (with optional images)
+	// Step 1: Add user message to session (with optional images)
 	a.session.AddUserMessage(userMessage)
-	// Attach images to the last user message for LLM
 	if len(imageURLs) > 0 {
 		last := &a.session.Records[len(a.session.Records)-1]
 		last.ImageURLs = imageURLs
 	}
+	_ = a.session.Save() // auto-save after user message
 
 	allTools := a.buildToolDefs()
 	logger.Debug("agentLoop: %d tools available", len(allTools))
 	toolsExecutedLastRound := false
 
+	// Step 2: Agent loop (max rounds)
 	for round := 0; round < maxToolRounds; round++ {
 		if err := ctx.Err(); err != nil {
 			return "(Cancelled)", nil
 		}
 
-		// Per LM Studio docs: after tool execution, call WITHOUT tools
-		// to force LLM to generate a text response instead of looping.
+		// LM Studio spec: after tool execution, call WITHOUT tools
+		// to force text response. Never re-enable tools after empty response.
 		var tools []llm.ToolDef
 		if toolsExecutedLastRound {
 			tools = nil
-			toolsExecutedLastRound = false
 		} else {
 			tools = allTools
 		}
@@ -342,52 +344,106 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, imageURLs []s
 
 		logger.Debug("agentLoop: round=%d messages=%d tools=%d backend=%s", round, len(messages), len(tools), a.backend.Name())
 
-		resp, err := a.backend.ChatStream(ctx, messages, tools, func(token string, toolCalls []llm.ToolCall, done bool) {
-			a.mu.Lock()
-			h := a.streamHandler
-			a.mu.Unlock()
-			if h != nil && token != "" {
-				h(token, done)
-			}
-		})
+		// All rounds in the agent loop use Chat() (non-streaming).
+		// Reason: even in tools=nil rounds, the model may output gemma-style
+		// text tool calls (<|tool_call>...) which would leak through streaming
+		// before stripGemmaToolCallTags can clean them.
+		// The final clean response is emitted to the frontend after the loop.
+		resp, err := a.backend.Chat(ctx, messages, tools)
 		if err != nil {
 			logger.Error("agentLoop: LLM error: %v", err)
 			return "", fmt.Errorf("LLM: %w", err)
 		}
 
-		// Clean thinking tags and gemma-style text tool calls from response
+		// Clean response: thinking tags + gemma text tool calls (every round)
 		resp.Content = chat.CleanResponse(resp.Content)
 		resp.Content = stripGemmaToolCallTags(resp.Content)
 		resp.Content = strings.TrimSpace(resp.Content)
 		logger.Debug("agentLoop: response content=%s toolCalls=%d", logger.Truncate(resp.Content, 200), len(resp.ToolCalls))
 
-		// No tool calls — final response
+		// --- No tool calls: final response or empty ---
 		if len(resp.ToolCalls) == 0 {
-			if resp.Content == "" {
-				// Empty response — don't loop, just end
-				logger.Debug("agentLoop: empty final response, ending")
-			} else {
+			if resp.Content != "" {
 				a.session.AddAssistantMessage(resp.Content)
+				_ = a.session.Save()
+			} else {
+				logger.Debug("agentLoop: empty final response, ending loop")
 			}
-			go a.generateTitleIfNeeded(ctx)
-			go a.extractPinnedMemories(ctx)
+			// Post-response background tasks
+			a.postResponseTasks(ctx)
 			return resp.Content, nil
 		}
 
-		// Record assistant message with tool calls
-		a.session.AddAssistantMessage(resp.Content)
+		// --- Tool calls present ---
+		// Record assistant's tool call request in session.
+		// This is REQUIRED for valid conversation history — LM Studio expects
+		// an assistant message with tool_call info before tool result messages.
+		// Without this, the LLM doesn't know tools were already called and
+		// tries to call them again.
+		toolNames := make([]string, len(resp.ToolCalls))
+		for i, tc := range resp.ToolCalls {
+			toolNames[i] = tc.Name
+		}
+		assistantContent := resp.Content
+		if assistantContent == "" {
+			assistantContent = fmt.Sprintf("[Calling: %s]", strings.Join(toolNames, ", "))
+		}
+		a.session.AddAssistantMessage(assistantContent)
 
-		// Execute tool calls
+		// Execute each tool call
 		for _, tc := range resp.ToolCalls {
 			logger.Info("agentLoop: tool_call name=%s args=%s", tc.Name, logger.Truncate(tc.Arguments, 200))
 			result := a.executeTool(tc)
 			logger.Debug("agentLoop: tool_result name=%s result=%s", tc.Name, logger.Truncate(result, 200))
 			a.session.AddToolResult(tc.ID, tc.Name, result)
 		}
+		_ = a.session.Save() // auto-save after tool execution
 		toolsExecutedLastRound = true
 	}
 
+	logger.Debug("agentLoop: max rounds (%d) reached", maxToolRounds)
 	return "(Max tool rounds reached)", nil
+}
+
+// postResponseTasks runs background tasks after a final response.
+// Design: docs/en/agent-data-flow.md Section 4.1
+func (a *Agent) postResponseTasks(ctx context.Context) {
+	go a.generateTitleIfNeeded(ctx)
+	go a.compactMemoryIfNeeded(ctx)
+	go a.extractPinnedMemories(ctx)
+}
+
+// compactMemoryIfNeeded summarizes old hot messages when token budget exceeded.
+// Design: docs/en/agent-data-flow.md Section 4.2
+func (a *Agent) compactMemoryIfNeeded(ctx context.Context) {
+	if a.session == nil {
+		return
+	}
+
+	summarizer := func(c context.Context, text string) (string, error) {
+		messages := []llm.Message{
+			{Role: "system", Content: "Summarize the following conversation segment concisely. Preserve key facts, decisions, and context. Use the same language as the conversation."},
+			{Role: "user", Content: text},
+		}
+		resp, err := a.backend.Chat(c, messages, nil)
+		if err != nil {
+			return "", err
+		}
+		return resp.Content, nil
+	}
+
+	compacted, err := a.session.CompactIfNeeded(ctx, memory.CompactOptions{
+		HotTokenLimit: a.cfg.Memory.HotTokenLimit,
+		Summarizer:    summarizer,
+	})
+	if err != nil {
+		logger.Error("compactMemory: %v", err)
+		return
+	}
+	if compacted {
+		logger.Info("compactMemory: compacted session %s", a.session.ID)
+		_ = a.session.Save()
+	}
 }
 
 func (a *Agent) executeTool(tc llm.ToolCall) string {

@@ -106,8 +106,12 @@ SendWithImages(ctx, message, imageURLs)
 2. **Always strip gemma text tool calls.** Applied every round, not just
    no-tools rounds. Prevents gemma format from being treated as content.
 
-3. **Never store empty assistant messages.** Only record to session if
-   content is non-empty after cleaning.
+3. **Always record assistant tool call requests.** When the LLM responds
+   with tool_calls, the assistant message MUST be recorded even if content
+   is empty. Use `[Calling: tool_name]` as synthetic content. This is
+   required for valid conversation history — without it, the LLM doesn't
+   know tools were already called and tries to call them again.
+   Only skip truly empty assistant messages (no tool calls AND no content).
 
 4. **Auto-save after every mutation.** User message, assistant message,
    tool result — each save to disk immediately.

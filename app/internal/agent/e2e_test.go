@@ -76,9 +76,10 @@ func TestE2E_ToolCallLoop(t *testing.T) {
 		t.Errorf("result = %q", result)
 	}
 
-	// Should have: user, assistant (tool call), tool result, assistant (final)
-	if len(a.session.Records) < 4 {
-		t.Fatalf("records = %d, want >= 4", len(a.session.Records))
+	// Should have: user, tool result, assistant (final)
+	// Note: empty assistant message from tool call round is NOT recorded (design rule)
+	if len(a.session.Records) < 3 {
+		t.Fatalf("records = %d, want >= 3", len(a.session.Records))
 	}
 
 	// Verify tool result is in session
@@ -303,34 +304,31 @@ func TestE2E_DynamicToolFilteringInLoop(t *testing.T) {
 
 // --- E2E: Streaming ---
 
-func TestE2E_StreamingCallback(t *testing.T) {
-	mock := llm.NewMockBackend(llm.MockResponse{Content: "Streaming response"})
+func TestE2E_NonStreamingAgentLoop(t *testing.T) {
+	// Agent loop uses Chat() (non-streaming) for ALL rounds to prevent
+	// gemma text tool call markup from leaking through streaming.
+	mock := llm.NewMockBackend(llm.MockResponse{Content: "Non-streamed response"})
 	a := newTestAgent(t, mock)
 
 	var tokens []string
-	var doneCalled bool
 	a.SetStreamHandler(func(token string, done bool) {
 		if token != "" {
 			tokens = append(tokens, token)
 		}
-		if done {
-			doneCalled = true
-		}
 	})
 
-	_, err := a.Send(context.Background(), "Stream me")
+	result, err := a.Send(context.Background(), "Test")
 	if err != nil {
 		t.Fatalf("Send: %v", err)
 	}
 
-	if len(tokens) == 0 {
-		t.Error("expected streaming tokens")
+	if result != "Non-streamed response" {
+		t.Errorf("result = %q", result)
 	}
-	// The mock sends the full content as one token
-	if tokens[0] != "Streaming response" {
-		t.Errorf("token = %q", tokens[0])
+	// No streaming tokens expected — agent loop uses Chat() not ChatStream()
+	if len(tokens) != 0 {
+		t.Errorf("expected 0 streaming tokens, got %d", len(tokens))
 	}
-	_ = doneCalled
 }
 
 // --- E2E: /model Command + Chat ---

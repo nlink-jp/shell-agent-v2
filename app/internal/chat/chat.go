@@ -54,8 +54,17 @@ func (e *Engine) BuildMessages(session *memory.Session, pinnedContext, findingsC
 				content = wrapped
 			}
 		}
+		// Map internal roles to LLM-compatible roles
+		// LM Studio accepts: user, assistant, system, tool
+		role := r.Role
+		switch role {
+		case "report":
+			role = "assistant" // reports are assistant-generated content
+		case "summary":
+			role = "system" // memory summaries are system context
+		}
 		messages = append(messages, llm.Message{
-			Role:      r.Role,
+			Role:      role,
 			Content:   content,
 			ImageURLs: r.ImageURLs,
 		})

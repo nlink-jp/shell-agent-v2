@@ -194,16 +194,20 @@ func (b *Bindings) LoadSession(sessionID string) ([]MessageData, error) {
 		return nil, err
 	}
 
+	// Filter records for frontend display
+	// Design: docs/en/agent-data-flow.md Section 3.2
 	var msgs []MessageData
 	for _, r := range session.Records {
-		if r.Role == "summary" {
-			continue
+		switch r.Role {
+		case "summary", "tool":
+			continue // hidden from UI
+		default:
+			msgs = append(msgs, MessageData{
+				Role:      r.Role,
+				Content:   r.Content,
+				Timestamp: r.Timestamp.Format("15:04:05"),
+			})
 		}
-		msgs = append(msgs, MessageData{
-			Role:      r.Role,
-			Content:   r.Content,
-			Timestamp: r.Timestamp.Format("15:04:05"),
-		})
 	}
 	return msgs, nil
 }
