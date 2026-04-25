@@ -134,3 +134,94 @@ func TestVertexAI_Streaming(t *testing.T) {
 	}
 	t.Logf("Streamed %d tokens, final: %s", len(tokens), resp.Content)
 }
+
+func TestVertexAI_ToolCall(t *testing.T) {
+	client := newVertexClient(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	tools := []ToolDef{{
+		Name:        "get_time",
+		Description: "Get the current time",
+		Parameters: map[string]any{
+			"type":       "object",
+			"properties": map[string]any{},
+		},
+	}}
+
+	resp, err := client.Chat(ctx, []Message{
+		{Role: RoleSystem, Content: "Use tools when appropriate."},
+		{Role: RoleUser, Content: "What time is it right now?"},
+	}, tools)
+	if err != nil {
+		t.Fatalf("Chat error: %v", err)
+	}
+
+	t.Logf("Content: %q, ToolCalls: %d", resp.Content, len(resp.ToolCalls))
+	if len(resp.ToolCalls) == 0 {
+		t.Error("expected tool call")
+	} else {
+		tc := resp.ToolCalls[0]
+		t.Logf("Tool call: %s(%s)", tc.Name, tc.Arguments)
+		if tc.Name != "get_time" {
+			t.Errorf("expected get_time, got %s", tc.Name)
+		}
+	}
+}
+
+func TestVertexAI_ToolCallWithFunctionResponse(t *testing.T) {
+	client := newVertexClient(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	tools := []ToolDef{{
+		Name:        "get_time",
+		Description: "Get the current time",
+		Parameters: map[string]any{
+			"type":       "object",
+			"properties": map[string]any{},
+		},
+	}}
+
+	// Round 1: with tools
+	messages := []Message{
+		{Role: RoleSystem, Content: "Use tools when appropriate. Reply briefly."},
+		{Role: RoleUser, Content: "What time is it?"},
+	}
+
+	resp1, err := client.Chat(ctx, messages, tools)
+	if err != nil {
+		t.Fatalf("Round 1 error: %v", err)
+	}
+	if len(resp1.ToolCalls) == 0 {
+		t.Skip("LLM didn't call tool")
+	}
+
+	tc := resp1.ToolCalls[0]
+	t.Logf("Round 1: tool_call %s", tc.Name)
+
+	// Add tool call request + tool result with FunctionResponse
+	messages = append(messages, Message{
+		Role:    RoleAssistant,
+		Content: "[Calling: " + tc.Name + "]",
+	})
+	messages = append(messages, Message{
+		Role:     RoleTool,
+		Content:  `{"time": "14:30:00 JST"}`,
+		ToolName: tc.Name,
+	})
+
+	// Round 2: without tools
+	resp2, err := client.Chat(ctx, messages, nil)
+	if err != nil {
+		t.Fatalf("Round 2 error: %v", err)
+	}
+
+	t.Logf("Round 2: %q", resp2.Content)
+	if resp2.Content == "" {
+		t.Error("expected text response in round 2")
+	}
+	if len(resp2.ToolCalls) > 0 {
+		t.Error("expected no tool calls in round 2")
+	}
+}
