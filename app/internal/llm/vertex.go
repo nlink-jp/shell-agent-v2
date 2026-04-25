@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -146,8 +147,21 @@ func (v *Vertex) buildContents(messages []Message) []*genai.Content {
 				},
 			})
 		default:
-			// User and any other role
-			contents = append(contents, genai.NewContentFromText(m.Content, genai.RoleUser))
+			// User and any other role — with optional images
+			if len(m.ImageURLs) > 0 {
+				parts := []*genai.Part{genai.NewPartFromText(m.Content)}
+				for _, dataURL := range m.ImageURLs {
+					if p := dataURLToGenaiPart(dataURL); p != nil {
+						parts = append(parts, p)
+					}
+				}
+				contents = append(contents, &genai.Content{
+					Role:  genai.RoleUser,
+					Parts: parts,
+				})
+			} else {
+				contents = append(contents, genai.NewContentFromText(m.Content, genai.RoleUser))
+			}
 		}
 	}
 	return contents
@@ -198,6 +212,31 @@ func (v *Vertex) parseResponse(resp *genai.GenerateContentResponse) *Response {
 		result.OutputTokens = int(resp.UsageMetadata.CandidatesTokenCount)
 	}
 	return result
+}
+
+// dataURLToGenaiPart converts a data URL to a genai Part for multimodal input.
+// Format: "data:image/png;base64,iVBOR..."
+// Reuses gem-cli pattern: genai.NewPartFromBytes(data, mime)
+func dataURLToGenaiPart(dataURL string) *genai.Part {
+	// Parse "data:image/png;base64,..." → mime + bytes
+	parts := strings.SplitN(dataURL, ",", 2)
+	if len(parts) != 2 {
+		return nil
+	}
+	header := parts[0] // "data:image/png;base64"
+	mime := ""
+	if strings.HasPrefix(header, "data:") {
+		mime = strings.TrimPrefix(header, "data:")
+		mime = strings.TrimSuffix(mime, ";base64")
+	}
+	if mime == "" {
+		return nil
+	}
+	data, err := base64.StdEncoding.DecodeString(parts[1])
+	if err != nil {
+		return nil
+	}
+	return genai.NewPartFromBytes(data, mime)
 }
 
 func extractText(resp *genai.GenerateContentResponse) string {
