@@ -16,6 +16,7 @@ import (
 	"github.com/nlink-jp/shell-agent-v2/internal/llm"
 	"github.com/nlink-jp/shell-agent-v2/internal/logger"
 	"github.com/nlink-jp/shell-agent-v2/internal/memory"
+	"github.com/nlink-jp/shell-agent-v2/internal/objstore"
 	"github.com/nlink-jp/shell-agent-v2/internal/toolcall"
 )
 
@@ -62,6 +63,7 @@ type Agent struct {
 	findings *findings.Store
 	analysis *analysis.Engine
 	pinned   *memory.PinnedStore
+	objects  *objstore.Store
 
 	streamHandler StreamHandler
 	titleHandler  TitleHandler
@@ -202,6 +204,13 @@ func (a *Agent) LoadSession(session *memory.Session) error {
 	}
 	a.session = session
 	return nil
+}
+
+// SetObjects sets the object store reference.
+func (a *Agent) SetObjects(store *objstore.Store) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.objects = store
 }
 
 // SetAnalysis sets the analysis engine for the current session.
@@ -462,6 +471,10 @@ func (a *Agent) executeTool(tc llm.ToolCall) string {
 			return fmt.Sprintf("Error: %v", err)
 		}
 		return result
+	case "list-objects":
+		return a.toolListObjects(tc.Arguments)
+	case "get-object":
+		return a.toolGetObject(tc.Arguments)
 	case "load-data", "describe-data", "query-sql", "query-preview", "suggest-analysis", "quick-summary", "list-tables", "reset-analysis", "create-report", "promote-finding":
 		if a.analysis == nil {
 			return "Error: no analysis engine available"

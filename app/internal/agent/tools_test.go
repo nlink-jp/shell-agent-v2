@@ -39,10 +39,10 @@ func newTestEngine(t *testing.T, dir string) *analysis.Engine {
 }
 
 func TestAnalysisToolsFiltering(t *testing.T) {
-	// No data: load-data, reset-analysis, create-report
+	// No data: load-data, reset-analysis, create-report, list-objects, get-object
 	tools := analysisTools(false)
-	if len(tools) != 3 {
-		t.Errorf("no-data tools count = %d, want 3", len(tools))
+	if len(tools) != 5 {
+		t.Errorf("no-data tools count = %d, want 5", len(tools))
 	}
 
 	// With data: full set

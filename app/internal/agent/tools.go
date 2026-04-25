@@ -8,6 +8,7 @@ import (
 
 	"github.com/nlink-jp/shell-agent-v2/internal/analysis"
 	"github.com/nlink-jp/shell-agent-v2/internal/llm"
+	"github.com/nlink-jp/shell-agent-v2/internal/objstore"
 )
 
 // analysisTools returns tool definitions for data analysis.
@@ -57,6 +58,34 @@ func analysisTools(hasData bool) []llm.ToolDef {
 					},
 				},
 				"required": []string{"title", "content"},
+			},
+		},
+		{
+			Name:        "list-objects",
+			Description: "List all objects (images, files, reports) in the current session. Returns ID, type, filename, and creation time.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"type_filter": map[string]any{
+						"type":        "string",
+						"enum":        []string{"image", "blob", "report", "all"},
+						"description": "Filter by object type (default: all)",
+					},
+				},
+			},
+		},
+		{
+			Name:        "get-object",
+			Description: "Retrieve an object by ID. For images, returns a marker that will be resolved to the actual image. For text/data, returns the content directly.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"id": map[string]any{
+						"type":        "string",
+						"description": "Object ID (12-character hex)",
+					},
+				},
+				"required": []string{"id"},
 			},
 		},
 	}
@@ -445,6 +474,95 @@ func (a *Agent) toolCreateReport(argsJSON string) (string, error) {
 	}
 
 	return fmt.Sprintf("SUCCESS: Report '%s' has been created and displayed to the user. Do not explain or describe the report contents. Reply only with a brief confirmation.", args.Title), nil
+}
+
+// toolListObjects lists objects in the current session.
+func (a *Agent) toolListObjects(argsJSON string) string {
+	if a.objects == nil {
+		return "No object store available."
+	}
+
+	var args struct {
+		TypeFilter string `json:"type_filter"`
+	}
+	json.Unmarshal([]byte(argsJSON), &args)
+
+	var objs []*objstore.ObjectMeta
+	sessionID := ""
+	if a.session != nil {
+		sessionID = a.session.ID
+	}
+
+	if sessionID != "" {
+		objs = a.objects.ListBySession(sessionID)
+	} else {
+		objs = a.objects.All()
+	}
+
+	// Filter by type if specified
+	if args.TypeFilter != "" && args.TypeFilter != "all" {
+		var filtered []*objstore.ObjectMeta
+		for _, o := range objs {
+			if string(o.Type) == args.TypeFilter {
+				filtered = append(filtered, o)
+			}
+		}
+		objs = filtered
+	}
+
+	if len(objs) == 0 {
+		return "No objects found."
+	}
+
+	var sb strings.Builder
+	for _, o := range objs {
+		name := o.OrigName
+		if name == "" {
+			name = o.ID
+		}
+		sb.WriteString(fmt.Sprintf("- ID: %s | Type: %s | Name: %s | Size: %d bytes | Created: %s\n",
+			o.ID, o.Type, name, o.Size, o.CreatedAt.Format("2006-01-02 15:04:05")))
+	}
+	return sb.String()
+}
+
+// toolGetObject retrieves an object by ID.
+func (a *Agent) toolGetObject(argsJSON string) string {
+	if a.objects == nil {
+		return "Error: no object store available"
+	}
+
+	var args struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return fmt.Sprintf("Error: %v", err)
+	}
+
+	meta, ok := a.objects.Get(args.ID)
+	if !ok {
+		return fmt.Sprintf("Error: object %s not found", args.ID)
+	}
+
+	// Images: return recall marker (resolved by message builder)
+	if meta.Type == objstore.TypeImage {
+		return fmt.Sprintf("__IMAGE_RECALL_BLOB__%s__", args.ID)
+	}
+
+	// Text/data: return content directly (truncated)
+	data, err := a.objects.ReadData(args.ID)
+	if err != nil {
+		return fmt.Sprintf("Error reading object: %v", err)
+	}
+	defer data.Close()
+
+	buf := make([]byte, 30000)
+	n, _ := data.Read(buf)
+	content := string(buf[:n])
+	if n >= 30000 {
+		content += "\n... (truncated)"
+	}
+	return content
 }
 
 func formatTableMeta(t *analysis.TableMeta) string {

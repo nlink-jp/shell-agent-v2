@@ -49,6 +49,7 @@ func (b *Bindings) startup(ctx context.Context) {
 	_ = b.objects.Load()
 
 	b.agent = agent.New(cfg)
+	b.agent.SetObjects(b.objects)
 	b.agent.SetStreamHandler(func(token string, done bool) {
 		wailsRuntime.EventsEmit(b.ctx, "agent:stream", map[string]any{
 			"token": token,
