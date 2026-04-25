@@ -230,6 +230,18 @@ func (l *Local) buildRequest(messages []Message, tools []ToolDef, stream bool) [
 		Stream: stream,
 	}
 	for _, m := range messages {
+		// Map application-level roles to LM Studio/OpenAI API roles.
+		// Design: docs/en/llm-abstraction.md Section 3.3
+		role := string(m.Role)
+		switch m.Role {
+		case RoleTool:
+			role = "user" // gemma-4 stays in tool-calling mode with role="tool"
+		case RoleReport:
+			role = "assistant"
+		case RoleSummary:
+			role = "system"
+		}
+
 		if len(m.ImageURLs) > 0 {
 			// Multimodal: content as array of parts (OpenAI Vision format)
 			parts := []contentPart{{Type: "text", Text: m.Content}}
@@ -240,12 +252,12 @@ func (l *Local) buildRequest(messages []Message, tools []ToolDef, stream bool) [
 				})
 			}
 			req.Messages = append(req.Messages, requestMessage{
-				Role:    m.Role,
+				Role:    role,
 				Content: parts,
 			})
 		} else {
 			req.Messages = append(req.Messages, requestMessage{
-				Role:    m.Role,
+				Role:    role,
 				Content: m.Content,
 			})
 		}

@@ -43,9 +43,12 @@ func (e *Engine) BuildMessages(session *memory.Session, pinnedContext, findingsC
 	}
 
 	messages := []llm.Message{
-		{Role: "system", Content: fullSystem},
+		{Role: llm.RoleSystem, Content: fullSystem},
 	}
 
+	// Pass application-level roles as-is.
+	// Each backend handles role mapping internally.
+	// Design: docs/en/llm-abstraction.md Section 4
 	for _, r := range session.Records {
 		content := r.Content
 		// Guard user and tool content against prompt injection
@@ -54,23 +57,11 @@ func (e *Engine) BuildMessages(session *memory.Session, pinnedContext, findingsC
 				content = wrapped
 			}
 		}
-		// Map internal roles to LLM-compatible roles.
-		// Tool results mapped to "user" role — gemma-4 stays in tool-calling
-		// mode when it sees role="tool", causing re-invocation loops.
-		// LM Studio default tool support also converts tool→user for compat.
-		role := r.Role
-		switch role {
-		case "report":
-			role = "assistant"
-		case "summary":
-			role = "system"
-		case "tool":
-			role = "user"
-		}
 		messages = append(messages, llm.Message{
-			Role:      role,
+			Role:      llm.Role(r.Role),
 			Content:   content,
 			ImageURLs: r.ImageURLs,
+			ToolName:  r.ToolName,
 		})
 	}
 

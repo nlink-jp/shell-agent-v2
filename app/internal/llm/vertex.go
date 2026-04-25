@@ -105,26 +105,39 @@ func (v *Vertex) newClient(ctx context.Context) (*genai.Client, error) {
 	return client, nil
 }
 
+// buildSystemInstruction collects system + summary messages.
+// Design: docs/en/llm-abstraction.md Section 3.3
 func (v *Vertex) buildSystemInstruction(messages []Message) *genai.Content {
+	var parts []string
 	for _, m := range messages {
-		if m.Role == "system" {
-			return genai.NewContentFromText(m.Content, genai.RoleUser)
+		switch m.Role {
+		case RoleSystem, RoleSummary:
+			parts = append(parts, m.Content)
 		}
 	}
-	return nil
+	if len(parts) == 0 {
+		return nil
+	}
+	return genai.NewContentFromText(strings.Join(parts, "\n\n"), genai.RoleUser)
 }
 
+// buildContents maps application-level messages to genai Content.
+// Design: docs/en/llm-abstraction.md Section 3.3
 func (v *Vertex) buildContents(messages []Message) []*genai.Content {
 	var contents []*genai.Content
 	for _, m := range messages {
-		if m.Role == "system" {
-			continue
+		switch m.Role {
+		case RoleSystem, RoleSummary:
+			continue // handled by SystemInstruction
+		case RoleAssistant, RoleReport:
+			contents = append(contents, genai.NewContentFromText(m.Content, genai.RoleModel))
+		case RoleTool:
+			// Vertex AI supports tool role natively via FunctionResponse.
+			// For now, send as user until Phase 2 (FunctionResponse).
+			contents = append(contents, genai.NewContentFromText(m.Content, genai.RoleUser))
+		default:
+			contents = append(contents, genai.NewContentFromText(m.Content, genai.RoleUser))
 		}
-		role := genai.Role(m.Role)
-		if role == "assistant" {
-			role = genai.RoleModel
-		}
-		contents = append(contents, genai.NewContentFromText(m.Content, role))
 	}
 	return contents
 }
