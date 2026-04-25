@@ -27,7 +27,8 @@ type Record struct {
 	Tier         Tier       `json:"tier"`
 	ToolCallID   string     `json:"tool_call_id,omitempty"`
 	ToolName     string     `json:"tool_name,omitempty"`
-	ImageURLs    []string   `json:"image_urls,omitempty"`
+	ObjectIDs    []string   `json:"object_ids,omitempty"`   // references to objstore
+	ImageURLs    []string   `json:"image_urls,omitempty"`   // deprecated: use ObjectIDs
 	SummaryRange *TimeRange `json:"summary_range,omitempty"`
 }
 

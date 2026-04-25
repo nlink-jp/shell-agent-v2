@@ -126,8 +126,25 @@ func (b *Bindings) Send(message string) (string, error) {
 }
 
 // SendWithImages sends a user message with images to the agent.
+// Images are saved to objstore first; ObjectIDs are passed to the agent.
 func (b *Bindings) SendWithImages(message string, imageDataURLs []string) (string, error) {
-	return b.agent.SendWithImages(b.ctx, message, imageDataURLs)
+	// Save images to objstore, collect IDs and data URLs for LLM
+	var objectIDs []string
+	var dataURLs []string
+	sessionID := ""
+	if s := b.agent.CurrentSession(); s != nil {
+		sessionID = s.ID
+	}
+	for _, du := range imageDataURLs {
+		meta, err := b.objects.SaveDataURL(du, sessionID)
+		if err != nil {
+			logger.Error("SaveDataURL: %v", err)
+			continue
+		}
+		objectIDs = append(objectIDs, meta.ID)
+		dataURLs = append(dataURLs, du) // keep data URL for LLM context
+	}
+	return b.agent.SendWithImages(b.ctx, message, objectIDs, dataURLs)
 }
 
 // Abort cancels the current agent task.

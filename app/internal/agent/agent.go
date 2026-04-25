@@ -142,13 +142,19 @@ func (a *Agent) CurrentBackend() string {
 	return a.backend.Name()
 }
 
+// CurrentSession returns the current session (for session ID access).
+func (a *Agent) CurrentSession() *memory.Session {
+	return a.session
+}
+
 // Send processes a user message. Returns ErrBusy if the agent is not idle.
 func (a *Agent) Send(ctx context.Context, message string) (string, error) {
-	return a.SendWithImages(ctx, message, nil)
+	return a.SendWithImages(ctx, message, nil, nil)
 }
 
 // SendWithImages processes a user message with optional images.
-func (a *Agent) SendWithImages(ctx context.Context, message string, imageURLs []string) (string, error) {
+// objectIDs are stored in session records; dataURLs are used for LLM context.
+func (a *Agent) SendWithImages(ctx context.Context, message string, objectIDs, dataURLs []string) (string, error) {
 	a.mu.Lock()
 	if a.state != StateIdle {
 		a.mu.Unlock()
@@ -170,7 +176,7 @@ func (a *Agent) SendWithImages(ctx context.Context, message string, imageURLs []
 		return a.handleCommand(message)
 	}
 
-	return a.agentLoop(ctx, message, imageURLs)
+	return a.agentLoop(ctx, message, objectIDs, dataURLs)
 }
 
 // Abort cancels the current task.
@@ -302,18 +308,20 @@ func (a *Agent) LLMStatus() struct {
 
 // agentLoop implements the core agent execution loop.
 // Design: docs/en/agent-data-flow.md Section 2.2
-func (a *Agent) agentLoop(ctx context.Context, userMessage string, imageURLs []string) (string, error) {
+func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, dataURLs []string) (string, error) {
 	if a.session == nil {
 		a.session = &memory.Session{ID: "default", Records: []memory.Record{}}
 	}
 
-	logger.Info("agentLoop: session=%s message=%s images=%d", a.session.ID, logger.Truncate(userMessage, 100), len(imageURLs))
+	logger.Info("agentLoop: session=%s message=%s objects=%d", a.session.ID, logger.Truncate(userMessage, 100), len(objectIDs))
 
-	// Step 1: Add user message to session (with optional images)
+	// Step 1: Add user message to session
+	// ObjectIDs stored in record for persistence; dataURLs used for LLM context
 	a.session.AddUserMessage(userMessage)
-	if len(imageURLs) > 0 {
+	if len(objectIDs) > 0 || len(dataURLs) > 0 {
 		last := &a.session.Records[len(a.session.Records)-1]
-		last.ImageURLs = imageURLs
+		last.ObjectIDs = objectIDs
+		last.ImageURLs = dataURLs // kept for LLM context (BuildMessages)
 	}
 	_ = a.session.Save() // auto-save after user message
 
