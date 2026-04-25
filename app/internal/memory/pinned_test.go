@@ -6,7 +6,7 @@ import (
 )
 
 func TestPinnedSetAndGet(t *testing.T) {
-	s := &PinnedStore{path: "/tmp/test-pinned.json", facts: []PinnedFact{}}
+	s := &PinnedStore{path: "/tmp/test-pinned.json", Entries: []PinnedFact{}}
 
 	s.Set("name", "Alice")
 	f, ok := s.Get("name")
@@ -29,7 +29,7 @@ func TestPinnedSetAndGet(t *testing.T) {
 }
 
 func TestPinnedDelete(t *testing.T) {
-	s := &PinnedStore{path: "/tmp/test-pinned.json", facts: []PinnedFact{}}
+	s := &PinnedStore{path: "/tmp/test-pinned.json", Entries: []PinnedFact{}}
 
 	s.Set("key1", "value1")
 	s.Set("key2", "value2")
@@ -46,7 +46,7 @@ func TestPinnedDelete(t *testing.T) {
 }
 
 func TestPinnedFormatForPrompt(t *testing.T) {
-	s := &PinnedStore{path: "/tmp/test-pinned.json", facts: []PinnedFact{}}
+	s := &PinnedStore{path: "/tmp/test-pinned.json", Entries: []PinnedFact{}}
 
 	// Empty
 	if s.FormatForPrompt() != "" {

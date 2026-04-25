@@ -196,8 +196,8 @@
 }
 
 .settings-btn:hover {
-    background: #2a3a4a;
-    color: #aaccee;
+    background: var(--bg-hover, #2a3a4a);
+    color: var(--text-accent, #aaccee);
 }
 
 /* Backend badge */
@@ -263,6 +263,114 @@
     background: #2a3a4a;
     color: #8899aa;
     font-size: 10px;
+}
+
+/* Tools panel */
+.tool-item {
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border-primary, #2a3a4a);
+}
+
+.tool-item:last-child {
+    border-bottom: none;
+}
+
+.tool-name {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 2px;
+}
+
+.tool-name code {
+    font-size: 12px;
+    color: var(--text-accent, #aaccee);
+}
+
+.tool-source {
+    font-size: 10px;
+    color: var(--text-dim, #556677);
+    padding: 1px 4px;
+    border-radius: 3px;
+    background: var(--bg-hover, #2a3a4a);
+}
+
+.tool-desc {
+    font-size: 11px;
+    color: var(--text-muted, #8899aa);
+}
+
+/* Status panel */
+.status-section {
+    margin-bottom: 16px;
+}
+
+.status-section h3 {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted, #6688aa);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin: 0 0 8px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--border-primary, #2a3a4a);
+}
+
+.status-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    padding: 3px 0;
+    color: var(--text-secondary, #aabbcc);
+}
+
+.status-row span:first-child {
+    color: var(--text-muted, #8899aa);
+}
+
+/* Pinned Memory */
+.pinned-item {
+    position: relative;
+    padding: 6px 8px;
+    margin-bottom: 4px;
+    background: var(--bg-hover, #1e2e3e);
+    border-radius: 6px;
+}
+
+.pinned-key {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-accent, #aaccee);
+    margin-bottom: 2px;
+}
+
+.pinned-content {
+    font-size: 12px;
+    color: var(--text-secondary, #aabbcc);
+}
+
+.pinned-delete {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    border: none;
+    background: transparent;
+    color: var(--text-dim, #556677);
+    cursor: pointer;
+    font-size: 11px;
+    padding: 1px 3px;
+    border-radius: 3px;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.pinned-item:hover .pinned-delete {
+    opacity: 1;
+}
+
+.pinned-delete:hover {
+    color: var(--text-error, #ee6666);
+    background: var(--bg-msg-error, #3a2020);
 }
 
 /* MITL Dialog */

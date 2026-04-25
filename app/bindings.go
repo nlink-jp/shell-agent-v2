@@ -61,6 +61,9 @@ func (b *Bindings) startup(ctx context.Context) {
 			"title":      title,
 		})
 	})
+	b.agent.SetPinnedHandler(func() {
+		wailsRuntime.EventsEmit(b.ctx, "pinned:updated", nil)
+	})
 	b.agent.SetReportHandler(func(title, content string) {
 		wailsRuntime.EventsEmit(b.ctx, "report:created", map[string]any{
 			"title":   title,
@@ -363,6 +366,69 @@ func (b *Bindings) SaveReport(content, filename string) error {
 		return err
 	}
 	return os.WriteFile(path, []byte(content), 0644)
+}
+
+// --- Tools bindings ---
+
+// ToolInfo describes a tool for the frontend.
+type ToolInfo struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Category    string `json:"category"`
+	Source      string `json:"source"` // "builtin", "analysis", "shell", "mcp"
+}
+
+// GetTools returns all available tools.
+func (b *Bindings) GetTools() []ToolInfo {
+	items := b.agent.ListTools()
+	result := make([]ToolInfo, len(items))
+	for i, item := range items {
+		result[i] = ToolInfo{Name: item.Name, Description: item.Description, Category: item.Category, Source: item.Source}
+	}
+	return result
+}
+
+// --- Pinned Memory bindings ---
+
+// PinnedMemoryData is a pinned fact for the frontend.
+type PinnedMemoryData struct {
+	Key     string `json:"key"`
+	Content string `json:"content"`
+}
+
+// GetPinnedMemories returns all pinned facts.
+func (b *Bindings) GetPinnedMemories() []PinnedMemoryData {
+	all := b.agent.PinnedAll()
+	result := make([]PinnedMemoryData, len(all))
+	for i, f := range all {
+		result[i] = PinnedMemoryData{Key: f.Key, Content: f.Content}
+	}
+	return result
+}
+
+// UpdatePinnedMemory creates or updates a pinned fact.
+func (b *Bindings) UpdatePinnedMemory(key, content string) error {
+	return b.agent.PinnedSet(key, content)
+}
+
+// DeletePinnedMemory removes a pinned fact.
+func (b *Bindings) DeletePinnedMemory(key string) error {
+	return b.agent.PinnedDelete(key)
+}
+
+// --- LLM Status bindings ---
+
+// LLMStatusData is the LLM status for the frontend.
+type LLMStatusData struct {
+	Backend      string `json:"backend"`
+	HotMessages  int    `json:"hot_messages"`
+	WarmSummaries int   `json:"warm_summaries"`
+	SessionID    string `json:"session_id"`
+}
+
+// GetLLMStatus returns the current LLM and memory status.
+func (b *Bindings) GetLLMStatus() LLMStatusData {
+	return b.agent.LLMStatus()
 }
 
 // --- Info ---

@@ -31,6 +31,12 @@ declare global {
                     SendWithImages(message: string, imageDataURLs: string[]): Promise<string>;
                     SaveImage(dataURL: string): Promise<string>;
                     GetImageDataURL(id: string): Promise<string>;
+                    GetTools(): Promise<ToolInfo[]>;
+                    GetPinnedMemories(): Promise<PinnedMemory[]>;
+                    UpdatePinnedMemory(key: string, content: string): Promise<void>;
+                    DeletePinnedMemory(key: string): Promise<void>;
+                    GetLLMStatus(): Promise<LLMStatus>;
+                    SaveReport(content: string, filename: string): Promise<void>;
                 };
             };
         };
@@ -41,7 +47,7 @@ declare global {
 }
 
 interface ChatMessage {
-    role: 'user' | 'assistant' | 'system';
+    role: 'user' | 'assistant' | 'system' | 'tool';
     content: string;
     timestamp: string;
     imageUrls?: string[];
@@ -72,6 +78,25 @@ interface Finding {
     created_label: string;
 }
 
+interface ToolInfo {
+    name: string;
+    description: string;
+    category: string;
+    source: string;
+}
+
+interface PinnedMemory {
+    key: string;
+    content: string;
+}
+
+interface LLMStatus {
+    backend: string;
+    hot_messages: number;
+    warm_summaries: number;
+    session_id: string;
+}
+
 interface Settings {
     default_backend: string;
     local_endpoint: string;
@@ -82,7 +107,7 @@ interface Settings {
     theme: string;
 }
 
-type SidebarTab = 'sessions' | 'findings';
+type SidebarTab = 'sessions' | 'findings' | 'tools' | 'status';
 
 function App() {
     const [state, setState] = useState<'idle' | 'busy'>('idle')
@@ -97,6 +122,9 @@ function App() {
     const [editingSession, setEditingSession] = useState<string | null>(null)
     const [editTitle, setEditTitle] = useState('')
     const [mitlRequest, setMitlRequest] = useState<{tool_name: string; arguments: string; category: string} | null>(null)
+    const [tools, setTools] = useState<ToolInfo[]>([])
+    const [pinnedMemories, setPinnedMemories] = useState<PinnedMemory[]>([])
+    const [llmStatus, setLLMStatus] = useState<LLMStatus | null>(null)
     const [lightboxImage, setLightboxImage] = useState<string | null>(null)
     const [settings, setSettings] = useState<Settings | null>(null)
     const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -110,6 +138,9 @@ function App() {
                 } else {
                     setStreaming(prev => prev + data.token)
                 }
+            })
+            const cleanupPinned = window.runtime.EventsOn('pinned:updated', () => {
+                if (window.go) window.go.main.Bindings.GetPinnedMemories().then(setPinnedMemories)
             })
             const cleanupReport = window.runtime.EventsOn('report:created', (data: any) => {
                 setMessages(prev => [...prev, {
@@ -126,7 +157,7 @@ function App() {
                     s.id === data.session_id ? {...s, title: data.title} : s
                 ))
             })
-            return () => { cleanupStream(); cleanupReport(); cleanupMitl(); cleanupTitle() }
+            return () => { cleanupStream(); cleanupPinned(); cleanupReport(); cleanupMitl(); cleanupTitle() }
         }
     }, [])
 
@@ -251,6 +282,11 @@ function App() {
 
     useEffect(() => {
         if (sidebarTab === 'findings') refreshFindings()
+        if (sidebarTab === 'tools' && window.go) window.go.main.Bindings.GetTools().then(setTools)
+        if (sidebarTab === 'status' && window.go) {
+            window.go.main.Bindings.GetLLMStatus().then(setLLMStatus)
+            window.go.main.Bindings.GetPinnedMemories().then(setPinnedMemories)
+        }
     }, [sidebarTab, refreshFindings])
 
     // Auto-save settings on change
@@ -312,6 +348,8 @@ function App() {
                 <div className="sidebar-tabs">
                     <button className={sidebarTab === 'sessions' ? 'active' : ''} onClick={() => setSidebarTab('sessions')}>Sessions</button>
                     <button className={sidebarTab === 'findings' ? 'active' : ''} onClick={() => setSidebarTab('findings')}>Findings</button>
+                    <button className={sidebarTab === 'tools' ? 'active' : ''} onClick={() => setSidebarTab('tools')}>Tools</button>
+                    <button className={sidebarTab === 'status' ? 'active' : ''} onClick={() => setSidebarTab('status')}>Status</button>
                 </div>
 
                 {sidebarTab === 'sessions' && (
@@ -373,6 +411,53 @@ function App() {
                                 )}
                             </div>
                         ))}
+                    </div>
+                )}
+
+                {sidebarTab === 'tools' && (
+                    <div className="sidebar-panel">
+                        {tools.length === 0 ? (
+                            <p className="sidebar-hint">No tools available</p>
+                        ) : tools.map(t => (
+                            <div key={t.name} className="tool-item">
+                                <div className="tool-name">
+                                    <code>{t.name}</code>
+                                    <span className={`tool-category ${t.category}`}>{t.category}</span>
+                                    <span className="tool-source">{t.source}</span>
+                                </div>
+                                <div className="tool-desc">{t.description}</div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+
+                {sidebarTab === 'status' && (
+                    <div className="sidebar-panel">
+                        {llmStatus && (
+                            <div className="status-section">
+                                <h3>LLM</h3>
+                                <div className="status-row"><span>Backend</span><span>{llmStatus.backend}</span></div>
+                                <div className="status-row"><span>Session</span><span>{llmStatus.session_id || '-'}</span></div>
+                                <div className="status-row"><span>Hot messages</span><span>{llmStatus.hot_messages}</span></div>
+                                <div className="status-row"><span>Warm summaries</span><span>{llmStatus.warm_summaries}</span></div>
+                            </div>
+                        )}
+                        <div className="status-section">
+                            <h3>Pinned Memory</h3>
+                            {pinnedMemories.length === 0 ? (
+                                <p className="sidebar-hint">No pinned facts</p>
+                            ) : pinnedMemories.map(p => (
+                                <div key={p.key} className="pinned-item">
+                                    <div className="pinned-key">{p.key}</div>
+                                    <div className="pinned-content">{p.content}</div>
+                                    <button className="pinned-delete" onClick={async () => {
+                                        await window.go.main.Bindings.DeletePinnedMemory(p.key)
+                                        const updated = await window.go.main.Bindings.GetPinnedMemories()
+                                        setPinnedMemories(updated)
+                                    }}>&#x2715;</button>
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 )}
 

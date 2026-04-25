@@ -67,6 +67,7 @@ type Agent struct {
 	titleHandler  TitleHandler
 	mitlHandler   MITLHandler
 	reportHandler func(title, content string)
+	pinnedHandler func()
 	toolRegistry  *toolcall.Registry
 }
 
@@ -122,6 +123,13 @@ func (a *Agent) SetReportHandler(h func(title, content string)) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.reportHandler = h
+}
+
+// SetPinnedHandler sets the callback for pinned memory updates.
+func (a *Agent) SetPinnedHandler(h func()) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.pinnedHandler = h
 }
 
 // CurrentBackend returns the name of the active LLM backend.
@@ -202,6 +210,94 @@ func (a *Agent) Findings() []findings.Finding {
 	return a.findings.All()
 }
 
+// ToolInfoItem describes a tool for listing.
+type ToolInfoItem struct {
+	Name        string
+	Description string
+	Category    string
+	Source      string
+}
+
+// ListTools returns all available tools with metadata.
+func (a *Agent) ListTools() []ToolInfoItem {
+	var items []ToolInfoItem
+
+	// Builtin tools
+	items = append(items, ToolInfoItem{Name: "resolve-date", Description: "Resolve relative date expressions", Category: "read", Source: "builtin"})
+
+	// Analysis tools
+	hasData := a.analysis != nil && a.analysis.HasData()
+	items = append(items, ToolInfoItem{Name: "load-data", Description: "Load CSV/JSON/JSONL file", Category: "read", Source: "analysis"})
+	items = append(items, ToolInfoItem{Name: "reset-analysis", Description: "Drop all tables", Category: "write", Source: "analysis"})
+	items = append(items, ToolInfoItem{Name: "create-report", Description: "Create markdown report", Category: "read", Source: "analysis"})
+	if hasData {
+		items = append(items, ToolInfoItem{Name: "describe-data", Description: "Show table metadata", Category: "read", Source: "analysis"})
+		items = append(items, ToolInfoItem{Name: "query-sql", Description: "Execute SQL query", Category: "read", Source: "analysis"})
+		items = append(items, ToolInfoItem{Name: "query-preview", Description: "NL to SQL generation", Category: "read", Source: "analysis"})
+		items = append(items, ToolInfoItem{Name: "suggest-analysis", Description: "Suggest analysis perspectives", Category: "read", Source: "analysis"})
+		items = append(items, ToolInfoItem{Name: "quick-summary", Description: "Query + LLM summary", Category: "read", Source: "analysis"})
+		items = append(items, ToolInfoItem{Name: "list-tables", Description: "List all tables", Category: "read", Source: "analysis"})
+		items = append(items, ToolInfoItem{Name: "promote-finding", Description: "Save insight to findings", Category: "write", Source: "analysis"})
+	}
+
+	// Shell script tools
+	for _, t := range a.toolRegistry.All() {
+		items = append(items, ToolInfoItem{Name: t.Name, Description: t.Description, Category: string(t.Category), Source: "shell"})
+	}
+
+	return items
+}
+
+// PinnedAll returns all pinned facts.
+func (a *Agent) PinnedAll() []memory.PinnedFact {
+	return a.pinned.All()
+}
+
+// PinnedSet creates or updates a pinned fact.
+func (a *Agent) PinnedSet(key, content string) error {
+	a.pinned.Set(key, content)
+	return a.pinned.Save()
+}
+
+// PinnedDelete removes a pinned fact.
+func (a *Agent) PinnedDelete(key string) error {
+	a.pinned.Delete(key)
+	return a.pinned.Save()
+}
+
+// LLMStatus returns current LLM and memory status.
+func (a *Agent) LLMStatus() struct {
+	Backend       string `json:"backend"`
+	HotMessages   int    `json:"hot_messages"`
+	WarmSummaries int    `json:"warm_summaries"`
+	SessionID     string `json:"session_id"`
+} {
+	hot, warm := 0, 0
+	sessionID := ""
+	if a.session != nil {
+		sessionID = a.session.ID
+		for _, r := range a.session.Records {
+			switch r.Tier {
+			case memory.TierHot:
+				hot++
+			case memory.TierWarm:
+				warm++
+			}
+		}
+	}
+	return struct {
+		Backend       string `json:"backend"`
+		HotMessages   int    `json:"hot_messages"`
+		WarmSummaries int    `json:"warm_summaries"`
+		SessionID     string `json:"session_id"`
+	}{
+		Backend:       a.backend.Name(),
+		HotMessages:   hot,
+		WarmSummaries: warm,
+		SessionID:     sessionID,
+	}
+}
+
 // --- internal ---
 
 func (a *Agent) agentLoop(ctx context.Context, userMessage string, imageURLs []string) (string, error) {
@@ -274,6 +370,7 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, imageURLs []s
 				a.session.AddAssistantMessage(resp.Content)
 			}
 			go a.generateTitleIfNeeded(ctx)
+			go a.extractPinnedMemories(ctx)
 			return resp.Content, nil
 		}
 
@@ -493,6 +590,106 @@ When you discover a significant analysis insight (a pattern, anomaly, or conclus
 When the user asks you to create a report, summary document, or formatted output, you MUST use the create-report tool. Do not write the report as a chat message — always call the create-report tool so the report is properly structured and rendered with full markdown support.
 
 When the user shares images in the conversation, the image data is included in the conversation context. If asked to include images in a report or reference earlier images, you can do so.`
+
+// extractPinnedMemories runs after each response to auto-extract important facts.
+// This is a system task, not an LLM tool — the backend drives the extraction.
+func (a *Agent) extractPinnedMemories(ctx context.Context) {
+	if a.session == nil {
+		return
+	}
+
+	// Collect last 4 hot messages for analysis
+	var recentRecords []memory.Record
+	for _, r := range a.session.Records {
+		if r.Tier == memory.TierHot {
+			recentRecords = append(recentRecords, r)
+		}
+	}
+	if len(recentRecords) > 4 {
+		recentRecords = recentRecords[len(recentRecords)-4:]
+	}
+	if len(recentRecords) < 2 {
+		return // need at least a user + assistant exchange
+	}
+
+	// Build conversation text for extraction
+	var conversation strings.Builder
+	for _, r := range recentRecords {
+		if r.Role == "tool" {
+			continue
+		}
+		conversation.WriteString(fmt.Sprintf("[%s]: %s\n", r.Role, r.Content))
+	}
+
+	existing := a.pinned.FormatExistingForExtraction()
+
+	messages := []llm.Message{
+		{Role: "system", Content: `Analyze the conversation below and extract important facts worth remembering long-term.
+Categories: preference, decision, fact, context
+Rules:
+- Only extract genuinely important, reusable information
+- Skip greetings, small talk, and transient details
+- If nothing is important, respond with exactly: NONE
+- Otherwise respond with one fact per line in format: category|english fact|native language expression
+  Example: preference|User prefers Go over Python|ユーザーはPythonよりGoを好む
+- The native language expression should match the language the user used in the conversation
+- If the conversation is already in English, the native expression can be the same as the English fact
+- Do not repeat facts already known
+Already known:
+` + existing},
+		{Role: "user", Content: conversation.String()},
+	}
+
+	resp, err := a.backend.Chat(ctx, messages, nil)
+	if err != nil {
+		logger.Error("extractPinnedMemories: %v", err)
+		return
+	}
+
+	text := strings.TrimSpace(resp.Content)
+	if text == "" || strings.ToUpper(text) == "NONE" {
+		return
+	}
+
+	added := 0
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		parts := strings.SplitN(line, "|", 3)
+		if len(parts) < 2 {
+			continue
+		}
+		category := strings.TrimSpace(parts[0])
+		fact := strings.TrimSpace(parts[1])
+		native := ""
+		if len(parts) >= 3 {
+			native = strings.TrimSpace(parts[2])
+		}
+		if fact == "" {
+			continue
+		}
+
+		if a.pinned.Add(memory.PinnedFact{
+			Fact:       fact,
+			NativeFact: native,
+			Category:   category,
+		}) {
+			added++
+		}
+	}
+
+	if added > 0 {
+		logger.Info("extractPinnedMemories: added %d facts", added)
+		_ = a.pinned.Save()
+
+		// Notify frontend
+		a.mu.Lock()
+		h := a.pinnedHandler
+		a.mu.Unlock()
+		if h != nil {
+			h()
+		}
+	}
+}
 
 // stripGemmaToolCallTags removes gemma-style text tool call tags from content.
 // These occur when the model outputs tool calls as text instead of structured API calls.
