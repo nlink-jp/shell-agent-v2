@@ -54,14 +54,18 @@ func (e *Engine) BuildMessages(session *memory.Session, pinnedContext, findingsC
 				content = wrapped
 			}
 		}
-		// Map internal roles to LLM-compatible roles
-		// LM Studio accepts: user, assistant, system, tool
+		// Map internal roles to LLM-compatible roles.
+		// Tool results mapped to "user" role — gemma-4 stays in tool-calling
+		// mode when it sees role="tool", causing re-invocation loops.
+		// LM Studio default tool support also converts tool→user for compat.
 		role := r.Role
 		switch role {
 		case "report":
-			role = "assistant" // reports are assistant-generated content
+			role = "assistant"
 		case "summary":
-			role = "system" // memory summaries are system context
+			role = "system"
+		case "tool":
+			role = "user"
 		}
 		messages = append(messages, llm.Message{
 			Role:      role,

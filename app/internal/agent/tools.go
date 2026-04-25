@@ -444,7 +444,7 @@ func (a *Agent) toolCreateReport(argsJSON string) (string, error) {
 		h(args.Title, reportContent)
 	}
 
-	return fmt.Sprintf("SUCCESS: Report '%s' has been created and displayed to the user. Do not repeat the report content. Simply confirm to the user that the report has been created.", args.Title), nil
+	return fmt.Sprintf("SUCCESS: Report '%s' has been created and displayed to the user. Do not explain or describe the report contents. Reply only with a brief confirmation.", args.Title), nil
 }
 
 func formatTableMeta(t *analysis.TableMeta) string {
