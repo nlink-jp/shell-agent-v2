@@ -405,9 +405,10 @@ function App() {
                 </div>
             )}
             <div className="sidebar" style={{display: sidebarCollapsed ? 'none' : undefined}}>
-                <div className="sidebar-header">
-                    <span className="sidebar-header-ic">{sidebarPanel === 'sessions' ? '\u2630' : '\u2261'}</span>
-                    <span>{sidebarPanel === 'sessions' ? 'Sessions' : 'Status'}</span>
+                <div className="sidebar-top">
+                    <button className="sidebar-nav-btn active" onClick={() => setSidebarPanel('sessions')}>
+                        <span className="sidebar-nav-ic">{sidebarPanel === 'sessions' ? '\u2630' : '\u2261'}</span> {sidebarPanel === 'sessions' ? 'Sessions' : 'Status'}
+                    </button>
                 </div>
                 <div className="sidebar-panel">
                     {sidebarPanel === 'sessions' && (<>
