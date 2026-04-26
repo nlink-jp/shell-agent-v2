@@ -49,9 +49,10 @@ func TestE2E_SimpleChat(t *testing.T) {
 		t.Errorf("record[1] role = %v", a.session.Records[1].Role)
 	}
 
-	// Verify the mock received the right messages
-	if len(mock.Calls()) != 1 {
-		t.Fatalf("mock calls = %d, want 1", len(mock.Calls()))
+	// Verify the mock received at least the main chat call
+	// (post-response tasks may add extractPinnedMemories calls)
+	if len(mock.Calls()) < 1 {
+		t.Fatalf("mock calls = %d, want >= 1", len(mock.Calls()))
 	}
 	msgs := mock.Calls()[0].Messages
 	if msgs[0].Role != "system" {
@@ -72,8 +73,8 @@ func TestE2E_SlashPathNotCommand(t *testing.T) {
 		t.Errorf("result = %q, want LLM response", result)
 	}
 	// Should have been sent to LLM, not handled as command
-	if len(mock.Calls()) != 1 {
-		t.Errorf("mock calls = %d, want 1 (message should reach LLM)", len(mock.Calls()))
+	if len(mock.Calls()) < 1 {
+		t.Errorf("mock calls = %d, want >= 1 (message should reach LLM)", len(mock.Calls()))
 	}
 }
 
@@ -114,9 +115,10 @@ func TestE2E_ToolCallLoop(t *testing.T) {
 		t.Error("expected tool result in session")
 	}
 
-	// Mock should have been called twice (tool call + final response)
-	if len(mock.Calls()) != 2 {
-		t.Errorf("mock calls = %d, want 2", len(mock.Calls()))
+	// Mock should have been called at least twice (tool call + final response)
+	// Post-response tasks (extractPinnedMemories) may add more calls
+	if len(mock.Calls()) < 2 {
+		t.Errorf("mock calls = %d, want >= 2", len(mock.Calls()))
 	}
 }
 

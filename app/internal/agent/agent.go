@@ -515,11 +515,16 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 }
 
 // postResponseTasks runs background tasks after a final response.
+// Tasks run concurrently but are waited on before state returns to Idle,
+// preventing race conditions with the next Send() call.
 // Design: docs/en/agent-data-flow.md Section 4.1
 func (a *Agent) postResponseTasks(ctx context.Context) {
-	go a.generateTitleIfNeeded(ctx)
-	go a.compactMemoryIfNeeded(ctx)
-	go a.extractPinnedMemories(ctx)
+	var wg sync.WaitGroup
+	wg.Add(3)
+	go func() { defer wg.Done(); a.generateTitleIfNeeded(ctx) }()
+	go func() { defer wg.Done(); a.compactMemoryIfNeeded(ctx) }()
+	go func() { defer wg.Done(); a.extractPinnedMemories(ctx) }()
+	wg.Wait()
 }
 
 // compactIfOverBudget runs compaction synchronously before BuildMessages.
