@@ -46,9 +46,14 @@ type MITLRequest struct {
 	Category  string `json:"category"`
 }
 
+// MITLResponse is the user's decision on a MITL request.
+type MITLResponse struct {
+	Approved bool   `json:"approved"`
+	Feedback string `json:"feedback"` // non-empty when rejected with reason
+}
+
 // MITLHandler is called when a tool requires Man-In-The-Loop approval.
-// Returns true if approved, false if rejected.
-type MITLHandler func(req MITLRequest) bool
+type MITLHandler func(req MITLRequest) MITLResponse
 
 // Agent orchestrates chat, analysis, tool execution, and memory.
 type Agent struct {
@@ -582,6 +587,31 @@ func (a *Agent) compactMemoryIfNeeded(ctx context.Context) {
 	}
 }
 
+// requestMITL sends a MITL request and returns "" if approved,
+// or a rejection message for the LLM if rejected.
+func (a *Agent) requestMITL(toolName, arguments, category string) string {
+	a.mu.Lock()
+	h := a.mitlHandler
+	a.mu.Unlock()
+	if h == nil {
+		return "" // no handler = auto-approve
+	}
+
+	resp := h(MITLRequest{
+		ToolName:  toolName,
+		Arguments: arguments,
+		Category:  category,
+	})
+	if resp.Approved {
+		return ""
+	}
+
+	if resp.Feedback != "" {
+		return fmt.Sprintf("User rejected this operation.\nFeedback: %s\nPlease revise your approach based on the feedback.", resp.Feedback)
+	}
+	return "Tool execution rejected by user."
+}
+
 func (a *Agent) executeTool(ctx context.Context, tc llm.ToolCall) string {
 	switch tc.Name {
 	case "resolve-date":
@@ -608,18 +638,9 @@ func (a *Agent) executeTool(ctx context.Context, tc llm.ToolCall) string {
 		if tool, ok := a.toolRegistry.Get(tc.Name); ok {
 			// MITL check for write/execute tools
 			if tool.NeedsMITL() {
-				a.mu.Lock()
-				h := a.mitlHandler
-				a.mu.Unlock()
-				if h != nil {
-					approved := h(MITLRequest{
-						ToolName:  tc.Name,
-						Arguments: tc.Arguments,
-						Category:  string(tool.Category),
-					})
-					if !approved {
-						return "Tool execution rejected by user."
-					}
+				result := a.requestMITL(tc.Name, tc.Arguments, string(tool.Category))
+				if result != "" {
+					return result
 				}
 			}
 			result, err := toolcall.Execute(context.Background(), tool, tc.Arguments)

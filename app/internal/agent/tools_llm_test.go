@@ -160,12 +160,12 @@ func TestE2E_MITLApprove(t *testing.T) {
 	a.session = &memory.Session{ID: "test", Title: "Test", Records: []memory.Record{}}
 
 	mitlCalled := false
-	a.SetMITLHandler(func(req MITLRequest) bool {
+	a.SetMITLHandler(func(req MITLRequest) MITLResponse {
 		mitlCalled = true
 		if req.Category != "write" {
 			t.Errorf("category = %v, want write", req.Category)
 		}
-		return true // approve
+		return MITLResponse{Approved: true}
 	})
 
 	// Simulate a write tool call
@@ -183,8 +183,8 @@ func TestE2E_MITLReject(t *testing.T) {
 	a.findings = findings.NewStore()
 	a.session = &memory.Session{ID: "test", Title: "Test", Records: []memory.Record{}}
 
-	a.SetMITLHandler(func(req MITLRequest) bool {
-		return false // reject
+	a.SetMITLHandler(func(req MITLRequest) MITLResponse {
+		return MITLResponse{Approved: false}
 	})
 
 	// Can't easily test with shell scripts without a real script,

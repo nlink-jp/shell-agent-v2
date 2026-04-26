@@ -41,6 +41,7 @@ declare global {
                     SaveSettings(s: Settings): Promise<void>;
                     ApproveMITL(): Promise<void>;
                     RejectMITL(): Promise<void>;
+                    RejectMITLWithFeedback(feedback: string): Promise<void>;
                     SendWithImages(message: string, imageDataURLs: string[]): Promise<string>;
                     SaveImage(dataURL: string): Promise<string>;
                     GetImageDataURL(id: string): Promise<string>;
@@ -139,6 +140,7 @@ function App() {
     const [editingSession, setEditingSession] = useState<string | null>(null)
     const [editTitle, setEditTitle] = useState('')
     const [mitlRequest, setMitlRequest] = useState<{tool_name: string; arguments: string; category: string} | null>(null)
+    const [mitlFeedback, setMitlFeedback] = useState('')
     const [tools, setTools] = useState<ToolInfo[]>([])
     const [pinnedMemories, setPinnedMemories] = useState<PinnedMemory[]>([])
     const [llmStatus, setLLMStatus] = useState<LLMStatus | null>(null)
@@ -617,7 +619,9 @@ function App() {
                 <div className="mitl-dialog">
                     <div className="mitl-header">
                         <span className="mitl-icon">&#9888;</span>
-                        <span>Tool Approval Required</span>
+                        <span>{mitlRequest.category === 'sql_preview' ? 'SQL Execution Preview'
+                            : mitlRequest.category === 'analysis_plan' ? 'Analysis Plan Confirmation'
+                            : 'Tool Approval Required'}</span>
                     </div>
                     <div className="mitl-body">
                         <div className="mitl-tool-name">
@@ -626,13 +630,36 @@ function App() {
                             <span className={`tool-category ${mitlRequest.category}`}>{mitlRequest.category}</span>
                         </div>
                         <div className="mitl-args">
-                            <span className="mitl-label">Arguments:</span>
+                            <span className="mitl-label">{mitlRequest.category === 'sql_preview' ? 'SQL:' : 'Details:'}</span>
                             <pre>{(() => { try { return JSON.stringify(JSON.parse(mitlRequest.arguments), null, 2) } catch { return mitlRequest.arguments } })()}</pre>
+                        </div>
+                        <div className="mitl-feedback">
+                            <input
+                                type="text"
+                                placeholder="Rejection reason / revision suggestion (optional)"
+                                value={mitlFeedback}
+                                onChange={e => setMitlFeedback(e.target.value)}
+                                onKeyDown={e => {
+                                    if (e.key === 'Enter' && mitlFeedback.trim()) {
+                                        setMitlRequest(null)
+                                        window.go.main.Bindings.RejectMITLWithFeedback(mitlFeedback.trim())
+                                        setMitlFeedback('')
+                                    }
+                                }}
+                            />
                         </div>
                     </div>
                     <div className="mitl-actions">
-                        <button className="mitl-approve" onClick={() => { setMitlRequest(null); window.go.main.Bindings.ApproveMITL() }}>Approve</button>
-                        <button className="mitl-reject" onClick={() => { setMitlRequest(null); window.go.main.Bindings.RejectMITL() }}>Reject</button>
+                        <button className="mitl-approve" onClick={() => { setMitlRequest(null); setMitlFeedback(''); window.go.main.Bindings.ApproveMITL() }}>Approve</button>
+                        <button className="mitl-reject" onClick={() => {
+                            setMitlRequest(null)
+                            if (mitlFeedback.trim()) {
+                                window.go.main.Bindings.RejectMITLWithFeedback(mitlFeedback.trim())
+                            } else {
+                                window.go.main.Bindings.RejectMITL()
+                            }
+                            setMitlFeedback('')
+                        }}>Reject</button>
                     </div>
                 </div>
             )}

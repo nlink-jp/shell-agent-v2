@@ -24,7 +24,7 @@ type Bindings struct {
 	agent      *agent.Agent
 	cfg        *config.Config
 	analysis   *analysis.Engine
-	mitlChan   chan bool
+	mitlChan   chan agent.MITLResponse
 	objects    *objstore.Store
 }
 
@@ -78,8 +78,8 @@ func (b *Bindings) startup(ctx context.Context) {
 			"detail": detail,
 		})
 	})
-	b.mitlChan = make(chan bool, 1)
-	b.agent.SetMITLHandler(func(req agent.MITLRequest) bool {
+	b.mitlChan = make(chan agent.MITLResponse, 1)
+	b.agent.SetMITLHandler(func(req agent.MITLRequest) agent.MITLResponse {
 		wailsRuntime.EventsEmit(b.ctx, "mitl:request", map[string]any{
 			"tool_name": req.ToolName,
 			"arguments": req.Arguments,
@@ -282,15 +282,23 @@ type MessageData struct {
 // ApproveMITL approves the pending tool execution.
 func (b *Bindings) ApproveMITL() {
 	select {
-	case b.mitlChan <- true:
+	case b.mitlChan <- agent.MITLResponse{Approved: true}:
 	default:
 	}
 }
 
-// RejectMITL rejects the pending tool execution.
+// RejectMITL rejects the pending tool execution without feedback.
 func (b *Bindings) RejectMITL() {
 	select {
-	case b.mitlChan <- false:
+	case b.mitlChan <- agent.MITLResponse{Approved: false}:
+	default:
+	}
+}
+
+// RejectMITLWithFeedback rejects with a reason for LLM revision.
+func (b *Bindings) RejectMITLWithFeedback(feedback string) {
+	select {
+	case b.mitlChan <- agent.MITLResponse{Approved: false, Feedback: feedback}:
 	default:
 	}
 }

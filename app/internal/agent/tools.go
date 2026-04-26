@@ -222,6 +222,10 @@ func (a *Agent) executeAnalysisTool(ctx context.Context, name string, argsJSON s
 	case "describe-data":
 		return a.toolDescribeData(argsJSON)
 	case "query-sql":
+		// MITL: show SQL before execution
+		if rejection := a.requestMITL("query-sql", argsJSON, "sql_preview"); rejection != "" {
+			return rejection, nil
+		}
 		return a.toolQuerySQL(argsJSON)
 	case "list-tables":
 		return a.toolListTables()
@@ -238,6 +242,10 @@ func (a *Agent) executeAnalysisTool(ctx context.Context, name string, argsJSON s
 	case "promote-finding":
 		return a.toolPromoteFinding(argsJSON)
 	case "analyze-data":
+		// MITL: show analysis perspective before execution
+		if rejection := a.requestMITL("analyze-data", argsJSON, "analysis_plan"); rejection != "" {
+			return rejection, nil
+		}
 		return a.toolAnalyzeData(ctx, argsJSON)
 	default:
 		return "", fmt.Errorf("unknown analysis tool: %s", name)
