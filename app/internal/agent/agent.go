@@ -88,6 +88,7 @@ type Agent struct {
 func New(cfg *config.Config) *Agent {
 	registry := toolcall.NewRegistry()
 	_ = registry.ScanDir(cfg.Tools.ScriptDir)
+	logger.Info("shell tools: scanned %d from %s", len(registry.All()), cfg.Tools.ScriptDir)
 
 	chatEngine := chat.New(defaultSystemPrompt)
 	if cfg.Location != "" {
@@ -385,7 +386,6 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 
 	allTools := a.buildToolDefs()
 	logger.Debug("agentLoop: %d tools available", len(allTools))
-	toolsExecutedLastRound := false
 
 	// Synchronous compaction before entering the loop
 	a.compactIfOverBudget(ctx)
@@ -401,14 +401,10 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 			a.compactIfOverBudget(ctx)
 		}
 
-		// LM Studio spec: after tool execution, call WITHOUT tools
-		// to force text response. Never re-enable tools after empty response.
-		var tools []llm.ToolDef
-		if toolsExecutedLastRound {
-			tools = nil
-		} else {
-			tools = allTools
-		}
+		// Pass tools every round to allow tool chaining (e.g. get-location → weather).
+		// Verified: gemma-4 does not loop even with tools always available.
+		// [Calling:] contamination is handled by BuildMessagesWithBudget.
+		tools := allTools
 
 		// Build messages with [Calling:] exclusion and optional token budget.
 		// [Calling:] exclusion prevents LLM from mimicking the pattern.
@@ -435,11 +431,10 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 		var resp *llm.Response
 		var err error
 
-		// Streaming is only safe for backends that don't produce gemma-style
-		// text tool call tags. Local (gemma) can emit <|tool_call>...</> even
-		// in tools=nil rounds, which leaks through streaming and gets stripped
-		// to empty after the fact — causing the chat bubble to disappear.
-		canStream := tools == nil && a.streamHandler != nil && a.backend.Name() != "local"
+		// Streaming disabled: tools are always present (tool chaining),
+		// so we can't predict which round will be the final text response.
+		// Local backend also has gemma tag leakage issues with streaming.
+		canStream := false
 		if canStream {
 			resp, err = a.backend.ChatStream(ctx, messages, nil, func(token string, _ []llm.ToolCall, done bool) {
 				a.streamHandler(token, done)
@@ -510,7 +505,6 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 			}
 		}
 		_ = a.session.Save() // auto-save after tool execution
-		toolsExecutedLastRound = true
 	}
 
 	logger.Debug("agentLoop: max rounds (%d) reached", maxToolRounds)
@@ -672,6 +666,7 @@ func (a *Agent) buildToolDefs() []llm.ToolDef {
 	}
 
 	// Add shell script tools from registry
+	logger.Debug("buildToolDefs: registry has %d shell tools", len(a.toolRegistry.All()))
 	for _, t := range a.toolRegistry.All() {
 		tools = append(tools, llm.ToolDef{
 			Name:        t.Name,

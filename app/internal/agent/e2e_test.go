@@ -351,44 +351,33 @@ func TestE2E_NonStreamingAgentLoop(t *testing.T) {
 	}
 }
 
-func TestE2E_StreamingAfterToolExecution(t *testing.T) {
-	// After tool execution, the agent calls LLM with tools=nil to force
-	// a text response. This round uses ChatStream() for real-time display.
+func TestE2E_ToolChainResponse(t *testing.T) {
+	// Tools are passed every round to allow chaining.
+	// After tool execution, the LLM should produce a text response.
 	mock := llm.NewMockBackend(
 		llm.MockResponse{
 			ToolCalls: []llm.ToolCall{{
 				ID: "tc-1", Name: "resolve-date", Arguments: `{"expression":"today"}`,
 			}},
 		},
-		llm.MockResponse{Content: "Streamed final response"},
+		llm.MockResponse{Content: "Today is confirmed."},
 	)
 	a := newTestAgent(t, mock)
-
-	var tokens []string
-	var gotDone bool
-	a.SetStreamHandler(func(token string, done bool) {
-		if token != "" {
-			tokens = append(tokens, token)
-		}
-		if done {
-			gotDone = true
-		}
-	})
 
 	result, err := a.Send(context.Background(), "What date is today?")
 	if err != nil {
 		t.Fatalf("Send: %v", err)
 	}
 
-	if result != "Streamed final response" {
-		t.Errorf("result = %q, want %q", result, "Streamed final response")
+	if result != "Today is confirmed." {
+		t.Errorf("result = %q, want %q", result, "Today is confirmed.")
 	}
-	// Streaming tokens expected — final round uses ChatStream()
-	if len(tokens) == 0 {
-		t.Error("expected streaming tokens from final round, got 0")
-	}
-	if !gotDone {
-		t.Error("expected done signal from streaming")
+
+	// Both rounds should have received tools (chaining enabled)
+	for i, call := range mock.Calls() {
+		if len(call.Tools) == 0 {
+			t.Errorf("round %d: expected tools to be passed, got none", i)
+		}
 	}
 }
 
