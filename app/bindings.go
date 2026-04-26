@@ -394,6 +394,8 @@ func (b *Bindings) GetImageDataURL(id string) (string, error) {
 // --- Report bindings ---
 
 // SaveReport saves markdown content to a file via save dialog.
+// object:ID references in images are resolved to base64 data URLs
+// so the exported file is self-contained.
 func (b *Bindings) SaveReport(content, filename string) error {
 	path, err := wailsRuntime.SaveFileDialog(b.ctx, wailsRuntime.SaveDialogOptions{
 		DefaultFilename: filename,
@@ -404,7 +406,37 @@ func (b *Bindings) SaveReport(content, filename string) error {
 	if err != nil || path == "" {
 		return err
 	}
-	return os.WriteFile(path, []byte(content), 0644)
+
+	// Resolve object:ID references to data URLs for self-contained export
+	resolved := b.resolveObjectRefsForExport(content)
+	return os.WriteFile(path, []byte(resolved), 0644)
+}
+
+// resolveObjectRefsForExport replaces object:ID image refs with data URLs.
+func (b *Bindings) resolveObjectRefsForExport(content string) string {
+	if b.objects == nil || !strings.Contains(content, "object:") {
+		return content
+	}
+	result := content
+	for {
+		idx := strings.Index(result, "(object:")
+		if idx < 0 {
+			break
+		}
+		end := strings.Index(result[idx:], ")")
+		if end < 0 {
+			break
+		}
+		id := result[idx+8 : idx+end]
+		du, err := b.objects.LoadAsDataURL(id)
+		if err == nil && du != "" {
+			result = result[:idx+1] + du + result[idx+end:]
+		} else {
+			// Skip unresolvable reference to avoid infinite loop
+			result = result[:idx] + "(missing-object:" + result[idx+8:]
+		}
+	}
+	return result
 }
 
 // --- Tools bindings ---
