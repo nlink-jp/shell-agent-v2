@@ -431,18 +431,16 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 		var resp *llm.Response
 		var err error
 
-		if tools == nil && a.streamHandler != nil {
-			// Final text response round (after tool execution): stream tokens
-			// to the frontend for real-time display. tools=nil guarantees the
-			// LLM won't produce proper tool calls. Any residual gemma-style
-			// text tool tags are cleaned from the accumulated response below;
-			// the streaming preview is ephemeral and replaced by the clean message.
+		// Streaming is only safe for backends that don't produce gemma-style
+		// text tool call tags. Local (gemma) can emit <|tool_call>...</> even
+		// in tools=nil rounds, which leaks through streaming and gets stripped
+		// to empty after the fact — causing the chat bubble to disappear.
+		canStream := tools == nil && a.streamHandler != nil && a.backend.Name() != "local"
+		if canStream {
 			resp, err = a.backend.ChatStream(ctx, messages, nil, func(token string, _ []llm.ToolCall, done bool) {
 				a.streamHandler(token, done)
 			})
 		} else {
-			// Tool-calling round or no stream handler: non-streaming.
-			// Prevents gemma tool call markup from leaking to the UI.
 			resp, err = a.backend.Chat(ctx, messages, tools)
 		}
 		if err != nil {
