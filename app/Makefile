@@ -11,7 +11,7 @@ build:
 build-all: build
 
 dev:
-	wails dev
+	wails dev -tags no_duckdb_arrow
 
 test:
 	go test ./...
