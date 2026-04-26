@@ -493,7 +493,11 @@ func (a *Agent) toolCreateReport(argsJSON string) (string, error) {
 		h(args.Title, reportContent)
 	}
 
-	return fmt.Sprintf("SUCCESS: Report '%s' has been created and displayed to the user. Do not explain or describe the report contents. Reply only with a brief confirmation.", args.Title), nil
+	result := fmt.Sprintf("SUCCESS: Report '%s' has been created and displayed to the user. Do not explain or describe the report contents. Reply only with a brief confirmation.", args.Title)
+	if reportObjectID != "" {
+		result += fmt.Sprintf(" [Stored as object ID: %s]", reportObjectID)
+	}
+	return result, nil
 }
 
 // toolListObjects lists objects in the current session.
