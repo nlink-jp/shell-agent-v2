@@ -204,7 +204,7 @@ func (a *Agent) SendWithImages(ctx context.Context, message string, objectIDs, d
 	if strings.HasPrefix(message, "/") {
 		parts := strings.Fields(message)
 		switch parts[0] {
-		case "/model", "/finding", "/findings":
+		case "/model", "/finding", "/findings", "/help":
 			return a.handleCommand(message)
 		}
 	}
@@ -684,6 +684,8 @@ func (a *Agent) handleCommand(message string) (string, error) {
 	cmd := parts[0]
 
 	switch cmd {
+	case "/help":
+		return a.handleHelpCommand()
 	case "/model":
 		return a.handleModelCommand(parts[1:])
 	case "/finding":
@@ -691,8 +693,21 @@ func (a *Agent) handleCommand(message string) (string, error) {
 	case "/findings":
 		return a.handleFindingsCommand()
 	default:
-		return fmt.Sprintf("Unknown command: %s", cmd), nil
+		return fmt.Sprintf("Unknown command: %s\nType /help for available commands.", cmd), nil
 	}
+}
+
+func (a *Agent) handleHelpCommand() (string, error) {
+	return `**Available Commands**
+
+| Command | Description |
+|---------|-------------|
+| /help | Show this help |
+| /model | Show current backend |
+| /model local | Switch to local LLM |
+| /model vertex | Switch to Vertex AI |
+| /finding <text> | Manually add a finding |
+| /findings | List all findings |`, nil
 }
 
 func (a *Agent) handleModelCommand(args []string) (string, error) {
