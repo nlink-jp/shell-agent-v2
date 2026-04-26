@@ -70,9 +70,8 @@ type Agent struct {
 	mitlHandler     MITLHandler
 	reportHandler   func(title, content string)
 	pinnedHandler   func()
-	progressHandler    func(toolName string)
-	explanationHandler func(text string)
-	toolRegistry       *toolcall.Registry
+	activityHandler func(actType, detail string)
+	toolRegistry    *toolcall.Registry
 
 	// Token usage tracking (session-scoped, reset on session switch)
 	promptTokens int
@@ -145,18 +144,12 @@ func (a *Agent) SetPinnedHandler(h func()) {
 	a.pinnedHandler = h
 }
 
-// SetProgressHandler sets the callback for tool execution progress.
-func (a *Agent) SetProgressHandler(h func(toolName string)) {
+// SetActivityHandler sets the callback for agent activity events.
+// actType: "tool_start", "tool_end", "thinking"
+func (a *Agent) SetActivityHandler(h func(actType, detail string)) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.progressHandler = h
-}
-
-// SetExplanationHandler sets the callback for tool-calling round explanations.
-func (a *Agent) SetExplanationHandler(h func(text string)) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.explanationHandler = h
+	a.activityHandler = h
 }
 
 // CurrentBackend returns the name of the active LLM backend.
@@ -495,21 +488,23 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 		}
 		a.session.AddAssistantMessage(assistantContent)
 
-		// Emit tool-calling round explanation to frontend as a chat message.
-		// [Calling: ...] placeholders are not emitted.
-		if resp.Content != "" && a.explanationHandler != nil {
-			a.explanationHandler(resp.Content)
+		// Emit thinking activity for LLM explanation text (transient, not a chat message)
+		if resp.Content != "" && a.activityHandler != nil {
+			a.activityHandler("thinking", resp.Content)
 		}
 
 		// Execute each tool call
 		for _, tc := range resp.ToolCalls {
-			if a.progressHandler != nil {
-				a.progressHandler(tc.Name)
+			if a.activityHandler != nil {
+				a.activityHandler("tool_start", tc.Name)
 			}
 			logger.Info("agentLoop: tool_call name=%s args=%s", tc.Name, logger.Truncate(tc.Arguments, 200))
 			result := a.executeTool(ctx, tc)
 			logger.Debug("agentLoop: tool_result name=%s result=%s", tc.Name, logger.Truncate(result, 200))
 			a.session.AddToolResult(tc.ID, tc.Name, result)
+			if a.activityHandler != nil {
+				a.activityHandler("tool_end", tc.Name)
+			}
 		}
 		_ = a.session.Save() // auto-save after tool execution
 		toolsExecutedLastRound = true

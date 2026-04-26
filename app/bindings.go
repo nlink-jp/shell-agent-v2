@@ -72,14 +72,10 @@ func (b *Bindings) startup(ctx context.Context) {
 			"content": content,
 		})
 	})
-	b.agent.SetProgressHandler(func(toolName string) {
-		wailsRuntime.EventsEmit(b.ctx, "agent:progress", map[string]any{
-			"tool_name": toolName,
-		})
-	})
-	b.agent.SetExplanationHandler(func(text string) {
-		wailsRuntime.EventsEmit(b.ctx, "agent:explanation", map[string]any{
-			"text": text,
+	b.agent.SetActivityHandler(func(actType, detail string) {
+		wailsRuntime.EventsEmit(b.ctx, "agent:activity", map[string]any{
+			"type":   actType,
+			"detail": detail,
 		})
 	})
 	b.mitlChan = make(chan bool, 1)

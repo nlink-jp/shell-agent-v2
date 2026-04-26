@@ -650,8 +650,8 @@ func (a *Agent) toolAnalyzeData(ctx context.Context, argsJSON string) (string, e
 	cfg := analysis.DefaultSummarizerConfig()
 	summarizer := analysis.NewSummarizer(adapter, a.analysis.Schema(), cfg)
 	result, err := summarizer.Analyze(ctx, args.Prompt, rows, func(idx, total int) {
-		if a.progressHandler != nil {
-			a.progressHandler(fmt.Sprintf("analyze-data (window %d/%d)", idx+1, total))
+		if a.activityHandler != nil {
+			a.activityHandler("tool_start", fmt.Sprintf("analyze-data (window %d/%d)", idx+1, total))
 		}
 	})
 	if err != nil {
