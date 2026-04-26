@@ -197,7 +197,8 @@ Rules:
 - Update the summary to incorporate observations from the new data window
 - Only report NEW findings not already covered in previous findings
 - Use severity levels appropriately: critical for urgent issues, info for general observations
-- Include specific evidence from the data`, perspective, s.schema)
+- Include specific evidence from the data
+- Write the summary and finding descriptions in the same language as the analysis perspective`, perspective, s.schema)
 }
 
 func (s *Summarizer) buildUserPrompt(tag guard.Tag, summary string, findings []Finding, rows []string, windowIndex int) string {

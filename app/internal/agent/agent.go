@@ -971,6 +971,7 @@ func (a *Agent) generateTitleIfNeeded(ctx context.Context) {
 
 const defaultSystemPrompt = `You are a helpful assistant with data analysis capabilities.
 You can use tools to help answer questions.
+Always respond in the same language the user is using. If the user writes in Japanese, respond in Japanese. If in English, respond in English.
 
 When you call a tool, include a brief explanation of what you are doing and why in the same response. For example, when calling query-sql, mention the SQL and its intent in the same message.
 
