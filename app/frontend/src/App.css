@@ -819,6 +819,35 @@
     background: var(--bg-hover, rgba(255,255,255,0.05));
 }
 
+.settings-tabs {
+    display: flex;
+    padding: 0 24px;
+    gap: 0;
+    border-bottom: 1px solid var(--border-primary, #2a3a4a);
+    flex-shrink: 0;
+}
+
+.settings-tabs button {
+    padding: 10px 20px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary, #8899aa);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+}
+
+.settings-tabs button.active {
+    color: var(--text-primary, #e0e0e0);
+    border-bottom-color: var(--border-accent, #5a8abf);
+}
+
+.settings-tabs button:hover {
+    color: var(--text-primary, #e0e0e0);
+}
+
 .settings-body {
     padding: 20px 24px;
     overflow-y: auto;

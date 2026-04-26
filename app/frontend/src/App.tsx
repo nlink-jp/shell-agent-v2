@@ -149,6 +149,7 @@ function App() {
     const [lightboxImage, setLightboxImage] = useState<string | null>(null)
     const [expandedReport, setExpandedReport] = useState<{title: string; content: string} | null>(null)
     const [settings, setSettings] = useState<Settings | null>(null)
+    const [settingsTab, setSettingsTab] = useState<'general' | 'tools'>('general')
     const [progressTool, setProgressTool] = useState('')
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const composingRef = useRef(false)
@@ -735,63 +736,71 @@ function App() {
                             <h2>Settings</h2>
                             <button className="settings-close" onClick={() => setShowSettings(false)}>&#x2715;</button>
                         </div>
+                        <div className="settings-tabs">
+                            <button className={settingsTab === 'general' ? 'active' : ''} onClick={() => setSettingsTab('general')}>General</button>
+                            <button className={settingsTab === 'tools' ? 'active' : ''} onClick={() => setSettingsTab('tools')}>Tools</button>
+                        </div>
                         <div className="settings-body">
-                            <div className="settings-section">
-                                <h3>General</h3>
-                                <label>
-                                    <span>Default Backend</span>
-                                    <select value={settings.default_backend} onChange={e => updateSetting({default_backend: e.target.value})}>
-                                        <option value="local">Local LLM</option>
-                                        <option value="vertex_ai">Vertex AI</option>
-                                    </select>
-                                </label>
-                                <label>
-                                    <span>Theme</span>
-                                    <select value={settings.theme || 'dark'} onChange={e => {
-                                        updateSetting({theme: e.target.value})
-                                        document.documentElement.setAttribute('data-theme', e.target.value)
-                                    }}>
-                                        <option value="dark">Dark</option>
-                                        <option value="light">Light</option>
-                                        <option value="warm">Warm</option>
-                                        <option value="midnight">Midnight</option>
-                                    </select>
-                                </label>
-                                <label>
-                                    <span>Location</span>
-                                    <input value={settings.location || ''} placeholder="e.g. Tokyo, Japan" onChange={e => updateSetting({location: e.target.value})} />
-                                </label>
-                            </div>
-                            <div className="settings-section">
-                                <h3>Local LLM</h3>
-                                <label>
-                                    <span>Endpoint</span>
-                                    <input value={settings.local_endpoint} onChange={e => updateSetting({local_endpoint: e.target.value})} />
-                                </label>
-                                <label>
-                                    <span>Model</span>
-                                    <input value={settings.local_model} onChange={e => updateSetting({local_model: e.target.value})} />
-                                </label>
-                            </div>
-                            <div className="settings-section">
-                                <h3>Vertex AI</h3>
-                                <label>
-                                    <span>Project ID</span>
-                                    <input value={settings.vertex_project} onChange={e => updateSetting({vertex_project: e.target.value})} />
-                                </label>
-                                <label>
-                                    <span>Region</span>
-                                    <input value={settings.vertex_region} onChange={e => updateSetting({vertex_region: e.target.value})} />
-                                </label>
-                                <label>
-                                    <span>Model</span>
-                                    <input value={settings.vertex_model} onChange={e => updateSetting({vertex_model: e.target.value})} />
-                                </label>
-                            </div>
-                            <div className="settings-section">
-                                <h3>Tools</h3>
-                                <div className="settings-tools-list">
-                                    {tools.map(t => (
+                            {settingsTab === 'general' && (<>
+                                <div className="settings-section">
+                                    <h3>General</h3>
+                                    <label>
+                                        <span>Default Backend</span>
+                                        <select value={settings.default_backend} onChange={e => updateSetting({default_backend: e.target.value})}>
+                                            <option value="local">Local LLM</option>
+                                            <option value="vertex_ai">Vertex AI</option>
+                                        </select>
+                                    </label>
+                                    <label>
+                                        <span>Theme</span>
+                                        <select value={settings.theme || 'dark'} onChange={e => {
+                                            updateSetting({theme: e.target.value})
+                                            document.documentElement.setAttribute('data-theme', e.target.value)
+                                        }}>
+                                            <option value="dark">Dark</option>
+                                            <option value="light">Light</option>
+                                            <option value="warm">Warm</option>
+                                            <option value="midnight">Midnight</option>
+                                        </select>
+                                    </label>
+                                    <label>
+                                        <span>Location</span>
+                                        <input value={settings.location || ''} placeholder="e.g. Tokyo, Japan" onChange={e => updateSetting({location: e.target.value})} />
+                                    </label>
+                                </div>
+                                <div className="settings-section">
+                                    <h3>Local LLM</h3>
+                                    <label>
+                                        <span>Endpoint</span>
+                                        <input value={settings.local_endpoint} onChange={e => updateSetting({local_endpoint: e.target.value})} />
+                                    </label>
+                                    <label>
+                                        <span>Model</span>
+                                        <input value={settings.local_model} onChange={e => updateSetting({local_model: e.target.value})} />
+                                    </label>
+                                </div>
+                                <div className="settings-section">
+                                    <h3>Vertex AI</h3>
+                                    <label>
+                                        <span>Project ID</span>
+                                        <input value={settings.vertex_project} onChange={e => updateSetting({vertex_project: e.target.value})} />
+                                    </label>
+                                    <label>
+                                        <span>Region</span>
+                                        <input value={settings.vertex_region} onChange={e => updateSetting({vertex_region: e.target.value})} />
+                                    </label>
+                                    <label>
+                                        <span>Model</span>
+                                        <input value={settings.vertex_model} onChange={e => updateSetting({vertex_model: e.target.value})} />
+                                    </label>
+                                </div>
+                            </>)}
+                            {settingsTab === 'tools' && (<>
+                                <div className="settings-section">
+                                    <h3>Registered Tools</h3>
+                                    {tools.length === 0 ? (
+                                        <p className="sidebar-hint">No tools available</p>
+                                    ) : tools.map(t => (
                                         <div key={t.name} className="tool-item">
                                             <div className="tool-name">
                                                 <code>{t.name}</code>
@@ -802,7 +811,7 @@ function App() {
                                         </div>
                                     ))}
                                 </div>
-                            </div>
+                            </>)}
                         </div>
                         <div className="settings-footer">
                             <button className="settings-close-btn" onClick={() => setShowSettings(false)}>Close</button>
