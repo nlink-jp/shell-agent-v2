@@ -29,8 +29,31 @@ func New(systemPrompt string) *Engine {
 }
 
 // SetLocation sets the user's location for temporal context.
+// Input is sanitized to prevent prompt injection: newlines stripped,
+// length capped at 200 chars.
 func (e *Engine) SetLocation(location string) {
-	e.location = location
+	e.location = sanitizeSystemContext(location, 200)
+}
+
+// sanitizeSystemContext strips characters that could be used for
+// prompt injection when content is concatenated into the system prompt.
+// Removes control chars and newlines, caps length.
+func sanitizeSystemContext(s string, maxLen int) string {
+	var b strings.Builder
+	for _, r := range s {
+		if r == '\n' || r == '\r' || r == '\t' {
+			b.WriteRune(' ')
+			continue
+		}
+		if r < 0x20 || r == 0x7f {
+			continue // strip other control chars
+		}
+		b.WriteRune(r)
+		if b.Len() >= maxLen {
+			break
+		}
+	}
+	return strings.TrimSpace(b.String())
 }
 
 // BuildMessages constructs the message array for the API call,

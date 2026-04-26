@@ -6,16 +6,23 @@
 #
 # Uses the JMA open XML feed (no API key required).
 # Pair with get-location tool for automatic region detection.
+# Note: region passed via env var to prevent shell injection.
 
 INPUT=$(cat)
 REGION=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('region','東京'))" 2>/dev/null)
 
-curl -s "https://www.data.jma.go.jp/developer/xml/feed/regular.xml" | python3 -c "
-import sys, json, xml.etree.ElementTree as ET
+XML_DATA=$(curl -s "https://www.data.jma.go.jp/developer/xml/feed/regular.xml")
+
+WEATHER_REGION="$REGION" XML_DATA="$XML_DATA" python3 <<'PYEOF' 2>/dev/null
+import os, sys, json, xml.etree.ElementTree as ET
 from urllib.request import urlopen
 
-region = '${REGION}'
-data = sys.stdin.read()
+region = os.environ.get('WEATHER_REGION', '東京')
+data = os.environ.get('XML_DATA', '')
+if not data:
+    print(json.dumps({'error': 'no data'}))
+    sys.exit(0)
+
 root = ET.fromstring(data)
 ns = {'atom': 'http://www.w3.org/2005/Atom'}
 
@@ -98,8 +105,8 @@ if not forecast_url and not overview_url:
             c = (content.text or '').strip('【】 ')
             if c:
                 regions.add(c.replace('府県天気予報', ''))
-    result['message'] = f'Region \"{region}\" not found'
+    result['message'] = f'Region "{region}" not found'
     result['available_regions'] = sorted(regions)[:20]
 
 print(json.dumps(result, ensure_ascii=False, indent=2))
-" 2>/dev/null
+PYEOF

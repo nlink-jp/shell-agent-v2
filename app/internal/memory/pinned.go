@@ -121,19 +121,43 @@ func (s *PinnedStore) All() []PinnedFact {
 }
 
 // FormatForPrompt returns pinned facts formatted for system prompt injection.
+// Facts are sanitized to prevent prompt injection — LLM-extracted facts
+// may contain hostile content (newlines, control chars, instruction-like text).
 func (s *PinnedStore) FormatForPrompt() string {
 	if len(s.Entries) == 0 {
 		return ""
 	}
 	var sb strings.Builder
 	for _, e := range s.Entries {
-		sb.WriteString(fmt.Sprintf("- [%s] %s", e.Category, e.Fact))
-		if e.NativeFact != "" && e.NativeFact != e.Fact {
-			sb.WriteString(fmt.Sprintf(" (%s)", e.NativeFact))
+		fact := sanitizePinned(e.Fact, 300)
+		native := sanitizePinned(e.NativeFact, 300)
+		category := sanitizePinned(e.Category, 30)
+		sb.WriteString(fmt.Sprintf("- [%s] %s", category, fact))
+		if native != "" && native != fact {
+			sb.WriteString(fmt.Sprintf(" (%s)", native))
 		}
 		sb.WriteString("\n")
 	}
 	return sb.String()
+}
+
+// sanitizePinned removes control chars and newlines, caps length.
+func sanitizePinned(s string, maxLen int) string {
+	var b []rune
+	for _, r := range s {
+		if r == '\n' || r == '\r' || r == '\t' {
+			b = append(b, ' ')
+			continue
+		}
+		if r < 0x20 || r == 0x7f {
+			continue
+		}
+		b = append(b, r)
+		if len(b) >= maxLen {
+			break
+		}
+	}
+	return strings.TrimSpace(string(b))
 }
 
 // FormatExistingForExtraction returns facts list for the extraction prompt.

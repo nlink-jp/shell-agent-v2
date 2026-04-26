@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -254,8 +256,18 @@ func (a *Agent) startGuardians() {
 			a.mcpStatuses = append(a.mcpStatuses, MCPStatus{Name: p.Name, Status: "disabled"})
 			continue
 		}
-		binary := config.ExpandPath(p.Binary)
-		profile := config.ExpandPath(p.ProfilePath)
+		binary, err := validateBinaryPath(p.Binary)
+		if err != nil {
+			logger.Error("MCP guardian %q binary validation failed: %v", p.Name, err)
+			a.mcpStatuses = append(a.mcpStatuses, MCPStatus{Name: p.Name, Status: "error", Error: err.Error()})
+			continue
+		}
+		profile, err := validateProfilePath(p.ProfilePath)
+		if err != nil {
+			logger.Error("MCP guardian %q profile validation failed: %v", p.Name, err)
+			a.mcpStatuses = append(a.mcpStatuses, MCPStatus{Name: p.Name, Status: "error", Error: err.Error()})
+			continue
+		}
 		g := mcp.NewGuardian(binary, "--profile", profile)
 		if err := g.Start(); err != nil {
 			logger.Error("MCP guardian %q start failed: %v", p.Name, err)
@@ -267,6 +279,50 @@ func (a *Agent) startGuardians() {
 		a.mcpStatuses = append(a.mcpStatuses, MCPStatus{Name: p.Name, Status: "running", ToolCount: toolCount})
 		logger.Info("MCP guardian %q started (%d tools)", p.Name, toolCount)
 	}
+}
+
+// validateBinaryPath ensures the path resolves to an existing executable
+// regular file. Prevents arbitrary command execution if config is corrupted.
+func validateBinaryPath(path string) (string, error) {
+	if path == "" {
+		return "", fmt.Errorf("empty binary path")
+	}
+	expanded := config.ExpandPath(path)
+	abs, err := filepath.Abs(expanded)
+	if err != nil {
+		return "", fmt.Errorf("invalid path: %w", err)
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return "", fmt.Errorf("binary not found: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("not a regular file: %s", abs)
+	}
+	if info.Mode().Perm()&0111 == 0 {
+		return "", fmt.Errorf("not executable: %s", abs)
+	}
+	return abs, nil
+}
+
+// validateProfilePath ensures the profile config file exists and is readable.
+func validateProfilePath(path string) (string, error) {
+	if path == "" {
+		return "", fmt.Errorf("empty profile path")
+	}
+	expanded := config.ExpandPath(path)
+	abs, err := filepath.Abs(expanded)
+	if err != nil {
+		return "", fmt.Errorf("invalid path: %w", err)
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return "", fmt.Errorf("profile not found: %w", err)
+	}
+	if info.IsDir() {
+		return "", fmt.Errorf("profile is a directory: %s", abs)
+	}
+	return abs, nil
 }
 
 // MCPStatuses returns the status of all configured MCP guardians.
@@ -449,7 +505,9 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 		a.session = &memory.Session{ID: "default", Records: []memory.Record{}}
 	}
 
-	logger.Info("agentLoop: session=%s message=%s objects=%d", a.session.ID, logger.Truncate(userMessage, 100), len(objectIDs))
+	// Avoid logging full user message at Info level (may contain sensitive data).
+	logger.Info("agentLoop: session=%s message_len=%d objects=%d", a.session.ID, len(userMessage), len(objectIDs))
+	logger.Debug("agentLoop: message=%s", logger.Truncate(userMessage, 100))
 
 	// Step 1: Add user message to session
 	// ObjectIDs stored in record for persistence; dataURLs used for LLM context
@@ -573,7 +631,9 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 			if a.activityHandler != nil {
 				a.activityHandler("tool_start", tc.Name)
 			}
-			logger.Info("agentLoop: tool_call name=%s args=%s", tc.Name, logger.Truncate(tc.Arguments, 200))
+			// Avoid logging full tool arguments at Info level (may contain credentials, paths, etc.)
+			logger.Info("agentLoop: tool_call name=%s args_len=%d", tc.Name, len(tc.Arguments))
+			logger.Debug("agentLoop: tool_call args=%s", logger.Truncate(tc.Arguments, 200))
 			result := a.executeTool(ctx, tc)
 			logger.Debug("agentLoop: tool_result name=%s result=%s", tc.Name, logger.Truncate(result, 200))
 			a.session.AddToolResult(tc.ID, tc.Name, result)
@@ -747,7 +807,7 @@ func (a *Agent) executeTool(ctx context.Context, tc llm.ToolCall) string {
 					return result
 				}
 			}
-			result, err := toolcall.Execute(context.Background(), tool, tc.Arguments)
+			result, err := toolcall.Execute(ctx, tool, tc.Arguments)
 			if err != nil {
 				return fmt.Sprintf("Error: %v", err)
 			}

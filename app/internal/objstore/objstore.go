@@ -95,13 +95,16 @@ func (s *Store) Store(reader io.Reader, objType ObjectType, mimeType, origName, 
 	id := generateID()
 	path := filepath.Join(s.dataDir, id)
 
-	f, err := os.Create(path)
+	// Use 0600 to restrict access to owner only (may contain sensitive content).
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
 		return nil, fmt.Errorf("create object: %w", err)
 	}
 
 	size, err := io.Copy(f, reader)
-	f.Close()
+	if cerr := f.Close(); cerr != nil && err == nil {
+		err = cerr
+	}
 	if err != nil {
 		os.Remove(path)
 		return nil, fmt.Errorf("write object: %w", err)

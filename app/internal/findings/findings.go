@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/nlink-jp/shell-agent-v2/internal/config"
@@ -94,14 +95,38 @@ func (s *Store) DeleteBySession(sessionID string) {
 }
 
 // FormatForPrompt returns findings formatted for system prompt injection.
+// Content is sanitized: newlines collapsed, length capped per finding,
+// to prevent prompt injection via user-influenced finding content.
 func (s *Store) FormatForPrompt() string {
 	if len(s.findings) == 0 {
 		return ""
 	}
 	result := ""
 	for _, f := range s.findings {
+		content := sanitizeForPrompt(f.Content, 500)
+		title := sanitizeForPrompt(f.OriginSessionTitle, 100)
 		result += fmt.Sprintf("- [%s] %s (from: %s, session: %s)\n",
-			f.CreatedLabel, f.Content, f.OriginSessionTitle, f.OriginSessionID)
+			f.CreatedLabel, content, title, f.OriginSessionID)
 	}
 	return result
+}
+
+// sanitizeForPrompt removes control chars and newlines, caps length.
+// Used when user-influenced content is embedded in system prompt.
+func sanitizeForPrompt(s string, maxLen int) string {
+	var b []rune
+	for _, r := range s {
+		if r == '\n' || r == '\r' || r == '\t' {
+			b = append(b, ' ')
+			continue
+		}
+		if r < 0x20 || r == 0x7f {
+			continue
+		}
+		b = append(b, r)
+		if len(b) >= maxLen {
+			break
+		}
+	}
+	return strings.TrimSpace(string(b))
 }

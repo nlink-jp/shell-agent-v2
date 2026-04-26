@@ -138,13 +138,17 @@ func (e *Engine) LoadCSV(tableName, filePath string) error {
 	if err := e.Open(); err != nil {
 		return err
 	}
+	safePath, err := validateFilePath(filePath)
+	if err != nil {
+		return err
+	}
 
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
 	query := fmt.Sprintf(
 		"CREATE OR REPLACE TABLE %s AS SELECT * FROM read_csv_auto('%s')",
-		sanitizeIdentifier(tableName), filePath,
+		sanitizeIdentifier(tableName), escapeSQLString(safePath),
 	)
 	if _, err := e.db.Exec(query); err != nil {
 		return fmt.Errorf("load CSV: %w", err)
@@ -158,13 +162,17 @@ func (e *Engine) LoadJSON(tableName, filePath string) error {
 	if err := e.Open(); err != nil {
 		return err
 	}
+	safePath, err := validateFilePath(filePath)
+	if err != nil {
+		return err
+	}
 
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
 	query := fmt.Sprintf(
 		"CREATE OR REPLACE TABLE %s AS SELECT * FROM read_json_auto('%s')",
-		sanitizeIdentifier(tableName), filePath,
+		sanitizeIdentifier(tableName), escapeSQLString(safePath),
 	)
 	if _, err := e.db.Exec(query); err != nil {
 		return fmt.Errorf("load JSON: %w", err)
@@ -178,19 +186,59 @@ func (e *Engine) LoadJSONL(tableName, filePath string) error {
 	if err := e.Open(); err != nil {
 		return err
 	}
+	safePath, err := validateFilePath(filePath)
+	if err != nil {
+		return err
+	}
 
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
 	query := fmt.Sprintf(
 		"CREATE OR REPLACE TABLE %s AS SELECT * FROM read_json_auto('%s', format='newline_delimited')",
-		sanitizeIdentifier(tableName), filePath,
+		sanitizeIdentifier(tableName), escapeSQLString(safePath),
 	)
 	if _, err := e.db.Exec(query); err != nil {
 		return fmt.Errorf("load JSONL: %w", err)
 	}
 
 	return e.refreshTableMeta(tableName)
+}
+
+// validateFilePath ensures the path exists, is a regular file, and contains
+// no SQL metacharacters that could be used for injection beyond the
+// single-quote escape applied separately.
+func validateFilePath(path string) (string, error) {
+	if path == "" {
+		return "", fmt.Errorf("empty file path")
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("invalid path: %w", err)
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return "", fmt.Errorf("file not accessible: %w", err)
+	}
+	if info.IsDir() {
+		return "", fmt.Errorf("path is a directory, not a file: %s", abs)
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("not a regular file: %s", abs)
+	}
+	// Reject paths containing newlines or control characters
+	for _, r := range abs {
+		if r == '\n' || r == '\r' || r == 0 {
+			return "", fmt.Errorf("invalid character in path")
+		}
+	}
+	return abs, nil
+}
+
+// escapeSQLString escapes single quotes for safe inclusion in a SQL
+// string literal. DuckDB doubles single quotes for escaping.
+func escapeSQLString(s string) string {
+	return strings.ReplaceAll(s, "'", "''")
 }
 
 // Schema returns a text representation of all table schemas for LLM prompts.
@@ -210,6 +258,10 @@ func (e *Engine) Schema() string {
 }
 
 // QuerySQL executes a read-only SQL query and returns results.
+// MaxQueryRows caps QuerySQL results to prevent memory exhaustion
+// from unbounded SELECT queries.
+const MaxQueryRows = 10000
+
 func (e *Engine) QuerySQL(query string) ([]map[string]any, error) {
 	if err := e.Open(); err != nil {
 		return nil, err
@@ -234,7 +286,12 @@ func (e *Engine) QuerySQL(query string) ([]map[string]any, error) {
 	}
 
 	var results []map[string]any
+	rowCount := 0
 	for rows.Next() {
+		if rowCount >= MaxQueryRows {
+			return nil, fmt.Errorf("query result exceeds %d rows; refine query (e.g. add LIMIT or WHERE)", MaxQueryRows)
+		}
+		rowCount++
 		values := make([]any, len(columns))
 		valuePtrs := make([]any, len(columns))
 		for i := range values {
