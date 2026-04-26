@@ -100,9 +100,9 @@ func TestLMStudio_Heavy_AnalysisWorkflow(t *testing.T) {
 		}
 
 		records := len(a.session.Records)
-		tokens := countSessionTokens(a.session)
-		warmN := countWarm(a.session)
-		toolUsed := wasToolCalledInLastTurn(a.session)
+		tokens := countSessionTokensH(a.session)
+		warmN := countWarmH(a.session)
+		toolUsed := wasToolCalledInLastTurnH(a.session)
 
 		status := "NO_TOOL"
 		if toolUsed { status = "TOOL_OK" }
@@ -114,8 +114,8 @@ func TestLMStudio_Heavy_AnalysisWorkflow(t *testing.T) {
 
 	t.Logf("\n=== Session Summary ===")
 	t.Logf("Total records: %d", len(a.session.Records))
-	t.Logf("Estimated tokens: %d", countSessionTokens(a.session))
-	t.Logf("Warm summaries: %d", countWarm(a.session))
+	t.Logf("Estimated tokens: %d", countSessionTokensH(a.session))
+	t.Logf("Warm summaries: %d", countWarmH(a.session))
 	t.Logf("Promoted findings: %d", len(a.findings.All()))
 	for _, f := range a.findings.All() {
 		t.Logf("  Finding: [%v] %s", f.Tags, truncate(f.Content, 60))

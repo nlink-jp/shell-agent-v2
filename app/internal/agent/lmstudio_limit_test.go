@@ -81,10 +81,10 @@ func TestLMStudio_Limit_NoBudget(t *testing.T) {
 
 		// Count records to see context size
 		records := len(a.session.Records)
-		tokens := countSessionTokens(a.session)
+		tokens := countSessionTokensH(a.session)
 
 		// Check if a tool was called in this turn
-		toolUsed := wasToolCalledInLastTurn(a.session)
+		toolUsed := wasToolCalledInLastTurnH(a.session)
 
 		status := "TEXT_ONLY"
 		if toolUsed {
@@ -103,7 +103,7 @@ func TestLMStudio_Limit_NoBudget(t *testing.T) {
 
 	t.Logf("\n=== RESULT: Last successful tool call at turn %d ===", lastToolCallTurn)
 	t.Logf("Total session records: %d", len(a.session.Records))
-	t.Logf("Estimated total tokens: %d", countSessionTokens(a.session))
+	t.Logf("Estimated total tokens: %d", countSessionTokensH(a.session))
 }
 
 // TestLMStudio_Limit_WithBudget runs the same test WITH context budget control.
@@ -161,9 +161,9 @@ func TestLMStudio_Limit_WithBudget(t *testing.T) {
 		}
 
 		records := len(a.session.Records)
-		tokens := countSessionTokens(a.session)
-		warmCount := countWarm(a.session)
-		toolUsed := wasToolCalledInLastTurn(a.session)
+		tokens := countSessionTokensH(a.session)
+		warmCount := countWarmH(a.session)
+		toolUsed := wasToolCalledInLastTurnH(a.session)
 
 		// Count messages that BuildMessagesWithBudget would produce
 		budgetResult := a.chat.BuildMessagesWithBudget(
@@ -193,46 +193,7 @@ func TestLMStudio_Limit_WithBudget(t *testing.T) {
 	t.Logf("Total session records: %d", len(a.session.Records))
 }
 
-// --- helpers ---
-
-func countSessionTokens(s *memory.Session) int {
-	total := 0
-	for _, r := range s.Records {
-		total += memory.EstimateTokens(r.Content)
-	}
-	return total
-}
-
-func countWarm(s *memory.Session) int {
-	count := 0
-	for _, r := range s.Records {
-		if r.Tier == memory.TierWarm {
-			count++
-		}
-	}
-	return count
-}
-
-func wasToolCalledInLastTurn(s *memory.Session) bool {
-	// Walk backwards from end to find the last user message,
-	// then check if there are tool records after it
-	lastUserIdx := -1
-	for i := len(s.Records) - 1; i >= 0; i-- {
-		if s.Records[i].Role == "user" {
-			lastUserIdx = i
-			break
-		}
-	}
-	if lastUserIdx < 0 {
-		return false
-	}
-	for i := lastUserIdx + 1; i < len(s.Records); i++ {
-		if s.Records[i].Role == "tool" {
-			return true
-		}
-	}
-	return false
-}
+// helpers are in integration_helpers_test.go
 
 // TestLMStudio_Limit_CallingPatternIsolation directly tests whether
 // [Calling:] messages in context cause tool calling failure,

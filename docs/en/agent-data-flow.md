@@ -150,25 +150,42 @@ type Record struct {
 
 ### 3.3 Context Budget Control
 
-Local LLMs (gemma-4) lose tool calling ability when context exceeds ~20
-messages. `BuildMessagesWithBudget` enforces a token budget to keep the
-LLM context within the model's reliable operating range.
+`BuildMessagesWithBudget` provides two mechanisms to keep the LLM
+context clean and within operational bounds:
 
-#### Budget Allocation (default for local backend)
+1. **[Calling:] exclusion** (primary) — prevents pattern contamination
+2. **Token budget** (optional) — caps context size for resource management
 
-```
-Total budget:               8,192 tokens
-  System prompt (base):      ~400 tokens (fixed)
-  Temporal context:           ~60 tokens (fixed)
-  Pinned memory:             ~200 tokens (capped)
-  Findings:                  ~300 tokens (capped)
-  Tool definitions:          ~800 tokens (variable)
-  ──────────────────────────
-  Fixed overhead:           ~1,760 tokens
+#### Root Cause: [Calling:] Pattern Contamination
 
-  Warm summaries:           ≤ 1,024 tokens
-  Hot messages:             remaining (~5,400 tokens)
-```
+Integration testing with gemma-4-26b revealed that tool calling failure
+was NOT caused by context length (gemma-4 supports 256K tokens). The
+actual cause: when `[Calling: tool_name]` synthetic assistant messages
+are included in the LLM context, the model mimics the pattern as text
+output instead of making real API tool calls.
+
+**Test results (Before/After):**
+
+| Condition | Last successful tool call | Records at failure |
+|-----------|--------------------------|-------------------|
+| [Calling:] in context (NoBudget) | Turn 3–5 (non-deterministic) | 10–16 records |
+| [Calling:] excluded (WithBudget) | Turn 13+ (all successful) | 52+ records |
+
+The failure is probabilistic — same conditions can succeed or fail
+across runs, but `[Calling:]` contamination significantly increases
+failure probability.
+
+#### Heavy Analysis Scenario Observations
+
+Tested with: CSV load (30 rows) → queries → analyze-data → JSONL load
+→ queries → analyze second table → cross-table query.
+
+Key findings:
+- `analyze-data` results inflate context by ~1,800 tokens per call
+- Tool calling can degrade at ~3,000 estimated tokens with 14 tool defs
+- Synchronous compaction (HotTokenLimit=4096) auto-recovers by reducing
+  records from 22 to 11 with warm summary
+- After compaction, tool calling resumes normally
 
 #### Message Selection Algorithm
 
@@ -176,42 +193,46 @@ Total budget:               8,192 tokens
 1. Build system prompt (existing logic)
 2. Collect warm summary records, truncate to MaxWarmTokens
 3. Collect hot records in REVERSE chronological order:
-   - Skip [Calling: ...] messages (not needed for LLM context)
-   - Truncate tool results to MaxToolResultTokens (512)
+   - Skip [Calling: ...] messages (prevents pattern contamination)
+   - Truncate tool results to MaxToolResultTokens
    - Stop when token budget exhausted (newest messages preserved)
 4. Reverse back to chronological order
 5. Assemble: system + warm + hot
 ```
 
-#### Root Cause: [Calling:] Pattern Contamination
-
-Testing revealed that the tool calling failure was NOT caused by context
-length. gemma-4 supports 256K tokens. The actual cause: when `[Calling: tool]`
-synthetic messages are included in the LLM context, the model mimics the
-pattern as text output instead of making real tool calls. This occurs as
-early as turn 3 (10 records).
-
-The fix: `BuildMessagesWithBudget` excludes `[Calling:]` messages from
-the LLM context. This is applied to ALL backends, not just local.
+Applied to ALL backends, not just local.
 
 #### Configuration
 
 ```go
 type ContextBudgetConfig struct {
-    MaxContextTokens    int // default: 0 (unlimited — rely on [Calling:] exclusion)
+    MaxContextTokens    int // default: 0 (unlimited)
     MaxWarmTokens       int // default: 1024
     MaxToolResultTokens int // default: 2048
 }
 ```
 
-Token budget is an optional safety net. The primary mechanism is
-`[Calling:]` exclusion, which is always active.
+#### Recommended Parameters
+
+| Parameter | Default | Rationale |
+|-----------|---------|-----------|
+| `MaxContextTokens` | 0 (unlimited) | gemma-4 supports 256K; [Calling:] exclusion is the primary fix |
+| `MaxWarmTokens` | 1024 | One summary paragraph |
+| `MaxToolResultTokens` | 2048 | Enough for query results; analyze-data reports truncated |
+| `HotTokenLimit` (compaction) | 4096 | Triggers compaction before context grows too large for tool calling |
+
+For resource-constrained environments or smaller models, set
+`MaxContextTokens` to a conservative value (e.g., 8192).
 
 #### Synchronous Compaction
 
 Compaction runs synchronously at agentLoop start and between tool rounds
 (round > 0), ensuring the context is compacted BEFORE BuildMessages is
 called. The async post-response compaction remains as a safety net.
+
+Post-response tasks (title generation, compaction, pinned extraction)
+are synchronized via WaitGroup to prevent race conditions with the
+next Send() call.
 
 ### 3.4 What NOT to Store
 
