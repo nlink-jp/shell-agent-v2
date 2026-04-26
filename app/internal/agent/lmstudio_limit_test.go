@@ -234,6 +234,92 @@ func wasToolCalledInLastTurn(s *memory.Session) bool {
 	return false
 }
 
+// TestLMStudio_Limit_CallingPatternIsolation directly tests whether
+// [Calling:] messages in context cause tool calling failure,
+// independent of context length.
+func TestLMStudio_Limit_CallingPatternIsolation(t *testing.T) {
+	client := llm.NewLocal(config.LocalConfig{
+		Endpoint: "http://localhost:1234/v1",
+		Model:    "google/gemma-4-26b-a4b",
+	})
+
+	tools := []llm.ToolDef{{
+		Name:        "get_score",
+		Description: "Get a student's score",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"name": map[string]any{"type": "string"},
+			},
+			"required": []string{"name"},
+		},
+	}}
+
+	// Test A: History WITH [Calling:] messages
+	t.Run("with_calling_pattern", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		messages := []llm.Message{
+			{Role: llm.RoleSystem, Content: "You are a helpful assistant. Use tools when asked about student scores."},
+			{Role: llm.RoleUser, Content: "Aliceのスコアを教えて"},
+			{Role: llm.RoleAssistant, Content: "[Calling: get_score]"},
+			{Role: llm.RoleUser, Content: "Score result: Alice has 95 points"},
+			{Role: llm.RoleAssistant, Content: "Aliceのスコアは95です。"},
+			{Role: llm.RoleUser, Content: "Bobのスコアを教えて"},
+			{Role: llm.RoleAssistant, Content: "[Calling: get_score]"},
+			{Role: llm.RoleUser, Content: "Score result: Bob has 78 points"},
+			{Role: llm.RoleAssistant, Content: "Bobのスコアは78です。"},
+			{Role: llm.RoleUser, Content: "Charlieのスコアを教えて"},
+		}
+
+		resp, err := client.Chat(ctx, messages, tools)
+		if err != nil {
+			t.Fatalf("error: %v", err)
+		}
+
+		status := "TEXT_ONLY"
+		if len(resp.ToolCalls) > 0 {
+			status = "TOOL_CALL"
+		}
+		if strings.Contains(resp.Content, "[Calling:") {
+			status = "FAKE_TOOL"
+		}
+		t.Logf("WITH [Calling:] pattern: %s | %s", status, truncate(resp.Content, 100))
+	})
+
+	// Test B: Same history WITHOUT [Calling:] messages
+	t.Run("without_calling_pattern", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		messages := []llm.Message{
+			{Role: llm.RoleSystem, Content: "You are a helpful assistant. Use tools when asked about student scores."},
+			{Role: llm.RoleUser, Content: "Aliceのスコアを教えて"},
+			{Role: llm.RoleUser, Content: "Score result: Alice has 95 points"},
+			{Role: llm.RoleAssistant, Content: "Aliceのスコアは95です。"},
+			{Role: llm.RoleUser, Content: "Bobのスコアを教えて"},
+			{Role: llm.RoleUser, Content: "Score result: Bob has 78 points"},
+			{Role: llm.RoleAssistant, Content: "Bobのスコアは78です。"},
+			{Role: llm.RoleUser, Content: "Charlieのスコアを教えて"},
+		}
+
+		resp, err := client.Chat(ctx, messages, tools)
+		if err != nil {
+			t.Fatalf("error: %v", err)
+		}
+
+		status := "TEXT_ONLY"
+		if len(resp.ToolCalls) > 0 {
+			status = "TOOL_CALL"
+		}
+		if strings.Contains(resp.Content, "[Calling:") {
+			status = "FAKE_TOOL"
+		}
+		t.Logf("WITHOUT [Calling:] pattern: %s | %s", status, truncate(resp.Content, 100))
+	})
+}
+
 // TestLMStudio_Limit_TokenThreshold tests specific token counts
 // to find the exact threshold where tool calling breaks.
 func TestLMStudio_Limit_TokenThreshold(t *testing.T) {
