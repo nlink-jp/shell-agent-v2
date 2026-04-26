@@ -602,9 +602,7 @@ function App() {
                 </div>
                 {state === 'busy' ? (
                     <div className="input-area">
-                        {progressTool && (
-                            <div className="tool-progress">Executing: {progressTool}</div>
-                        )}
+                        <div className="tool-progress">{progressTool || 'Thinking...'}</div>
                         <div className="input-row">
                             <textarea disabled rows={3} placeholder="Agent is busy..." />
                             <button className="abort-btn" onClick={handleAbort}>Abort</button>

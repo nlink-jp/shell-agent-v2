@@ -9,6 +9,7 @@ function ChatInput({onSend, disabled}: Props) {
     const [input, setInput] = useState('')
     const [pendingImages, setPendingImages] = useState<string[]>([])
     const composingRef = useRef(false)
+    const textareaRef = useRef<HTMLTextAreaElement>(null)
     const fileInputRef = useRef<HTMLInputElement>(null)
     const historyRef = useRef<string[]>([])
     const historyIndexRef = useRef(-1)
@@ -26,6 +27,7 @@ function ChatInput({onSend, disabled}: Props) {
         setInput('')
         setPendingImages([])
         onSend(text, images)
+        setTimeout(() => textareaRef.current?.focus(), 50)
     }
 
     function handleKeyDown(e: React.KeyboardEvent) {
@@ -105,6 +107,7 @@ function ChatInput({onSend, disabled}: Props) {
                 <button className="attach-btn" onClick={() => fileInputRef.current?.click()} disabled={disabled} title="Attach image">&#x1F4CE;</button>
                 <input ref={fileInputRef} type="file" accept="image/*" multiple style={{display: 'none'}} onChange={e => { if (e.target.files) addImages(e.target.files); e.target.value = '' }} />
                 <textarea
+                    ref={textareaRef}
                     value={input}
                     onChange={e => { setInput(e.target.value); historyIndexRef.current = -1 }}
                     onKeyDown={handleKeyDown}

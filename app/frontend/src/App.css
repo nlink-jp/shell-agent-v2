@@ -453,6 +453,32 @@
     cursor: pointer;
 }
 
+/* Report and fullscreen report shared styles */
+.report-content ul, .report-content ol,
+.report-fullscreen-content ul, .report-fullscreen-content ol {
+    padding-left: 1.5em;
+    margin: 0.4em 0;
+}
+
+.report-content table, .report-fullscreen-content table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 0.5em 0;
+}
+
+.report-content th, .report-content td,
+.report-fullscreen-content th, .report-fullscreen-content td {
+    border: 1px solid var(--border-primary, #2a3a4a);
+    padding: 6px 10px;
+    text-align: left;
+    font-size: 12px;
+}
+
+.report-content th, .report-fullscreen-content th {
+    background: var(--bg-primary, rgba(30, 50, 70, 0.5));
+    font-weight: 600;
+}
+
 .report-overlay {
     position: fixed;
     top: 0;
