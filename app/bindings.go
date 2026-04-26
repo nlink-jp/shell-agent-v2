@@ -420,6 +420,14 @@ func (b *Bindings) RestartMCP() {
 	}
 }
 
+// GetMCPStatus returns the status of all MCP guardian profiles.
+func (b *Bindings) GetMCPStatus() []agent.MCPStatus {
+	if b.agent == nil {
+		return nil
+	}
+	return b.agent.MCPStatuses()
+}
+
 // --- Image bindings ---
 
 // SaveImage stores a data URL image and returns its ID.

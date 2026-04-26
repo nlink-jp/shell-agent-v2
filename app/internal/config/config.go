@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // LLMBackend identifies the active LLM backend.
@@ -125,6 +126,15 @@ func Default() *Config {
 			StartupMode: "last",
 		},
 	}
+}
+
+// ExpandPath expands ~ to the user's home directory.
+func ExpandPath(path string) string {
+	if strings.HasPrefix(path, "~/") {
+		home, _ := os.UserHomeDir()
+		return filepath.Join(home, path[2:])
+	}
+	return path
 }
 
 // DataDir returns the application data directory.

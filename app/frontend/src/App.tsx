@@ -52,6 +52,7 @@ declare global {
                     GetLLMStatus(): Promise<LLMStatus>;
                     SaveReport(content: string, filename: string): Promise<void>;
                     RestartMCP(): Promise<void>;
+                    GetMCPStatus(): Promise<{name: string; status: string; tool_count: number; error?: string}[]>;
                 };
             };
         };
@@ -153,6 +154,7 @@ function App() {
     const [mitlFeedback, setMitlFeedback] = useState('')
     const [cmdResult, setCmdResult] = useState<string | null>(null)
     const [tools, setTools] = useState<ToolInfo[]>([])
+    const [mcpStatus, setMcpStatus] = useState<{name: string; status: string; tool_count: number; error?: string}[]>([])
     const [pinnedMemories, setPinnedMemories] = useState<PinnedMemory[]>([])
     const [llmStatus, setLLMStatus] = useState<LLMStatus | null>(null)
     const [lightboxImage, setLightboxImage] = useState<string | null>(null)
@@ -347,6 +349,7 @@ function App() {
             const s = await window.go.main.Bindings.GetSettings()
             setSettings(s)
             window.go.main.Bindings.GetTools().then(setTools)
+            window.go.main.Bindings.GetMCPStatus().then(s => setMcpStatus(s || []))
         }
         setShowSettings(true)
     }, [])
@@ -870,8 +873,24 @@ function App() {
                                     </div>
                                 </div>
                                 <div className="settings-section">
-                                    <button className="mcp-restart-btn" onClick={() => {
-                                        if (window.go) window.go.main.Bindings.RestartMCP()
+                                    <h3>Guardian Status</h3>
+                                    {mcpStatus.length === 0 ? (
+                                        <p className="sidebar-hint">No guardians started</p>
+                                    ) : mcpStatus.map((s, i) => (
+                                        <div key={i} className={`mcp-status-item mcp-status-${s.status}`}>
+                                            <span className="mcp-status-name">{s.name}</span>
+                                            <span className={`mcp-status-badge ${s.status}`}>{s.status}</span>
+                                            {s.status === 'running' && <span className="mcp-status-tools">{s.tool_count} tools</span>}
+                                            {s.error && <div className="mcp-status-error">{s.error}</div>}
+                                        </div>
+                                    ))}
+                                    <button className="mcp-restart-btn" onClick={async () => {
+                                        if (window.go) {
+                                            await window.go.main.Bindings.RestartMCP()
+                                            const status = await window.go.main.Bindings.GetMCPStatus()
+                                            setMcpStatus(status || [])
+                                            window.go.main.Bindings.GetTools().then(setTools)
+                                        }
                                     }}>Restart MCP Guardians</button>
                                 </div>
                             </>)}

@@ -80,6 +80,7 @@ type Agent struct {
 	toolRegistry    *toolcall.Registry
 	guardians       map[string]*mcp.Guardian
 	guardiansMu     sync.RWMutex
+	mcpStatuses     []MCPStatus
 	postTasksWg     sync.WaitGroup // ensures post-response tasks finish before next Send
 
 	// Token usage tracking (session-scoped, reset on session switch)
@@ -237,20 +238,40 @@ func (a *Agent) Close() {
 	a.stopGuardians()
 }
 
+// MCPStatus holds the status of a guardian for UI display.
+type MCPStatus struct {
+	Name      string `json:"name"`
+	Status    string `json:"status"`    // "running", "disabled", "error"
+	ToolCount int    `json:"tool_count"`
+	Error     string `json:"error,omitempty"`
+}
+
 // startGuardians launches MCP guardian processes from config.
 func (a *Agent) startGuardians() {
+	a.mcpStatuses = nil
 	for _, p := range a.cfg.Tools.MCPProfiles {
 		if !p.Enabled || p.Name == "" || p.Binary == "" {
+			a.mcpStatuses = append(a.mcpStatuses, MCPStatus{Name: p.Name, Status: "disabled"})
 			continue
 		}
-		g := mcp.NewGuardian(p.Binary, "--profile", p.ProfilePath)
+		binary := config.ExpandPath(p.Binary)
+		profile := config.ExpandPath(p.ProfilePath)
+		g := mcp.NewGuardian(binary, "--profile", profile)
 		if err := g.Start(); err != nil {
 			logger.Error("MCP guardian %q start failed: %v", p.Name, err)
+			a.mcpStatuses = append(a.mcpStatuses, MCPStatus{Name: p.Name, Status: "error", Error: err.Error()})
 			continue
 		}
 		a.guardians[p.Name] = g
-		logger.Info("MCP guardian %q started (%d tools)", p.Name, len(g.Tools()))
+		toolCount := len(g.Tools())
+		a.mcpStatuses = append(a.mcpStatuses, MCPStatus{Name: p.Name, Status: "running", ToolCount: toolCount})
+		logger.Info("MCP guardian %q started (%d tools)", p.Name, toolCount)
 	}
+}
+
+// MCPStatuses returns the status of all configured MCP guardians.
+func (a *Agent) MCPStatuses() []MCPStatus {
+	return a.mcpStatuses
 }
 
 // stopGuardians stops all running MCP guardian processes.

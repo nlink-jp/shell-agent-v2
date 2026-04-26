@@ -984,6 +984,55 @@
     color: #fff;
 }
 
+.mcp-status-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+    font-size: 13px;
+    flex-wrap: wrap;
+}
+
+.mcp-status-name {
+    font-weight: 600;
+}
+
+.mcp-status-badge {
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.mcp-status-badge.running {
+    background: rgba(80, 180, 80, 0.2);
+    color: #66cc88;
+}
+
+.mcp-status-badge.error {
+    background: rgba(220, 80, 80, 0.2);
+    color: #ee6666;
+}
+
+.mcp-status-badge.disabled {
+    background: rgba(128, 128, 128, 0.2);
+    color: var(--text-secondary, #8899aa);
+}
+
+.mcp-status-tools {
+    font-size: 12px;
+    color: var(--text-secondary, #8899aa);
+}
+
+.mcp-status-error {
+    width: 100%;
+    font-size: 11px;
+    color: #ee6666;
+    padding-left: 4px;
+    margin-top: 2px;
+}
+
 .mcp-restart-btn {
     padding: 8px 20px;
     background: #1a3a2a;
