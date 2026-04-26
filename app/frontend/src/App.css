@@ -25,39 +25,69 @@
     flex-direction: column;
 }
 
-.sidebar-tabs {
-    display: flex;
-    padding: 0 8px;
-    gap: 2px;
-    border-bottom: 1px solid var(--border-primary, #2a3a4a);
-}
-
-.sidebar-tabs button {
-    flex: 1;
-    padding: 8px 4px;
-    border: none;
-    background: transparent;
-    color: var(--text-muted, #6688aa);
-    font-size: 12px;
-    font-weight: 600;
-    cursor: pointer;
-    border-bottom: 2px solid transparent;
-    --wails-draggable: no-drag;
-}
-
-.sidebar-tabs button.active {
-    color: var(--text-accent, #aaccee);
-    border-bottom-color: var(--border-accent, #5a8abf);
-}
-
-.sidebar-tabs button:hover {
-    color: var(--text-secondary, #99bbdd);
-}
-
 .sidebar-panel {
     flex: 1;
     overflow-y: auto;
-    padding: 12px;
+    padding: 8px 12px;
+    --wails-draggable: no-drag;
+}
+
+.sidebar-nav {
+    border-top: 1px solid var(--border-primary, #2a3a4a);
+    padding: 6px 8px;
+    --wails-draggable: no-drag;
+}
+
+.sidebar-nav-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 10px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary, #8899aa);
+    font-size: 13px;
+    cursor: pointer;
+    border-radius: 6px;
+}
+
+.sidebar-nav-btn:hover {
+    background: var(--bg-hover, rgba(255,255,255,0.05));
+    color: var(--text-primary, #e0e0e0);
+}
+
+.sidebar-nav-btn.active {
+    background: var(--bg-hover, rgba(255,255,255,0.08));
+    color: var(--text-accent, #aaccee);
+}
+
+.sidebar-nav-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.sidebar-nav-ic {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    font-size: 16px;
+    flex-shrink: 0;
+}
+
+.sidebar-nav-divider {
+    height: 1px;
+    background: var(--border-primary, #2a3a4a);
+    margin: 4px 10px;
+}
+
+.chat-header {
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--border-primary, #2a3a4a);
+    display: flex;
+    align-items: center;
     --wails-draggable: no-drag;
 }
 
@@ -176,29 +206,7 @@
     color: #aabbcc;
 }
 
-.sidebar-footer {
-    padding: 8px 12px;
-    border-top: 1px solid var(--border-primary, #2a3a4a);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    --wails-draggable: no-drag;
-}
-
-.settings-btn {
-    border: none;
-    background: transparent;
-    color: var(--text-muted, #6688aa);
-    font-size: 18px;
-    cursor: pointer;
-    padding: 2px 6px;
-    border-radius: 4px;
-}
-
-.settings-btn:hover {
-    background: var(--bg-hover, #2a3a4a);
-    color: var(--text-accent, #aaccee);
-}
+/* sidebar-footer and settings-btn removed — settings is in sidebar nav */
 
 /* Backend badge */
 .backend-badge {

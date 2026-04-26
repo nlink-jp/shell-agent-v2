@@ -125,14 +125,14 @@ interface Settings {
     location: string;
 }
 
-type SidebarTab = 'sessions' | 'findings' | 'tools' | 'status';
+type SidebarPanel = 'sessions' | 'status';
 
 function App() {
     const [state, setState] = useState<'idle' | 'busy'>('idle')
     const [messages, setMessages] = useState<ChatMessage[]>([])
     const [streaming, setStreaming] = useState('')
     const [backend, setBackend] = useState('')
-    const [sidebarTab, setSidebarTab] = useState<SidebarTab>('sessions')
+    const [sidebarPanel, setSidebarPanel] = useState<SidebarPanel>('sessions')
     const [sessions, setSessions] = useState<SessionInfo[]>([])
     const [currentSessionId, setCurrentSessionId] = useState<string>('')
     const [findings, setFindings] = useState<Finding[]>([])
@@ -313,13 +313,12 @@ function App() {
     }, [])
 
     useEffect(() => {
-        if (sidebarTab === 'findings') refreshFindings()
-        if (sidebarTab === 'tools' && window.go) window.go.main.Bindings.GetTools().then(setTools)
-        if (sidebarTab === 'status' && window.go) {
+        if (sidebarPanel === 'status' && window.go) {
+            refreshFindings()
             window.go.main.Bindings.GetLLMStatus().then(setLLMStatus)
             window.go.main.Bindings.GetPinnedMemories().then(setPinnedMemories)
         }
-    }, [sidebarTab, refreshFindings])
+    }, [sidebarPanel, refreshFindings])
 
     // Auto-save settings on change
     const updateSetting = useCallback(async (patch: Partial<Settings>) => {
@@ -335,6 +334,7 @@ function App() {
         if (window.go) {
             const s = await window.go.main.Bindings.GetSettings()
             setSettings(s)
+            window.go.main.Bindings.GetTools().then(setTools)
         }
         setShowSettings(true)
     }, [])
@@ -379,16 +379,8 @@ function App() {
         <div className="app">
             <div className="titlebar-drag" />
             <div className="sidebar">
-                <div className="sidebar-tabs">
-                    <button className={sidebarTab === 'sessions' ? 'active' : ''} onClick={() => setSidebarTab('sessions')}>Sessions</button>
-                    <button className={sidebarTab === 'findings' ? 'active' : ''} onClick={() => setSidebarTab('findings')}>Findings</button>
-                    <button className={sidebarTab === 'tools' ? 'active' : ''} onClick={() => setSidebarTab('tools')}>Tools</button>
-                    <button className={sidebarTab === 'status' ? 'active' : ''} onClick={() => setSidebarTab('status')}>Status</button>
-                </div>
-
-                {sidebarTab === 'sessions' && (
-                    <div className="sidebar-panel">
-                        <button className="new-session-btn" onClick={handleNewSession} disabled={state === 'busy'}>+ New Session</button>
+                <div className="sidebar-panel">
+                    {sidebarPanel === 'sessions' && (<>
                         {sessions.length === 0 ? (
                             <p className="sidebar-hint">No sessions yet</p>
                         ) : sessions.map(s => (
@@ -420,65 +412,31 @@ function App() {
                                 </div>
                             </div>
                         ))}
-                    </div>
-                )}
+                    </>)}
 
-                {sidebarTab === 'findings' && (
-                    <div className="sidebar-panel">
-                        {findings.length === 0 ? (
-                            <p className="sidebar-hint">No findings yet</p>
-                        ) : findings.map(f => (
-                            <div key={f.id} className="finding-card">
-                                <div className="finding-content">{f.content}</div>
-                                <div className="finding-meta">
-                                    <span className="finding-date">{f.created_label}</span>
-                                    {f.session_title && (
-                                        <span className="finding-origin" title={`Session: ${f.session_id}`}>
-                                            {f.session_title}
-                                        </span>
-                                    )}
-                                </div>
-                                {f.tags && f.tags.length > 0 && (
-                                    <div className="finding-tags">
-                                        {f.tags.map(tag => {
-                                            const sevClass = ['critical','high','medium','low','info'].includes(tag) ? ` severity-${tag}` : ''
-                                            return <span key={tag} className={`tag${sevClass}`}>{tag}</span>
-                                        })}
-                                    </div>
-                                )}
-                            </div>
-                        ))}
-                    </div>
-                )}
-
-                {sidebarTab === 'tools' && (
-                    <div className="sidebar-panel">
-                        {tools.length === 0 ? (
-                            <p className="sidebar-hint">No tools available</p>
-                        ) : tools.map(t => (
-                            <div key={t.name} className="tool-item">
-                                <div className="tool-name">
-                                    <code>{t.name}</code>
-                                    <span className={`tool-category ${t.category}`}>{t.category}</span>
-                                    <span className="tool-source">{t.source}</span>
-                                </div>
-                                <div className="tool-desc">{t.description}</div>
-                            </div>
-                        ))}
-                    </div>
-                )}
-
-                {sidebarTab === 'status' && (
-                    <div className="sidebar-panel">
-                        {llmStatus && (
+                    {sidebarPanel === 'status' && (<>
+                        {findings.length > 0 && (
                             <div className="status-section">
-                                <h3>LLM</h3>
-                                <div className="status-row"><span>Backend</span><span>{llmStatus.backend}</span></div>
-                                <div className="status-row"><span>Session</span><span>{llmStatus.session_id || '-'}</span></div>
-                                <div className="status-row"><span>Hot messages</span><span>{llmStatus.hot_messages}</span></div>
-                                <div className="status-row"><span>Warm summaries</span><span>{llmStatus.warm_summaries}</span></div>
-                                <div className="status-row"><span>Prompt tokens</span><span>{llmStatus.prompt_tokens.toLocaleString()}</span></div>
-                                <div className="status-row"><span>Output tokens</span><span>{llmStatus.output_tokens.toLocaleString()}</span></div>
+                                <h3>Findings</h3>
+                                {findings.map(f => (
+                                    <div key={f.id} className="finding-card">
+                                        <div className="finding-content">{f.content}</div>
+                                        <div className="finding-meta">
+                                            <span className="finding-date">{f.created_label}</span>
+                                            {f.session_title && (
+                                                <span className="finding-origin" title={`Session: ${f.session_id}`}>{f.session_title}</span>
+                                            )}
+                                        </div>
+                                        {f.tags && f.tags.length > 0 && (
+                                            <div className="finding-tags">
+                                                {f.tags.map(tag => {
+                                                    const sevClass = ['critical','high','medium','low','info'].includes(tag) ? ` severity-${tag}` : ''
+                                                    return <span key={tag} className={`tag${sevClass}`}>{tag}</span>
+                                                })}
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
                             </div>
                         )}
                         <div className="status-section">
@@ -502,15 +460,35 @@ function App() {
                                 </div>
                             ))}
                         </div>
-                    </div>
-                )}
+                        {llmStatus && (
+                            <div className="status-section">
+                                <h3>Tokens</h3>
+                                <div className="status-row"><span>Hot messages</span><span>{llmStatus.hot_messages}</span></div>
+                                <div className="status-row"><span>Warm summaries</span><span>{llmStatus.warm_summaries}</span></div>
+                                <div className="status-row"><span>Prompt tokens</span><span>{llmStatus.prompt_tokens.toLocaleString()}</span></div>
+                                <div className="status-row"><span>Output tokens</span><span>{llmStatus.output_tokens.toLocaleString()}</span></div>
+                            </div>
+                        )}
+                    </>)}
+                </div>
 
-                <div className="sidebar-footer">
-                    <span className={`backend-badge ${backend}`}>{backend || '...'}</span>
-                    <button className="settings-btn" onClick={openSettings} title="Settings">&#x2699;</button>
+                <div className="sidebar-nav">
+                    <button className="sidebar-nav-btn" onClick={handleNewSession} disabled={state === 'busy'}>
+                        <span className="sidebar-nav-ic">+</span> New Chat
+                    </button>
+                    <div className="sidebar-nav-divider" />
+                    <button className={`sidebar-nav-btn ${sidebarPanel === 'status' ? 'active' : ''}`} onClick={() => setSidebarPanel(sidebarPanel === 'status' ? 'sessions' : 'status')}>
+                        <span className="sidebar-nav-ic">&#x2261;</span> Status
+                    </button>
+                    <button className="sidebar-nav-btn" onClick={openSettings}>
+                        <span className="sidebar-nav-ic">&#x2699;</span> Settings
+                    </button>
                 </div>
             </div>
             <div className="main">
+                <div className="chat-header">
+                    <span className={`backend-badge ${backend}`}>{backend || '...'}</span>
+                </div>
                 <div className="messages">
                     {messages.filter(msg => msg.role !== 'tool').map((msg, i) => (
                         <div key={i} className={`message ${msg.role}`}>
@@ -755,6 +733,21 @@ function App() {
                                     <span>Model</span>
                                     <input value={settings.vertex_model} onChange={e => updateSetting({vertex_model: e.target.value})} />
                                 </label>
+                            </div>
+                            <div className="settings-section">
+                                <h3>Tools</h3>
+                                <div className="settings-tools-list">
+                                    {tools.map(t => (
+                                        <div key={t.name} className="tool-item">
+                                            <div className="tool-name">
+                                                <code>{t.name}</code>
+                                                <span className={`tool-category ${t.category}`}>{t.category}</span>
+                                                <span className="tool-source">{t.source}</span>
+                                            </div>
+                                            <div className="tool-desc">{t.description}</div>
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
                         </div>
                         <div className="settings-footer">
