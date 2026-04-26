@@ -25,3 +25,4 @@ app/frontend/wailsjs/
 
 # Claude Code
 .claude/settings.local.json
+app/shell-agent-v2
