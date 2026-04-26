@@ -830,31 +830,36 @@ function App() {
                                     <h3>MCP Profiles</h3>
                                     {(settings.mcp_profiles || []).length === 0 ? (
                                         <p className="sidebar-hint">No MCP profiles configured</p>
-                                    ) : (settings.mcp_profiles || []).map((p, i) => (
-                                        <div key={i} className="mcp-profile-item">
-                                            <div className="mcp-profile-header">
-                                                <span className="mcp-profile-name">{p.name}</span>
-                                                <label className="mcp-toggle">
-                                                    <input type="checkbox" checked={p.enabled} onChange={e => {
-                                                        const updated = [...(settings.mcp_profiles || [])]
-                                                        updated[i] = {...p, enabled: e.target.checked}
+                                    ) : (settings.mcp_profiles || []).map((p, i) => {
+                                        const status = mcpStatus.find(s => s.name === p.name)
+                                        return (
+                                            <div key={i} className="mcp-profile-item">
+                                                <div className="mcp-profile-header">
+                                                    <span className="mcp-profile-name">{p.name}</span>
+                                                    {status && <span className={`mcp-status-badge ${status.status}`}>{status.status}{status.status === 'running' ? ` (${status.tool_count} tools)` : ''}</span>}
+                                                    <label className="mcp-toggle">
+                                                        <input type="checkbox" checked={p.enabled} onChange={e => {
+                                                            const updated = [...(settings.mcp_profiles || [])]
+                                                            updated[i] = {...p, enabled: e.target.checked}
+                                                            updateSetting({mcp_profiles: updated} as any)
+                                                        }} />
+                                                        <span>{p.enabled ? 'ON' : 'OFF'}</span>
+                                                    </label>
+                                                    <button className="mcp-delete" onClick={() => {
+                                                        const updated = (settings.mcp_profiles || []).filter((_, j) => j !== i)
                                                         updateSetting({mcp_profiles: updated} as any)
-                                                    }} />
-                                                    <span>{p.enabled ? 'ON' : 'OFF'}</span>
-                                                </label>
-                                                <button className="mcp-delete" onClick={() => {
-                                                    const updated = (settings.mcp_profiles || []).filter((_, j) => j !== i)
-                                                    updateSetting({mcp_profiles: updated} as any)
-                                                }}>&#x2715;</button>
+                                                    }}>&#x2715;</button>
+                                                </div>
+                                                <div className="mcp-profile-detail">
+                                                    <span className="mcp-label">Binary:</span> {p.binary}
+                                                </div>
+                                                <div className="mcp-profile-detail">
+                                                    <span className="mcp-label">Profile:</span> {p.profile_path}
+                                                </div>
+                                                {status?.error && <div className="mcp-status-error">{status.error}</div>}
                                             </div>
-                                            <div className="mcp-profile-detail">
-                                                <span className="mcp-label">Binary:</span> {p.binary}
-                                            </div>
-                                            <div className="mcp-profile-detail">
-                                                <span className="mcp-label">Profile:</span> {p.profile_path}
-                                            </div>
-                                        </div>
-                                    ))}
+                                        )
+                                    })}
                                     <div className="mcp-add-form">
                                         <h4>Add Profile</h4>
                                         <label><span>Name</span><input id="mcp-name" placeholder="e.g. github" /></label>
@@ -871,20 +876,7 @@ function App() {
                                             (document.getElementById('mcp-profile') as HTMLInputElement).value = ''
                                         }}>Add</button>
                                     </div>
-                                </div>
-                                <div className="settings-section">
-                                    <h3>Guardian Status</h3>
-                                    {mcpStatus.length === 0 ? (
-                                        <p className="sidebar-hint">No guardians started</p>
-                                    ) : mcpStatus.map((s, i) => (
-                                        <div key={i} className={`mcp-status-item mcp-status-${s.status}`}>
-                                            <span className="mcp-status-name">{s.name}</span>
-                                            <span className={`mcp-status-badge ${s.status}`}>{s.status}</span>
-                                            {s.status === 'running' && <span className="mcp-status-tools">{s.tool_count} tools</span>}
-                                            {s.error && <div className="mcp-status-error">{s.error}</div>}
-                                        </div>
-                                    ))}
-                                    <button className="mcp-restart-btn" onClick={async () => {
+                                    <button className="mcp-restart-btn" style={{marginTop: 16}} onClick={async () => {
                                         if (window.go) {
                                             await window.go.main.Bindings.RestartMCP()
                                             const status = await window.go.main.Bindings.GetMCPStatus()
