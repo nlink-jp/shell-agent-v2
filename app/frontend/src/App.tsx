@@ -153,7 +153,13 @@ function App() {
         if (window.runtime) {
             const cleanupStream = window.runtime.EventsOn('agent:stream', (data: any) => {
                 if (data.done) {
-                    setStreaming('')
+                    // Flush streamed content as a message if it exists
+                    setStreaming(prev => {
+                        if (prev.trim()) {
+                            setMessages(msgs => [...msgs, {role: 'assistant', content: prev, timestamp: nowTime()}])
+                        }
+                        return ''
+                    })
                 } else {
                     setProgressTool('') // clear progress when streaming starts
                     setStreaming(prev => prev + data.token)

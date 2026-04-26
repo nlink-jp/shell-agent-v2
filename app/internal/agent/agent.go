@@ -451,6 +451,14 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 		}
 		a.session.AddAssistantMessage(assistantContent)
 
+		// Emit tool-calling round explanation to frontend in real-time.
+		// [Calling: ...] messages are filtered out in session reload,
+		// but actual explanation text should be shown live.
+		if resp.Content != "" && a.streamHandler != nil {
+			a.streamHandler(resp.Content, false)
+			a.streamHandler("", true) // done signal
+		}
+
 		// Execute each tool call
 		for _, tc := range resp.ToolCalls {
 			if a.progressHandler != nil {
@@ -522,7 +530,7 @@ func (a *Agent) executeTool(ctx context.Context, tc llm.ToolCall) string {
 		return a.toolListObjects(tc.Arguments)
 	case "get-object":
 		return a.toolGetObject(tc.Arguments)
-	case "load-data", "describe-data", "query-sql", "query-preview", "suggest-analysis", "quick-summary", "list-tables", "reset-analysis", "create-report", "promote-finding":
+	case "load-data", "describe-data", "query-sql", "query-preview", "suggest-analysis", "quick-summary", "list-tables", "reset-analysis", "create-report", "promote-finding", "analyze-data":
 		if a.analysis == nil {
 			return "Error: no analysis engine available"
 		}
