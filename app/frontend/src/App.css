@@ -965,6 +965,17 @@
     border-color: #5a8abf;
 }
 
+.object-loading {
+    color: var(--text-dim, #556677);
+    font-size: 12px;
+    font-style: italic;
+}
+
+.object-error {
+    color: var(--text-error, #ee6666);
+    font-size: 12px;
+}
+
 /* Lightbox */
 .lightbox-overlay {
     position: fixed;

@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
 import ChatInput from './ChatInput'
+import ObjectImage, {clearObjectCache} from './ObjectImage'
 import 'highlight.js/styles/github-dark.css'
 import './themes.css'
 import './App.css'
@@ -194,6 +195,7 @@ function App() {
 
     const handleLoadSession = useCallback(async (id: string) => {
         if (window.go && state === 'idle') {
+            clearObjectCache() // clear image cache on session switch
             const msgs = await window.go.main.Bindings.LoadSession(id)
             setCurrentSessionId(id)
             setMessages((msgs || []).map(m => ({
@@ -485,7 +487,13 @@ function App() {
                                 <ReactMarkdown
                                     remarkPlugins={[remarkGfm]}
                                     rehypePlugins={[rehypeHighlight]}
-                                    components={{img: ({src, alt}) => <img src={src} alt={alt || ''} className="message-image" onClick={() => src && setLightboxImage(src)} />}}
+                                    components={{img: ({src, alt}) => {
+                                        if (src?.startsWith('object:')) {
+                                            const id = src.slice(7)
+                                            return <ObjectImage id={id} alt={alt || ''} onClick={setLightboxImage} />
+                                        }
+                                        return <img src={src} alt={alt || ''} className="message-image" onClick={() => src && setLightboxImage(src)} />
+                                    }}}
                                 >
                                     {msg.content}
                                 </ReactMarkdown>
