@@ -9,25 +9,12 @@ import 'highlight.js/styles/github-dark.css'
 import './themes.css'
 import './App.css'
 
-// Object URL resolution cache
-const objectUrlCache: Record<string, string> = {}
-
-// Custom URL transform: resolve object: URLs to data URLs synchronously from cache
-// First pass: ReactMarkdown renders with object: URL (triggers ObjectImage)
-// This transform allows the URL through unchanged
+// Allow object: protocol through ReactMarkdown URL sanitization.
+// ReactMarkdown v10 defaultUrlTransform strips non-http/https/mailto protocols.
+// object: URLs are resolved by ObjectImage component via img component override.
 function urlTransform(url: string): string {
-    if (url.startsWith('object:')) {
-        const id = url.slice(7)
-        if (objectUrlCache[id]) return objectUrlCache[id]
-        // Trigger async resolution in background
-        if (window.go) {
-            window.go.main.Bindings.GetImageDataURL(id).then(du => {
-                if (du) objectUrlCache[id] = du
-            })
-        }
-        return url // pass through for now
-    }
-    return url
+    if (url.startsWith('object:')) return url
+    return defaultUrlTransform(url)
 }
 
 declare global {
@@ -547,6 +534,7 @@ function App() {
                                         <ReactMarkdown
                                             remarkPlugins={[remarkGfm]}
                                             rehypePlugins={[rehypeHighlight]}
+                                            urlTransform={urlTransform}
                                             components={{img: ({src, alt}) => {
                                                 if (src?.startsWith('object:')) {
                                                     const id = src.slice(7)

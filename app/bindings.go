@@ -124,11 +124,7 @@ func (b *Bindings) IsBusy() bool {
 
 // Send sends a user message to the agent.
 func (b *Bindings) Send(message string) (string, error) {
-	resp, err := b.agent.Send(b.ctx, message)
-	if err != nil {
-		return "", err
-	}
-	return b.resolveObjectURLs(resp), nil
+	return b.agent.Send(b.ctx, message)
 }
 
 // SendWithImages sends a user message with images to the agent.
@@ -150,11 +146,7 @@ func (b *Bindings) SendWithImages(message string, imageDataURLs []string) (strin
 		objectIDs = append(objectIDs, meta.ID)
 		dataURLs = append(dataURLs, du) // keep data URL for LLM context
 	}
-	resp, err := b.agent.SendWithImages(b.ctx, message, objectIDs, dataURLs)
-	if err != nil {
-		return "", err
-	}
-	return b.resolveObjectURLs(resp), nil
+	return b.agent.SendWithImages(b.ctx, message, objectIDs, dataURLs)
 }
 
 // Abort cancels the current agent task.
@@ -233,12 +225,12 @@ func (b *Bindings) LoadSession(sessionID string) ([]MessageData, error) {
 				continue
 			}
 			msgs = append(msgs, MessageData{
-				Role: r.Role, Content: b.resolveObjectURLs(r.Content),
+				Role: r.Role, Content: r.Content,
 				Timestamp: r.Timestamp.Format("15:04:05"),
 			})
 		default:
 			msgs = append(msgs, MessageData{
-				Role: r.Role, Content: b.resolveObjectURLs(r.Content),
+				Role: r.Role, Content: r.Content,
 				Timestamp: r.Timestamp.Format("15:04:05"),
 			})
 		}
