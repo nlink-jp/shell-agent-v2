@@ -197,7 +197,7 @@ func analysisTools(hasData bool) []llm.ToolDef {
 }
 
 // executeAnalysisTool handles analysis tool calls.
-func (a *Agent) executeAnalysisTool(name string, argsJSON string) (string, error) {
+func (a *Agent) executeAnalysisTool(ctx context.Context, name string, argsJSON string) (string, error) {
 	switch name {
 	case "load-data":
 		return a.toolLoadData(argsJSON)
@@ -208,11 +208,11 @@ func (a *Agent) executeAnalysisTool(name string, argsJSON string) (string, error
 	case "list-tables":
 		return a.toolListTables()
 	case "query-preview":
-		return a.toolQueryPreview(argsJSON)
+		return a.toolQueryPreview(ctx, argsJSON)
 	case "suggest-analysis":
-		return a.toolSuggestAnalysis()
+		return a.toolSuggestAnalysis(ctx)
 	case "quick-summary":
-		return a.toolQuickSummary(argsJSON)
+		return a.toolQuickSummary(ctx, argsJSON)
 	case "reset-analysis":
 		return a.toolResetAnalysis()
 	case "create-report":
@@ -348,7 +348,7 @@ func (a *Agent) toolPromoteFinding(argsJSON string) (string, error) {
 	return fmt.Sprintf("Finding promoted: %s (%s)", f.Content, f.CreatedLabel), nil
 }
 
-func (a *Agent) toolQueryPreview(argsJSON string) (string, error) {
+func (a *Agent) toolQueryPreview(ctx context.Context, argsJSON string) (string, error) {
 	var args struct {
 		Question string `json:"question"`
 	}
@@ -370,7 +370,7 @@ func (a *Agent) toolQueryPreview(argsJSON string) (string, error) {
 		{Role: "user", Content: args.Question},
 	}
 
-	resp, err := a.backend.Chat(context.Background(), messages, nil)
+	resp, err := a.backend.Chat(ctx, messages, nil)
 	if err != nil {
 		return "", fmt.Errorf("SQL generation: %w", err)
 	}
@@ -391,7 +391,7 @@ func (a *Agent) toolQueryPreview(argsJSON string) (string, error) {
 	return fmt.Sprintf("Generated SQL:\n```sql\n%s\n```\n\nResults (%d rows):\n%s", sql, len(results), string(data)), nil
 }
 
-func (a *Agent) toolSuggestAnalysis() (string, error) {
+func (a *Agent) toolSuggestAnalysis(ctx context.Context) (string, error) {
 	schema := a.analysis.Schema()
 	if schema == "" {
 		return "", fmt.Errorf("no tables loaded")
@@ -404,7 +404,7 @@ func (a *Agent) toolSuggestAnalysis() (string, error) {
 		{Role: "user", Content: "Database schema:\n" + schema},
 	}
 
-	resp, err := a.backend.Chat(context.Background(), messages, nil)
+	resp, err := a.backend.Chat(ctx, messages, nil)
 	if err != nil {
 		return "", fmt.Errorf("suggest analysis: %w", err)
 	}
@@ -412,7 +412,7 @@ func (a *Agent) toolSuggestAnalysis() (string, error) {
 	return resp.Content, nil
 }
 
-func (a *Agent) toolQuickSummary(argsJSON string) (string, error) {
+func (a *Agent) toolQuickSummary(ctx context.Context, argsJSON string) (string, error) {
 	var args struct {
 		SQL string `json:"sql"`
 	}
@@ -439,7 +439,7 @@ func (a *Agent) toolQuickSummary(argsJSON string) (string, error) {
 		{Role: "user", Content: fmt.Sprintf("SQL:\n```sql\n%s\n```\n\nResults (%d rows):\n%s", args.SQL, len(results), resultText)},
 	}
 
-	resp, err := a.backend.Chat(context.Background(), messages, nil)
+	resp, err := a.backend.Chat(ctx, messages, nil)
 	if err != nil {
 		return fmt.Sprintf("Results (%d rows):\n%s\n\n(Summary generation failed: %v)", len(results), resultText, err), nil
 	}

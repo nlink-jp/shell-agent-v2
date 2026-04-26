@@ -240,10 +240,14 @@ func (b *Bindings) RenameSession(sessionID, title string) error {
 	return memory.RenameSession(sessionID, title)
 }
 
-// DeleteSession removes a session.
+// DeleteSession removes a session and its associated objects.
 func (b *Bindings) DeleteSession(sessionID string) error {
 	if b.IsBusy() {
 		return fmt.Errorf("agent is busy")
+	}
+	// Clean up objstore objects for this session
+	if b.objects != nil {
+		_ = b.objects.DeleteBySession(sessionID)
 	}
 	return memory.DeleteSessionDir(sessionID)
 }

@@ -410,7 +410,7 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 		// Execute each tool call
 		for _, tc := range resp.ToolCalls {
 			logger.Info("agentLoop: tool_call name=%s args=%s", tc.Name, logger.Truncate(tc.Arguments, 200))
-			result := a.executeTool(tc)
+			result := a.executeTool(ctx, tc)
 			logger.Debug("agentLoop: tool_result name=%s result=%s", tc.Name, logger.Truncate(result, 200))
 			a.session.AddToolResult(tc.ID, tc.Name, result)
 		}
@@ -463,7 +463,7 @@ func (a *Agent) compactMemoryIfNeeded(ctx context.Context) {
 	}
 }
 
-func (a *Agent) executeTool(tc llm.ToolCall) string {
+func (a *Agent) executeTool(ctx context.Context, tc llm.ToolCall) string {
 	switch tc.Name {
 	case "resolve-date":
 		result, err := chat.ResolveDate(tc.Arguments)
@@ -479,7 +479,7 @@ func (a *Agent) executeTool(tc llm.ToolCall) string {
 		if a.analysis == nil {
 			return "Error: no analysis engine available"
 		}
-		result, err := a.executeAnalysisTool(tc.Name, tc.Arguments)
+		result, err := a.executeAnalysisTool(ctx, tc.Name, tc.Arguments)
 		if err != nil {
 			return fmt.Sprintf("Error: %v", err)
 		}
