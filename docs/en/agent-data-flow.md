@@ -28,93 +28,94 @@ Root cause: incremental patches without holistic design.
 
 ## 2. Agent Loop State Machine
 
-### 2.1 LM Studio Tool Calling Specification
+### 2.1 Tool Calling Design
 
-Per LM Studio docs, the recommended flow is:
+Tools are passed on every round (v1 pattern), enabling tool chaining
+(e.g. get-location → weather in a single user turn). The loop ends
+when the LLM returns a text response without tool calls.
 
-```
-1. Call LLM WITH tools → get response
-2. If tool_calls present:
-   a. Execute tools
-   b. Add assistant tool_call message + tool results to messages
-   c. Call LLM WITHOUT tools → get final text response
-3. If no tool_calls: return text response
-```
+Previous design used `tools=nil` after tool execution to force text
+response. This was removed after testing proved:
+- gemma-4 does not loop even with tools always available
+- [Calling:] pattern contamination (not context length) was the cause
+  of tool calling failures — handled by BuildMessagesWithBudget
 
-Key rule: **After tool execution, the next LLM call MUST be WITHOUT tools.**
-This forces the LLM to generate text instead of calling tools again.
+No streaming: Chat() is used for all rounds because tool chaining
+precludes knowing which round will be the final text response.
 
 ### 2.2 v2 Agent Loop Design
 
 ```
 SendWithImages(ctx, message, imageURLs)
   │
+  ├── Wait for previous postResponseTasks (postTasksWg)
   ├── State: Idle → Busy
-  ├── Handle /commands (return immediately)
+  ├── Handle /commands → popup result (not chat)
   │
   └── agentLoop(ctx, message, imageURLs)
         │
         ├── Save images to objstore → get IDs
-        ├── Add user record to session (with image IDs, not data URLs)
+        ├── Add user record to session
         ├── Auto-save session
+        ├── Synchronous compaction (compactIfOverBudget)
         │
         └── LOOP (max 10 rounds):
               │
-              ├── Build tools list:
-              │   ├── If toolsExecutedLastRound: tools = nil
-              │   └── Else: tools = buildToolDefs()
+              ├── Compact again if round > 0
               │
-              ├── Build messages from session records
-              │   ├── System prompt + temporal context + pinned + findings
-              │   ├── Warm/Cold summaries first
-              │   ├── Hot records (skip empty assistant records)
-              │   ├── Guard-wrap user and tool content
-              │   ├── Preserve application-level roles (NO mapping here)
-              │   └── Latest image: full data URL; older: text reference
+              ├── tools = allTools (every round, enables chaining)
+              │   ├── builtin: resolve-date
+              │   ├── analysis: load-data, query-sql, analyze-data, etc.
+              │   ├── shell: from toolRegistry (list-files, weather, etc.)
+              │   ├── MCP: from guardians (mcp__name__tool)
+              │   └── Filter: remove disabled tools (config.DisabledTools)
               │
-              ├── Call LLM: Backend.Chat() (non-streaming for all rounds)
-              │   └── Backend handles role mapping internally
-              │       (see docs/en/llm-abstraction.md)
+              ├── BuildMessagesWithBudget
+              │   ├── System prompt + temporal + location + pinned + findings
+              │   ├── Warm summaries (truncated to MaxWarmTokens)
+              │   ├── Hot records newest-first (skip [Calling:] messages)
+              │   ├── Tool results truncated to MaxToolResultTokens
+              │   └── Guard-wrap user and tool content
               │
-              ├── Clean response:
-              │   ├── strip.ThinkTags()
-              │   └── stripGemmaToolCallTags() (always, not just no-tools rounds)
+              ├── Call LLM: Backend.Chat() (non-streaming)
+              │
+              ├── Clean response: ThinkTags + GemmaToolCallTags
               │
               ├── IF no tool_calls AND content non-empty:
-              │   ├── Store assistant record in session
+              │   ├── Store assistant record
               │   ├── Auto-save session
-              │   ├── Background: generateTitle, extractPinned, compactMemory
+              │   ├── postResponseTasks (async via WaitGroup)
               │   └── RETURN content
               │
               ├── IF no tool_calls AND content empty:
-              │   └── RETURN "" (end loop, don't re-enable tools)
+              │   └── RETURN ""
               │
               └── IF tool_calls present:
-                    ├── Store assistant record ONLY IF content non-empty
+                    ├── Emit thinking activity (if LLM included explanation)
+                    ├── Store assistant record ([Calling:...] if empty)
                     ├── Execute each tool call:
-                    │   ├── MITL check for write/execute
-                    │   ├── Execute tool
+                    │   ├── Emit tool_start activity
+                    │   ├── MITL check (category + per-tool override)
+                    │   ├── Route: builtin / analysis / MCP / shell
                     │   ├── Store tool result record
+                    │   ├── Emit tool_end activity
                     │   └── If tool produces artifact → save to objstore
-                    ├── Auto-save session
-                    └── Set toolsExecutedLastRound = true
+                    └── Auto-save session
 ```
 
 ### 2.3 Critical Rules
 
-1. **Never re-enable tools after empty response.** If LLM returns empty
-   after a no-tools round, the loop ends. The earlier re-enable logic
-   caused infinite create-report loops.
+1. **Tools every round.** Tools are passed on all rounds to enable
+   chaining. [Calling:] exclusion in BuildMessagesWithBudget prevents
+   pattern contamination. Verified: gemma-4 does not loop.
 
-2. **Always strip gemma text tool calls.** Applied every round, not just
-   no-tools rounds. Prevents gemma format from being treated as content.
+2. **Always strip gemma text tool calls.** Applied every round.
+   Prevents gemma `<|tool_call>` format from being treated as content.
 
-3. **Always record assistant tool call requests.** When the LLM responds
-   with tool_calls, the assistant message MUST be recorded even if content
-   is empty. Use `[Calling: tool_name]` as synthetic content. This is
-   required for valid conversation history — without it, the LLM doesn't
-   know tools were already called and tries to call them again.
-   Only skip truly empty assistant messages (no tool calls AND no content).
+3. **Always record [Calling:] for tool calls.** When the LLM responds
+   with tool_calls, record assistant message with `[Calling: tool_name]`
+   if content is empty. These are stored in session but excluded from
+   LLM context by BuildMessagesWithBudget.
 
 4. **Auto-save after every mutation.** User message, assistant message,
    tool result — each save to disk immediately.
@@ -539,11 +540,21 @@ The text is already stored in the session record for persistence.
 - [x] LM Studio / Vertex AI integration tests
 - [x] Root cause identified: [Calling:] pattern contamination
 
-### Phase 4: Tool Execution Confirmation
-- [ ] Extend MITLResponse with Feedback field (Approve / Reject / Reject+Feedback)
-- [ ] SQL Preview MITL for query-sql (show SQL before execution)
-- [ ] Analysis Plan MITL for analyze-data (show perspective + target)
-- [ ] Frontend MITL dialog redesign (feedback text input on reject)
-- [ ] Feedback-based tool result for LLM re-generation
-- [ ] Shell tool MITL verification (existing code, untested)
-- [ ] System prompt update for user-language responses
+### Phase 4: Tool Execution Confirmation (completed)
+- [x] MITLResponse with Feedback (Approve / Reject / Reject+Feedback)
+- [x] SQL Preview MITL for query-sql
+- [x] Analysis Plan MITL for analyze-data
+- [x] Frontend MITL dialog with feedback input
+- [x] Feedback-based tool result for LLM re-generation
+- [x] Shell tool MITL verified
+- [x] System prompt language matching
+- [x] Per-tool Enabled/MITL override (DisabledTools + MITLOverrides)
+
+### Phase 5: MCP + UI Polish (completed)
+- [x] MCP guardian integration (config, agent, tool dispatch)
+- [x] Tool chaining (tools every round, [Calling:] exclusion)
+- [x] Sidebar v1 redesign (icon nav, collapse, resize)
+- [x] Settings tabbed (General/Tools/MCP)
+- [x] Unified tool management (Enabled + MITL toggles)
+- [x] Command popup (/help, /findings, /model)
+- [x] Theme readability improvements
