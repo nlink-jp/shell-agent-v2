@@ -77,6 +77,7 @@ type Agent struct {
 	pinnedHandler   func()
 	activityHandler func(actType, detail string)
 	toolRegistry    *toolcall.Registry
+	postTasksWg     sync.WaitGroup // ensures post-response tasks finish before next Send
 
 	// Token usage tracking (session-scoped, reset on session switch)
 	promptTokens int
@@ -180,6 +181,9 @@ func (a *Agent) Send(ctx context.Context, message string) (string, error) {
 // SendWithImages processes a user message with optional images.
 // objectIDs are stored in session records; dataURLs are used for LLM context.
 func (a *Agent) SendWithImages(ctx context.Context, message string, objectIDs, dataURLs []string) (string, error) {
+	// Wait for any previous post-response tasks to complete
+	a.postTasksWg.Wait()
+
 	a.mu.Lock()
 	if a.state != StateIdle {
 		a.mu.Unlock()
@@ -511,17 +515,15 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 	return "(Max tool rounds reached)", nil
 }
 
-// postResponseTasks runs background tasks after a final response.
-// Tasks run concurrently but are waited on before state returns to Idle,
-// preventing race conditions with the next Send() call.
+// postResponseTasks launches background tasks after a final response.
+// Tasks run concurrently in background. The next Send() call waits
+// for completion via postTasksWg before proceeding.
 // Design: docs/en/agent-data-flow.md Section 4.1
 func (a *Agent) postResponseTasks(ctx context.Context) {
-	var wg sync.WaitGroup
-	wg.Add(3)
-	go func() { defer wg.Done(); a.generateTitleIfNeeded(ctx) }()
-	go func() { defer wg.Done(); a.compactMemoryIfNeeded(ctx) }()
-	go func() { defer wg.Done(); a.extractPinnedMemories(ctx) }()
-	wg.Wait()
+	a.postTasksWg.Add(3)
+	go func() { defer a.postTasksWg.Done(); a.generateTitleIfNeeded(ctx) }()
+	go func() { defer a.postTasksWg.Done(); a.compactMemoryIfNeeded(ctx) }()
+	go func() { defer a.postTasksWg.Done(); a.extractPinnedMemories(ctx) }()
 }
 
 // compactIfOverBudget runs compaction synchronously before BuildMessages.
