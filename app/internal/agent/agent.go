@@ -190,9 +190,13 @@ func (a *Agent) SendWithImages(ctx context.Context, message string, objectIDs, d
 		a.mu.Unlock()
 	}()
 
-	// Handle chat commands
+	// Handle chat commands (only known commands, not arbitrary /paths)
 	if strings.HasPrefix(message, "/") {
-		return a.handleCommand(message)
+		parts := strings.Fields(message)
+		switch parts[0] {
+		case "/model", "/finding", "/findings":
+			return a.handleCommand(message)
+		}
 	}
 
 	return a.agentLoop(ctx, message, objectIDs, dataURLs)

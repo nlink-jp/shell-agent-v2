@@ -59,6 +59,24 @@ func TestE2E_SimpleChat(t *testing.T) {
 	}
 }
 
+func TestE2E_SlashPathNotCommand(t *testing.T) {
+	// Messages starting with / but not a known command should be sent to LLM
+	mock := llm.NewMockBackend(llm.MockResponse{Content: "I'll load that file."})
+	a := newTestAgent(t, mock)
+
+	result, err := a.Send(context.Background(), "/tmp/sales.csv を読み込んで")
+	if err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if result != "I'll load that file." {
+		t.Errorf("result = %q, want LLM response", result)
+	}
+	// Should have been sent to LLM, not handled as command
+	if len(mock.Calls()) != 1 {
+		t.Errorf("mock calls = %d, want 1 (message should reach LLM)", len(mock.Calls()))
+	}
+}
+
 func TestE2E_ToolCallLoop(t *testing.T) {
 	// LLM calls resolve-date, then responds with the result
 	mock := llm.NewMockWithToolCall(
