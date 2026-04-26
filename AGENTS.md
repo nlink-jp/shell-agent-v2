@@ -17,7 +17,8 @@ make test       # go test ./... (add -tags no_duckdb_arrow for CGO builds)
 make clean      # Remove build artifacts
 
 # Integration tests (require running services):
-go test ./internal/llm/ -tags lmstudio -v    # LM Studio at localhost:1234
+go test ./internal/llm/ -tags lmstudio -v    # LM Studio LLM backend tests
+go test ./internal/agent/ -tags "lmstudio no_duckdb_arrow" -v -timeout 300s  # Agent loop + tool calling
 VERTEX_PROJECT=xxx go test ./internal/llm/ -tags vertexai -v  # Vertex AI
 ```
 
