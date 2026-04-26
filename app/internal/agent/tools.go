@@ -191,6 +191,24 @@ func analysisTools(hasData bool) []llm.ToolDef {
 				"required": []string{"content"},
 			},
 		},
+		{
+			Name:        "analyze-data",
+			Description: "Run deep sliding-window analysis on a loaded table. Processes data in windows, accumulating findings and building a comprehensive summary. Returns a markdown report with findings grouped by severity.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"prompt": map[string]any{
+						"type":        "string",
+						"description": "Analysis perspective and what to look for (e.g. 'Find anomalies in response times')",
+					},
+					"table": map[string]any{
+						"type":        "string",
+						"description": "Table to analyze (default: first loaded table)",
+					},
+				},
+				"required": []string{"prompt"},
+			},
+		},
 	}
 
 	return append(tools, dataTools...)
@@ -219,6 +237,8 @@ func (a *Agent) executeAnalysisTool(ctx context.Context, name string, argsJSON s
 		return a.toolCreateReport(argsJSON)
 	case "promote-finding":
 		return a.toolPromoteFinding(argsJSON)
+	case "analyze-data":
+		return a.toolAnalyzeData(ctx, argsJSON)
 	default:
 		return "", fmt.Errorf("unknown analysis tool: %s", name)
 	}
@@ -587,6 +607,83 @@ func (a *Agent) toolGetObject(argsJSON string) string {
 		content += "\n... (truncated)"
 	}
 	return content
+}
+
+// toolAnalyzeData runs sliding window analysis on a loaded table.
+func (a *Agent) toolAnalyzeData(ctx context.Context, argsJSON string) (string, error) {
+	var args struct {
+		Prompt string `json:"prompt"`
+		Table  string `json:"table"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return "", fmt.Errorf("parse args: %w", err)
+	}
+	if args.Prompt == "" {
+		return "", fmt.Errorf("prompt is required")
+	}
+	if a.analysis == nil {
+		return "", fmt.Errorf("no analysis engine")
+	}
+
+	// Determine target table
+	tableName := args.Table
+	if tableName == "" {
+		tables := a.analysis.Tables()
+		if len(tables) == 0 {
+			return "No tables loaded. Use load-data first.", nil
+		}
+		tableName = tables[0].Name
+	}
+
+	// Fetch all rows
+	query := fmt.Sprintf("SELECT * FROM \"%s\"", tableName)
+	results, err := a.analysis.QuerySQL(query)
+	if err != nil {
+		return "", fmt.Errorf("query table: %w", err)
+	}
+	rows := analysis.RowsToJSON(results)
+
+	// Build LLM adapter
+	adapter := &backendLLMAdapter{backend: a.backend}
+
+	// Run analysis
+	cfg := analysis.DefaultSummarizerConfig()
+	summarizer := analysis.NewSummarizer(adapter, a.analysis.Schema(), cfg)
+	result, err := summarizer.Analyze(ctx, args.Prompt, rows, func(idx, total int) {
+		if a.progressHandler != nil {
+			a.progressHandler(fmt.Sprintf("analyze-data (window %d/%d)", idx+1, total))
+		}
+	})
+	if err != nil {
+		return "", fmt.Errorf("analysis: %w", err)
+	}
+
+	// Generate report
+	report := analysis.GenerateReport(args.Prompt, result)
+
+	// Truncate if too long for tool result
+	if len(report) > 10000 {
+		report = report[:10000] + "\n\n... (truncated)"
+	}
+
+	return report, nil
+}
+
+// backendLLMAdapter adapts llm.Backend to analysis.LLMClient.
+type backendLLMAdapter struct {
+	backend llm.Backend
+}
+
+func (a *backendLLMAdapter) Chat(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	messages := []llm.Message{
+		{Role: llm.RoleSystem, Content: systemPrompt},
+		{Role: llm.RoleUser, Content: userPrompt},
+	}
+	resp, err := a.backend.Chat(ctx, messages, nil)
+	if err != nil {
+		return "", err
+	}
+	return resp.Content, nil
 }
 
 func formatTableMeta(t *analysis.TableMeta) string {

@@ -707,6 +707,12 @@ func (a *Agent) generateTitleIfNeeded(ctx context.Context) {
 const defaultSystemPrompt = `You are a helpful assistant with data analysis capabilities.
 You can use tools to help answer questions.
 
+Before calling a tool, briefly explain what you are about to do and why. For example:
+- Before query-sql: show the SQL you will execute and explain the intent
+- Before load-data: explain which file you will load and what table name you will use
+- Before suggest-analysis or query-preview: explain the analysis perspective
+This helps the user understand and verify your approach.
+
 When asked about dates, use the resolve-date tool if you are unsure about the calculation.
 
 When you discover a significant analysis insight (a pattern, anomaly, or conclusion that would be valuable across sessions), use the promote-finding tool to save it to the global findings store.
