@@ -346,28 +346,6 @@ function App() {
     const handleSend = useCallback(async (text: string, images: string[]) => {
         if ((!text && images.length === 0) || state === 'busy' || !currentSessionId) return
 
-        // Commands: don't add to chat, show as popup
-        if (text.startsWith('/')) {
-            try {
-                setState('busy')
-                const response = await window.go.main.Bindings.Send(text)
-                if (response && response.startsWith('[CMD]')) {
-                    setCmdResult(response.slice(5))
-                    return
-                }
-                // Not a command after all (e.g. /tmp/file.csv), fall through handled below
-                setMessages(prev => [...prev, {role: 'user', content: text, timestamp: nowTime()}])
-                if (response && response.trim()) {
-                    setMessages(prev => [...prev, {role: 'assistant', content: response, timestamp: nowTime()}])
-                }
-            } catch (err: any) {
-                setMessages(prev => [...prev, {role: 'system', content: `Error: ${err.message || err}`, timestamp: nowTime()}])
-            } finally {
-                setState('idle')
-            }
-            return
-        }
-
         setMessages(prev => [...prev, {
             role: 'user', content: text, timestamp: nowTime(),
             imageUrls: images.length > 0 ? images : undefined,
@@ -379,7 +357,11 @@ function App() {
             const response = images.length > 0
                 ? await window.go.main.Bindings.SendWithImages(text, images)
                 : await window.go.main.Bindings.Send(text)
-            if (response && response.trim()) {
+            if (response && response.startsWith('[CMD]')) {
+                // Command result: show as popup, remove user message from chat
+                setCmdResult(response.slice(5))
+                setMessages(prev => prev.slice(0, -1)) // remove the optimistic user message
+            } else if (response && response.trim()) {
                 setMessages(prev => [...prev, {role: 'assistant', content: response, timestamp: nowTime()}])
             }
         } catch (err: any) {
