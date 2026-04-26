@@ -475,7 +475,7 @@
 }
 
 .report-content th, .report-fullscreen-content th {
-    background: var(--bg-primary, rgba(30, 50, 70, 0.5));
+    background: rgba(128, 128, 128, 0.15);
     font-weight: 600;
 }
 

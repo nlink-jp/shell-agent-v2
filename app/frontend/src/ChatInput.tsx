@@ -1,4 +1,4 @@
-import {useState, useRef, memo} from 'react'
+import {useState, useRef, useEffect, memo} from 'react'
 
 interface Props {
     onSend: (text: string, images: string[]) => void
@@ -11,6 +11,11 @@ function ChatInput({onSend, disabled}: Props) {
     const composingRef = useRef(false)
     const textareaRef = useRef<HTMLTextAreaElement>(null)
     const fileInputRef = useRef<HTMLInputElement>(null)
+
+    // Auto-focus on mount (including re-mount after busy→idle)
+    useEffect(() => {
+        if (!disabled) textareaRef.current?.focus()
+    }, [disabled])
     const historyRef = useRef<string[]>([])
     const historyIndexRef = useRef(-1)
     const draftRef = useRef('')
