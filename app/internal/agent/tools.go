@@ -667,9 +667,7 @@ func (a *Agent) toolAnalyzeData(ctx context.Context, argsJSON string) (string, e
 	}
 	for _, f := range result.Findings {
 		sev := strings.ToLower(f.Severity)
-		if sev == "critical" || sev == "high" || sev == "medium" {
-			a.findings.Add(f.Description, sessionID, sessionTitle, []string{sev, tableName})
-		}
+		a.findings.Add(f.Description, sessionID, sessionTitle, []string{sev, tableName})
 	}
 	_ = a.findings.Save()
 
