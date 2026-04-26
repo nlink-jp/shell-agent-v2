@@ -958,8 +958,9 @@
 .message-content th,
 .report-content th,
 .report-fullscreen-content th {
-    background: #1a2a3a;
+    background: rgba(128, 128, 128, 0.2);
     font-weight: 600;
+    color: var(--text-primary, #e0e0e0);
 }
 
 .message-content ul, .message-content ol,
