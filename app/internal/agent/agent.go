@@ -65,12 +65,13 @@ type Agent struct {
 	pinned   *memory.PinnedStore
 	objects  *objstore.Store
 
-	streamHandler StreamHandler
-	titleHandler  TitleHandler
-	mitlHandler   MITLHandler
-	reportHandler func(title, content string)
-	pinnedHandler func()
-	toolRegistry  *toolcall.Registry
+	streamHandler   StreamHandler
+	titleHandler    TitleHandler
+	mitlHandler     MITLHandler
+	reportHandler   func(title, content string)
+	pinnedHandler   func()
+	progressHandler func(toolName string)
+	toolRegistry    *toolcall.Registry
 
 	// Token usage tracking (session-scoped, reset on session switch)
 	promptTokens int
@@ -136,6 +137,13 @@ func (a *Agent) SetPinnedHandler(h func()) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.pinnedHandler = h
+}
+
+// SetProgressHandler sets the callback for tool execution progress.
+func (a *Agent) SetProgressHandler(h func(toolName string)) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.progressHandler = h
 }
 
 // CurrentBackend returns the name of the active LLM backend.
@@ -436,6 +444,9 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 
 		// Execute each tool call
 		for _, tc := range resp.ToolCalls {
+			if a.progressHandler != nil {
+				a.progressHandler(tc.Name)
+			}
 			logger.Info("agentLoop: tool_call name=%s args=%s", tc.Name, logger.Truncate(tc.Arguments, 200))
 			result := a.executeTool(ctx, tc)
 			logger.Debug("agentLoop: tool_result name=%s result=%s", tc.Name, logger.Truncate(result, 200))

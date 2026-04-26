@@ -72,6 +72,11 @@ func (b *Bindings) startup(ctx context.Context) {
 			"content": content,
 		})
 	})
+	b.agent.SetProgressHandler(func(toolName string) {
+		wailsRuntime.EventsEmit(b.ctx, "agent:progress", map[string]any{
+			"tool_name": toolName,
+		})
+	})
 	b.mitlChan = make(chan bool, 1)
 	b.agent.SetMITLHandler(func(req agent.MITLRequest) bool {
 		wailsRuntime.EventsEmit(b.ctx, "mitl:request", map[string]any{

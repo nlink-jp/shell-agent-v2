@@ -141,6 +141,7 @@ function App() {
     const [lightboxImage, setLightboxImage] = useState<string | null>(null)
     const [expandedReport, setExpandedReport] = useState<{title: string; content: string} | null>(null)
     const [settings, setSettings] = useState<Settings | null>(null)
+    const [progressTool, setProgressTool] = useState('')
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const composingRef = useRef(false)
 
@@ -150,6 +151,7 @@ function App() {
                 if (data.done) {
                     setStreaming('')
                 } else {
+                    setProgressTool('') // clear progress when streaming starts
                     setStreaming(prev => prev + data.token)
                 }
             })
@@ -171,7 +173,10 @@ function App() {
                     s.id === data.session_id ? {...s, title: data.title} : s
                 ))
             })
-            return () => { cleanupStream(); cleanupPinned(); cleanupReport(); cleanupMitl(); cleanupTitle() }
+            const cleanupProgress = window.runtime.EventsOn('agent:progress', (data: any) => {
+                setProgressTool(data.tool_name || '')
+            })
+            return () => { cleanupStream(); cleanupPinned(); cleanupReport(); cleanupMitl(); cleanupTitle(); cleanupProgress() }
         }
     }, [])
 
@@ -346,6 +351,7 @@ function App() {
         } finally {
             setState('idle')
             setStreaming('')
+            setProgressTool('')
             if (window.go) {
                 window.go.main.Bindings.GetBackend().then(setBackend)
                 window.go.main.Bindings.GetLLMStatus().then(setLLMStatus)
@@ -581,6 +587,9 @@ function App() {
                 </div>
                 {state === 'busy' ? (
                     <div className="input-area">
+                        {progressTool && (
+                            <div className="tool-progress">Executing: {progressTool}</div>
+                        )}
                         <div className="input-row">
                             <textarea disabled rows={3} placeholder="Agent is busy..." />
                             <button className="abort-btn" onClick={handleAbort}>Abort</button>
