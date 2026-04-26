@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/nlink-jp/shell-agent-v2/internal/agent"
@@ -219,10 +220,18 @@ func (b *Bindings) LoadSession(sessionID string) ([]MessageData, error) {
 		switch r.Role {
 		case "summary", "tool":
 			continue // hidden from UI
+		case "assistant":
+			// Hide tool call request markers
+			if strings.HasPrefix(r.Content, "[Calling:") {
+				continue
+			}
+			msgs = append(msgs, MessageData{
+				Role: r.Role, Content: r.Content,
+				Timestamp: r.Timestamp.Format("15:04:05"),
+			})
 		default:
 			msgs = append(msgs, MessageData{
-				Role:      r.Role,
-				Content:   r.Content,
+				Role: r.Role, Content: r.Content,
 				Timestamp: r.Timestamp.Format("15:04:05"),
 			})
 		}
@@ -418,8 +427,9 @@ func (b *Bindings) GetTools() []ToolInfo {
 
 // PinnedMemoryData is a pinned fact for the frontend.
 type PinnedMemoryData struct {
-	Key     string `json:"key"`
-	Content string `json:"content"`
+	Fact       string `json:"fact"`
+	NativeFact string `json:"native_fact"`
+	Category   string `json:"category"`
 }
 
 // GetPinnedMemories returns all pinned facts.
@@ -427,7 +437,11 @@ func (b *Bindings) GetPinnedMemories() []PinnedMemoryData {
 	all := b.agent.PinnedAll()
 	result := make([]PinnedMemoryData, len(all))
 	for i, f := range all {
-		result[i] = PinnedMemoryData{Key: f.Key, Content: f.Content}
+		result[i] = PinnedMemoryData{
+			Fact:       f.Fact,
+			NativeFact: f.NativeFact,
+			Category:   f.Category,
+		}
 	}
 	return result
 }

@@ -87,8 +87,9 @@ interface ToolInfo {
 }
 
 interface PinnedMemory {
-    key: string;
-    content: string;
+    fact: string;
+    native_fact: string;
+    category: string;
 }
 
 interface LLMStatus {
@@ -146,7 +147,7 @@ function App() {
             })
             const cleanupReport = window.runtime.EventsOn('report:created', (data: any) => {
                 setMessages(prev => [...prev, {
-                    role: 'assistant' as const,
+                    role: 'report' as const,
                     content: data.content,
                     timestamp: nowTime(),
                 }])
@@ -449,12 +450,17 @@ function App() {
                             <h3>Pinned Memory</h3>
                             {pinnedMemories.length === 0 ? (
                                 <p className="sidebar-hint">No pinned facts</p>
-                            ) : pinnedMemories.map(p => (
-                                <div key={p.key} className="pinned-item">
-                                    <div className="pinned-key">{p.key}</div>
-                                    <div className="pinned-content">{p.content}</div>
+                            ) : pinnedMemories.map((p, i) => (
+                                <div key={i} className="pinned-item">
+                                    <span className={`pinned-category ${p.category}`}>{p.category}</span>
+                                    <div className="pinned-content">
+                                        <span className="pinned-fact">{p.native_fact || p.fact}</span>
+                                        {p.native_fact && p.native_fact !== p.fact && (
+                                            <span className="pinned-fact-en">{p.fact}</span>
+                                        )}
+                                    </div>
                                     <button className="pinned-delete" onClick={async () => {
-                                        await window.go.main.Bindings.DeletePinnedMemory(p.key)
+                                        await window.go.main.Bindings.DeletePinnedMemory(p.fact)
                                         const updated = await window.go.main.Bindings.GetPinnedMemories()
                                         setPinnedMemories(updated)
                                     }}>&#x2715;</button>
@@ -480,7 +486,7 @@ function App() {
                                             <span className="report-title">{msg.content.split('\n')[0].replace(/^#\s*/, '')}</span>
                                             <div className="report-actions">
                                                 <button onClick={() => setExpandedReport({title: msg.content.split('\n')[0].replace(/^#\s*/, ''), content: msg.content})}>Expand</button>
-                                                <button onClick={() => navigator.clipboard.writeText(msg.content)}>Copy</button>
+                                                <button onClick={(e) => { navigator.clipboard.writeText(msg.content); const b = e.currentTarget; b.textContent = 'Copied!'; setTimeout(() => b.textContent = 'Copy', 1000) }}>Copy</button>
                                                 <button onClick={() => window.go?.main.Bindings.SaveReport(msg.content, 'report.md')}>Save</button>
                                             </div>
                                         </div>
@@ -669,7 +675,7 @@ function App() {
                         <div className="report-fullscreen-header">
                             <span className="report-title">{expandedReport.title}</span>
                             <div className="report-actions">
-                                <button onClick={() => navigator.clipboard.writeText(expandedReport.content)}>Copy</button>
+                                <button onClick={(e) => { navigator.clipboard.writeText(expandedReport.content); const b = e.currentTarget; b.textContent = 'Copied!'; setTimeout(() => b.textContent = 'Copy', 1000) }}>Copy</button>
                                 <button onClick={() => window.go?.main.Bindings.SaveReport(expandedReport.content, 'report.md')}>Save</button>
                                 <button onClick={() => setExpandedReport(null)}>Close</button>
                             </div>
