@@ -624,15 +624,50 @@ function App() {
                             : 'Tool Approval Required'}</span>
                     </div>
                     <div className="mitl-body">
-                        <div className="mitl-tool-name">
-                            <span className="mitl-label">Tool:</span>
-                            <code>{mitlRequest.tool_name}</code>
-                            <span className={`tool-category ${mitlRequest.category}`}>{mitlRequest.category}</span>
-                        </div>
-                        <div className="mitl-args">
-                            <span className="mitl-label">{mitlRequest.category === 'sql_preview' ? 'SQL:' : 'Details:'}</span>
-                            <pre>{(() => { try { return JSON.stringify(JSON.parse(mitlRequest.arguments), null, 2) } catch { return mitlRequest.arguments } })()}</pre>
-                        </div>
+                        {(() => {
+                            try {
+                                const args = JSON.parse(mitlRequest.arguments)
+                                if (mitlRequest.category === 'sql_preview') {
+                                    return (<>
+                                        <div className="mitl-section">
+                                            <span className="mitl-label">SQL:</span>
+                                            <pre className="mitl-sql">{args.sql || mitlRequest.arguments}</pre>
+                                        </div>
+                                    </>)
+                                }
+                                if (mitlRequest.category === 'analysis_plan') {
+                                    return (<>
+                                        <div className="mitl-section">
+                                            <span className="mitl-label">Analysis Perspective:</span>
+                                            <div className="mitl-perspective">{args.prompt}</div>
+                                        </div>
+                                        {args.table && (
+                                            <div className="mitl-section">
+                                                <span className="mitl-label">Target Table:</span>
+                                                <code>{args.table}</code>
+                                            </div>
+                                        )}
+                                    </>)
+                                }
+                                // Default: shell tools etc.
+                                return (<>
+                                    <div className="mitl-tool-name">
+                                        <span className="mitl-label">Tool:</span>
+                                        <code>{mitlRequest.tool_name}</code>
+                                        <span className={`tool-category ${mitlRequest.category}`}>{mitlRequest.category}</span>
+                                    </div>
+                                    <div className="mitl-section">
+                                        <span className="mitl-label">Arguments:</span>
+                                        <pre>{JSON.stringify(args, null, 2)}</pre>
+                                    </div>
+                                </>)
+                            } catch {
+                                return (<div className="mitl-section">
+                                    <span className="mitl-label">Details:</span>
+                                    <pre>{mitlRequest.arguments}</pre>
+                                </div>)
+                            }
+                        })()}
                         <div className="mitl-feedback">
                             <input
                                 type="text"
