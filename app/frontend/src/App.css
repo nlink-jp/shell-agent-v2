@@ -28,7 +28,7 @@ input, textarea {
 
 /* Sidebar */
 .sidebar {
-    width: 280px;
+    flex-shrink: 0;
     padding: 36px 0 0;
     background: var(--bg-sidebar, rgba(30, 30, 30, 0.95));
     border-right: 1px solid var(--border-primary, #2a3a4a);
@@ -63,6 +63,17 @@ input, textarea {
 .sidebar-top {
     padding: 4px;
     --wails-draggable: no-drag;
+}
+
+.sidebar-resize {
+    width: 4px;
+    cursor: col-resize;
+    background: transparent;
+    flex-shrink: 0;
+}
+
+.sidebar-resize:hover {
+    background: var(--border-accent, #5a8abf);
 }
 
 .sidebar-panel {

@@ -146,6 +146,8 @@ function App() {
     const [backend, setBackend] = useState('')
     const [sidebarPanel, setSidebarPanel] = useState<SidebarPanel>('sessions')
     const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+    const [sidebarWidth, setSidebarWidth] = useState(280)
+    const resizingRef = useRef(false)
     const [sessions, setSessions] = useState<SessionInfo[]>([])
     const [currentSessionId, setCurrentSessionId] = useState<string>('')
     const [findings, setFindings] = useState<Finding[]>([])
@@ -392,6 +394,24 @@ function App() {
         }
     }, [state, currentSessionId])
 
+    function startResize(e: React.MouseEvent) {
+        e.preventDefault()
+        resizingRef.current = true
+        const startX = e.clientX
+        const startW = sidebarWidth
+        function onMove(ev: MouseEvent) {
+            if (!resizingRef.current) return
+            setSidebarWidth(Math.max(180, Math.min(500, startW + ev.clientX - startX)))
+        }
+        function onUp() {
+            resizingRef.current = false
+            document.removeEventListener('mousemove', onMove)
+            document.removeEventListener('mouseup', onUp)
+        }
+        document.addEventListener('mousemove', onMove)
+        document.addEventListener('mouseup', onUp)
+    }
+
     const handleAbort = useCallback(async () => {
         if (window.go) await window.go.main.Bindings.Abort()
     }, [])
@@ -424,7 +444,7 @@ function App() {
                     </div>
                 </div>
             )}
-            <div className="sidebar" style={{display: sidebarCollapsed ? 'none' : undefined}}>
+            <div className="sidebar" style={{width: sidebarCollapsed ? 0 : sidebarWidth, display: sidebarCollapsed ? 'none' : undefined}}>
                 <div className="sidebar-top">
                     <button className="sidebar-nav-btn active" onClick={() => setSidebarPanel('sessions')}>
                         <span className="sidebar-nav-ic">{sidebarPanel === 'sessions' ? '\u2630' : '\u2261'}</span> {sidebarPanel === 'sessions' ? 'Sessions' : 'Status'}
@@ -540,6 +560,7 @@ function App() {
                     </button>
                 </div>
             </div>
+            {!sidebarCollapsed && <div className="sidebar-resize" onMouseDown={startResize} />}
             <div className="main">
                 <div className="messages">
                     {messages.filter(msg => msg.role !== 'tool').map((msg, i) => (
