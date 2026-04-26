@@ -148,7 +148,62 @@ type Record struct {
 | `report` | toolCreateReport | Yes | Yes (special) | Report content, stored in session |
 | `summary` | CompactIfNeeded | Yes | No | Warm/Cold memory summaries |
 
-### 3.3 What NOT to Store
+### 3.3 Context Budget Control
+
+Local LLMs (gemma-4) lose tool calling ability when context exceeds ~20
+messages. `BuildMessagesWithBudget` enforces a token budget to keep the
+LLM context within the model's reliable operating range.
+
+#### Budget Allocation (default for local backend)
+
+```
+Total budget:               8,192 tokens
+  System prompt (base):      ~400 tokens (fixed)
+  Temporal context:           ~60 tokens (fixed)
+  Pinned memory:             ~200 tokens (capped)
+  Findings:                  ~300 tokens (capped)
+  Tool definitions:          ~800 tokens (variable)
+  ──────────────────────────
+  Fixed overhead:           ~1,760 tokens
+
+  Warm summaries:           ≤ 1,024 tokens
+  Hot messages:             remaining (~5,400 tokens)
+```
+
+#### Message Selection Algorithm
+
+```
+1. Build system prompt (existing logic)
+2. Collect warm summary records, truncate to MaxWarmTokens
+3. Collect hot records in REVERSE chronological order:
+   - Skip [Calling: ...] messages (not needed for LLM context)
+   - Truncate tool results to MaxToolResultTokens (512)
+   - Stop when token budget exhausted (newest messages preserved)
+4. Reverse back to chronological order
+5. Assemble: system + warm + hot
+```
+
+#### Per-Backend Configuration
+
+Local backend uses conservative budget (8,192 tokens). Cloud backends
+(Vertex AI) use the existing unbounded `BuildMessages` since they handle
+long contexts reliably.
+
+```go
+type ContextBudgetConfig struct {
+    MaxContextTokens    int // default: 8192
+    MaxWarmTokens       int // default: 1024
+    MaxToolResultTokens int // default: 512
+}
+```
+
+#### Synchronous Compaction
+
+Compaction runs synchronously at agentLoop start and between tool rounds
+(round > 0), ensuring the context is compacted BEFORE BuildMessages is
+called. The async post-response compaction remains as a safety net.
+
+### 3.4 What NOT to Store
 
 - Empty assistant messages (content == "" after cleaning)
 - Intermediate streaming content
@@ -325,33 +380,49 @@ During tool execution (Busy state):
 
 ### 7.2 Events
 
-| Event | Direction | Purpose |
-|-------|-----------|---------|
-| agent:stream | Backend → FE | Streaming tokens |
-| session:title | Backend → FE | Auto-generated title |
-| report:created | Backend → FE | Report content for display |
-| pinned:updated | Backend → FE | Pinned memory changed |
-| memory:compacted | Backend → FE | Memory compaction occurred |
-| mitl:request | Backend → FE | Tool approval needed |
+| Event | Direction | Payload | Purpose |
+|-------|-----------|---------|---------|
+| `agent:stream` | Backend → FE | `{token, done}` | Streaming tokens (final response only) |
+| `agent:activity` | Backend → FE | `{type, detail}` | Agent execution status |
+| `session:title` | Backend → FE | `{session_id, title}` | Auto-generated title |
+| `report:created` | Backend → FE | `{title, content}` | Report content for display |
+| `pinned:updated` | Backend → FE | `nil` | Pinned memory changed |
+| `mitl:request` | Backend → FE | `{tool_name, arguments, category}` | Tool approval needed |
+
+#### agent:activity Types
+
+| Type | Detail | UI Display |
+|------|--------|-----------|
+| `tool_start` | Tool name | "Executing: query-sql" (status bar) |
+| `tool_end` | Tool name | Clear status bar |
+| `thinking` | LLM explanation text | Transient note (NOT a chat message) |
+
+The `thinking` type replaces the former `agent:explanation` event.
+LLM explanation text (e.g. "I will calculate the total revenue...")
+is shown as a transient indicator, NOT added to the chat message list.
+The text is already stored in the session record for persistence.
 
 ## 8. Implementation Checklist
 
-### Phase 1: Critical Fixes
-- [ ] Call CompactIfNeeded after every response
-- [ ] Connect Summarizer to LLM backend
-- [ ] Auto-save session after each record mutation
-- [ ] Store reports in session records (role="report")
-- [ ] Remove re-enable tools logic (empty → end loop)
-- [ ] Strip gemma tags every round
+### Phase 1: Critical Fixes (completed)
+- [x] Call CompactIfNeeded after every response
+- [x] Connect Summarizer to LLM backend
+- [x] Auto-save session after each record mutation
+- [x] Store reports in session records (role="report")
+- [x] Remove re-enable tools logic (empty → end loop)
+- [x] Strip gemma tags every round
 
-### Phase 2: Object Repository
-- [ ] Migrate images from data URLs to objstore IDs in records
-- [ ] list-objects / get-object tools
-- [ ] Frontend object: URL resolution
-- [ ] Report image references via object IDs
+### Phase 2: Object Repository (completed)
+- [x] Migrate images from data URLs to objstore IDs in records
+- [x] list-objects / get-object tools
+- [x] Frontend object: URL resolution
+- [x] Report image references via object IDs
 
-### Phase 3: Cleanup
-- [ ] Consistent role filtering (backend only, not frontend)
-- [ ] Tool execution progress events
-- [ ] Context cancellation propagation to tool LLM calls
-- [ ] Token tracking in records
+### Phase 3: Context Budget & Event Architecture
+- [ ] ContextBudgetConfig in config.go
+- [ ] BuildMessagesWithBudget in chat.go (token budget, tool result truncation, [Calling:] skip)
+- [ ] Synchronous compaction before BuildMessages in agentLoop
+- [ ] agent:activity event (consolidate agent:explanation + agent:progress)
+- [ ] Frontend activity state (transient display, not chat message)
+- [ ] postResponseTasks WaitGroup synchronization
+- [ ] Design document update (this file)
