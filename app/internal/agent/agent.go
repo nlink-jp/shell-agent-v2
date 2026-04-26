@@ -868,10 +868,16 @@ func (a *Agent) handleFindingsCommand() (string, error) {
 		return "No findings yet.", nil
 	}
 	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("**Findings** (%d)\n\n", len(all)))
 	for _, f := range all {
-		data, _ := json.Marshal(f)
-		sb.WriteString(string(data))
-		sb.WriteString("\n")
+		tags := ""
+		if len(f.Tags) > 0 {
+			tags = " `" + strings.Join(f.Tags, "` `") + "`"
+		}
+		sb.WriteString(fmt.Sprintf("- %s%s\n", f.Content, tags))
+		if f.OriginSessionTitle != "" {
+			sb.WriteString(fmt.Sprintf("  *%s — %s*\n", f.OriginSessionTitle, f.CreatedLabel))
+		}
 	}
 	return sb.String(), nil
 }

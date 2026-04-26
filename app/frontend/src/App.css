@@ -1309,6 +1309,11 @@ input, textarea {
     border-top: 1px solid var(--border-primary, #2a3a4a);
 }
 
+.status-tokens {
+    font-size: 11px;
+    color: var(--text-secondary, #6688aa);
+}
+
 .tool-progress {
     font-size: 12px;
     color: var(--text-secondary, #8899aa);

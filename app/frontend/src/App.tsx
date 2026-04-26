@@ -643,6 +643,9 @@ function App() {
                 )}
                 <div className="input-status-bar">
                     <span className={`backend-badge ${backend}`}>{backend || '...'}</span>
+                    {llmStatus && (
+                        <span className="status-tokens">{llmStatus.prompt_tokens.toLocaleString()} in / {llmStatus.output_tokens.toLocaleString()} out</span>
+                    )}
                     {state === 'busy' && <span className="tool-progress">{progressTool || 'Thinking...'}</span>}
                 </div>
                 {state === 'busy' ? (
