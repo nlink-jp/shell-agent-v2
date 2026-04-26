@@ -778,7 +778,8 @@
 }
 
 .settings-modal {
-    background: #1e2e3e;
+    background: var(--bg-primary, #1e2e3e);
+    color: var(--text-primary, #e0e0e0);
     border-radius: 12px;
     width: 420px;
     max-height: 80vh;
@@ -810,7 +811,7 @@
 .settings-section h3 {
     font-size: 13px;
     font-weight: 600;
-    color: #6688aa;
+    color: var(--text-secondary, #6688aa);
     text-transform: uppercase;
     letter-spacing: 0.5px;
     margin: 0 0 12px 0;
@@ -828,7 +829,7 @@
 
 .settings-section label span {
     min-width: 120px;
-    color: #8899aa;
+    color: var(--text-secondary, #8899aa);
     flex-shrink: 0;
 }
 
@@ -836,10 +837,10 @@
 .settings-section select {
     flex: 1;
     padding: 7px 10px;
-    background: #0d1520;
-    border: 1px solid #3a4a5a;
+    background: var(--bg-primary, #0d1520);
+    border: 1px solid var(--border-primary, #3a4a5a);
     border-radius: 6px;
-    color: #e0e0e0;
+    color: var(--text-primary, #e0e0e0);
     font-size: 13px;
     font-family: 'SF Mono', 'Menlo', monospace;
 }
@@ -852,7 +853,7 @@
 .settings-section input:focus,
 .settings-section select:focus {
     outline: none;
-    border-color: #5a8abf;
+    border-color: var(--border-accent, #5a8abf);
 }
 
 .settings-footer {
