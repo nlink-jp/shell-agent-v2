@@ -118,6 +118,7 @@ interface Settings {
     vertex_region: string;
     vertex_model: string;
     theme: string;
+    location: string;
 }
 
 type SidebarTab = 'sessions' | 'findings' | 'tools' | 'status';
@@ -651,6 +652,10 @@ function App() {
                                         <option value="warm">Warm</option>
                                         <option value="midnight">Midnight</option>
                                     </select>
+                                </label>
+                                <label>
+                                    <span>Location</span>
+                                    <input value={settings.location || ''} placeholder="e.g. Tokyo, Japan" onChange={e => updateSetting({location: e.target.value})} />
                                 </label>
                             </div>
                             <div className="settings-section">

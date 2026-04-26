@@ -348,6 +348,7 @@ type SettingsData struct {
 	VertexRegion   string `json:"vertex_region"`
 	VertexModel    string `json:"vertex_model"`
 	Theme          string `json:"theme"`
+	Location       string `json:"location"`
 }
 
 // GetSettings returns current settings.
@@ -360,6 +361,7 @@ func (b *Bindings) GetSettings() SettingsData {
 		VertexRegion:   b.cfg.LLM.VertexAI.Region,
 		VertexModel:    b.cfg.LLM.VertexAI.Model,
 		Theme:          b.cfg.UI.Theme,
+		Location:       b.cfg.Location,
 	}
 }
 
@@ -372,6 +374,7 @@ func (b *Bindings) SaveSettings(s SettingsData) error {
 	b.cfg.LLM.VertexAI.Region = s.VertexRegion
 	b.cfg.LLM.VertexAI.Model = s.VertexModel
 	b.cfg.UI.Theme = s.Theme
+	b.cfg.Location = s.Location
 	return b.cfg.Save()
 }
 

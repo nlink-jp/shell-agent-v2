@@ -83,12 +83,17 @@ func New(cfg *config.Config) *Agent {
 	registry := toolcall.NewRegistry()
 	_ = registry.ScanDir(cfg.Tools.ScriptDir)
 
+	chatEngine := chat.New(defaultSystemPrompt)
+	if cfg.Location != "" {
+		chatEngine.SetLocation(cfg.Location)
+	}
+
 	a := &Agent{
 		cfg:          cfg,
 		state:        StateIdle,
 		findings:     findings.NewStore(),
 		pinned:       memory.NewPinnedStore(),
-		chat:         chat.New(defaultSystemPrompt),
+		chat:         chatEngine,
 		toolRegistry: registry,
 	}
 	a.setBackend(cfg.LLM.DefaultBackend)

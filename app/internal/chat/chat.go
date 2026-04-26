@@ -15,6 +15,7 @@ import (
 // Engine builds LLM messages from session state.
 type Engine struct {
 	systemPrompt string
+	location     string
 	guardTag     guard.Tag
 }
 
@@ -26,6 +27,11 @@ func New(systemPrompt string) *Engine {
 	}
 }
 
+// SetLocation sets the user's location for temporal context.
+func (e *Engine) SetLocation(location string) {
+	e.location = location
+}
+
 // BuildMessages constructs the message array for the API call,
 // injecting temporal context, pinned memory, and findings.
 // User and tool content is wrapped with guard tags for prompt injection defense.
@@ -34,6 +40,9 @@ func (e *Engine) BuildMessages(session *memory.Session, pinnedContext, findingsC
 	e.guardTag = guard.NewTag()
 
 	timeContext := buildTemporalContext()
+	if e.location != "" {
+		timeContext += "\nLocation: " + e.location
+	}
 	fullSystem := fmt.Sprintf("%s\n\n%s", e.systemPrompt, timeContext)
 	if pinnedContext != "" {
 		fullSystem += "\n\nImportant facts you remember about the user:\n" + pinnedContext

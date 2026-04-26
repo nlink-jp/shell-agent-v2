@@ -76,6 +76,7 @@ type Config struct {
 	Memory      MemoryConfig `json:"memory"`
 	Tools       ToolsConfig  `json:"tools"`
 	UI          UIConfig     `json:"ui"`
+	Location    string       `json:"location,omitempty"` // user-set location (e.g. "Tokyo, Japan")
 	LastSession string       `json:"last_session,omitempty"`
 }
 
