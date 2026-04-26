@@ -502,7 +502,7 @@ function App() {
                     </>)}
                 </div>
 
-                <div className="sidebar-nav">
+                <div className="sidebar-bottom">
                     <button className="sidebar-nav-btn" onClick={handleNewSession} disabled={state === 'busy'}>
                         <span className="sidebar-nav-ic">+</span> New Chat
                     </button>
