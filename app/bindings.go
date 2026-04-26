@@ -77,6 +77,11 @@ func (b *Bindings) startup(ctx context.Context) {
 			"tool_name": toolName,
 		})
 	})
+	b.agent.SetExplanationHandler(func(text string) {
+		wailsRuntime.EventsEmit(b.ctx, "agent:explanation", map[string]any{
+			"text": text,
+		})
+	})
 	b.mitlChan = make(chan bool, 1)
 	b.agent.SetMITLHandler(func(req agent.MITLRequest) bool {
 		wailsRuntime.EventsEmit(b.ctx, "mitl:request", map[string]any{

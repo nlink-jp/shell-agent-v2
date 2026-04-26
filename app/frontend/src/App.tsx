@@ -153,16 +153,15 @@ function App() {
         if (window.runtime) {
             const cleanupStream = window.runtime.EventsOn('agent:stream', (data: any) => {
                 if (data.done) {
-                    // Flush streamed content as a message if it exists
-                    setStreaming(prev => {
-                        if (prev.trim()) {
-                            setMessages(msgs => [...msgs, {role: 'assistant', content: prev, timestamp: nowTime()}])
-                        }
-                        return ''
-                    })
+                    setStreaming('')
                 } else {
                     setProgressTool('') // clear progress when streaming starts
                     setStreaming(prev => prev + data.token)
+                }
+            })
+            const cleanupExplanation = window.runtime.EventsOn('agent:explanation', (data: any) => {
+                if (data.text) {
+                    setMessages(prev => [...prev, {role: 'assistant', content: data.text, timestamp: nowTime()}])
                 }
             })
             const cleanupPinned = window.runtime.EventsOn('pinned:updated', () => {
@@ -186,7 +185,7 @@ function App() {
             const cleanupProgress = window.runtime.EventsOn('agent:progress', (data: any) => {
                 setProgressTool(data.tool_name || '')
             })
-            return () => { cleanupStream(); cleanupPinned(); cleanupReport(); cleanupMitl(); cleanupTitle(); cleanupProgress() }
+            return () => { cleanupStream(); cleanupExplanation(); cleanupPinned(); cleanupReport(); cleanupMitl(); cleanupTitle(); cleanupProgress() }
         }
     }, [])
 

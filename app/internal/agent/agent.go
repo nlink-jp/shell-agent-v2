@@ -70,8 +70,9 @@ type Agent struct {
 	mitlHandler     MITLHandler
 	reportHandler   func(title, content string)
 	pinnedHandler   func()
-	progressHandler func(toolName string)
-	toolRegistry    *toolcall.Registry
+	progressHandler    func(toolName string)
+	explanationHandler func(text string)
+	toolRegistry       *toolcall.Registry
 
 	// Token usage tracking (session-scoped, reset on session switch)
 	promptTokens int
@@ -149,6 +150,13 @@ func (a *Agent) SetProgressHandler(h func(toolName string)) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.progressHandler = h
+}
+
+// SetExplanationHandler sets the callback for tool-calling round explanations.
+func (a *Agent) SetExplanationHandler(h func(text string)) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.explanationHandler = h
 }
 
 // CurrentBackend returns the name of the active LLM backend.
@@ -451,12 +459,10 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 		}
 		a.session.AddAssistantMessage(assistantContent)
 
-		// Emit tool-calling round explanation to frontend in real-time.
-		// [Calling: ...] messages are filtered out in session reload,
-		// but actual explanation text should be shown live.
-		if resp.Content != "" && a.streamHandler != nil {
-			a.streamHandler(resp.Content, false)
-			a.streamHandler("", true) // done signal
+		// Emit tool-calling round explanation to frontend as a chat message.
+		// [Calling: ...] placeholders are not emitted.
+		if resp.Content != "" && a.explanationHandler != nil {
+			a.explanationHandler(resp.Content)
 		}
 
 		// Execute each tool call
@@ -715,11 +721,7 @@ func (a *Agent) generateTitleIfNeeded(ctx context.Context) {
 const defaultSystemPrompt = `You are a helpful assistant with data analysis capabilities.
 You can use tools to help answer questions.
 
-Before calling a tool, briefly explain what you are about to do and why. For example:
-- Before query-sql: show the SQL you will execute and explain the intent
-- Before load-data: explain which file you will load and what table name you will use
-- Before suggest-analysis or query-preview: explain the analysis perspective
-This helps the user understand and verify your approach.
+Before calling a tool, briefly explain what you are about to do and why in the same language the user is using. For example, show the SQL you will execute, or explain the file and table name for load-data.
 
 When asked about dates, use the resolve-date tool if you are unsure about the calculation.
 
