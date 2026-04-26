@@ -4,6 +4,7 @@ package chat
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/nlink-jp/nlk/guard"
@@ -75,6 +76,161 @@ func (e *Engine) BuildMessages(session *memory.Session, pinnedContext, findingsC
 	}
 
 	return messages
+}
+
+// BuildOptions controls context budget for BuildMessagesWithBudget.
+type BuildOptions struct {
+	MaxConversationTokens int // total budget for conversation messages (0 = unlimited)
+	MaxWarmTokens         int // budget for warm summaries (0 = unlimited)
+	MaxToolResultTokens   int // per-tool-result truncation (0 = unlimited)
+}
+
+// BuildResult contains the built messages and diagnostics.
+type BuildResult struct {
+	Messages     []llm.Message
+	TotalTokens  int
+	DroppedCount int // number of hot records that didn't fit
+}
+
+// BuildMessagesWithBudget constructs messages within a token budget.
+// Newest messages are preserved; oldest are dropped first.
+// [Calling: ...] messages are excluded from LLM context.
+// Tool results are truncated to MaxToolResultTokens.
+// Design: docs/en/agent-data-flow.md Section 3.3
+func (e *Engine) BuildMessagesWithBudget(session *memory.Session, pinnedContext, findingsContext string, opts BuildOptions) BuildResult {
+	e.guardTag = guard.NewTag()
+
+	// 1. Build system prompt (same as BuildMessages)
+	timeContext := buildTemporalContext()
+	if e.location != "" {
+		timeContext += "\nLocation: " + e.location
+	}
+	fullSystem := fmt.Sprintf("%s\n\n%s", e.systemPrompt, timeContext)
+	if pinnedContext != "" {
+		fullSystem += "\n\nImportant facts you remember about the user:\n" + pinnedContext
+	}
+	if findingsContext != "" {
+		fullSystem += "\n\nAnalysis findings from other sessions:\n" + findingsContext
+	}
+
+	systemTokens := memory.EstimateTokens(fullSystem)
+
+	// 2. Collect warm and hot records separately
+	var warmRecords, hotRecords []memory.Record
+	for _, r := range session.Records {
+		switch r.Tier {
+		case memory.TierWarm, memory.TierCold:
+			warmRecords = append(warmRecords, r)
+		default:
+			hotRecords = append(hotRecords, r)
+		}
+	}
+
+	// 3. Build warm summary messages (truncated to MaxWarmTokens)
+	var warmMessages []llm.Message
+	warmTokens := 0
+	for _, r := range warmRecords {
+		content := r.Content
+		if opts.MaxWarmTokens > 0 {
+			content = truncateToTokens(content, opts.MaxWarmTokens-warmTokens)
+		}
+		tokens := memory.EstimateTokens(content)
+		if opts.MaxWarmTokens > 0 && warmTokens+tokens > opts.MaxWarmTokens {
+			break
+		}
+		warmMessages = append(warmMessages, llm.Message{
+			Role:    llm.Role(r.Role),
+			Content: content,
+		})
+		warmTokens += tokens
+	}
+
+	// 4. Build hot messages newest-first, within budget
+	remainingTokens := 0
+	if opts.MaxConversationTokens > 0 {
+		remainingTokens = opts.MaxConversationTokens - systemTokens - warmTokens
+		if remainingTokens < 0 {
+			remainingTokens = 0
+		}
+	}
+
+	var selectedHot []llm.Message
+	hotTokens := 0
+	dropped := 0
+
+	for i := len(hotRecords) - 1; i >= 0; i-- {
+		r := hotRecords[i]
+
+		// Skip [Calling: ...] messages — not needed for LLM context
+		if r.Role == "assistant" && strings.HasPrefix(r.Content, "[Calling:") {
+			continue
+		}
+
+		content := r.Content
+
+		// Truncate tool results
+		if r.Role == "tool" && opts.MaxToolResultTokens > 0 {
+			content = truncateToTokens(content, opts.MaxToolResultTokens)
+		}
+
+		// Guard user and tool content
+		if r.Role == "user" || r.Role == "tool" {
+			if wrapped, err := e.guardTag.Wrap(content); err == nil {
+				content = wrapped
+			}
+		}
+
+		tokens := memory.EstimateTokens(content)
+
+		// Check budget
+		if opts.MaxConversationTokens > 0 && hotTokens+tokens > remainingTokens {
+			dropped++
+			continue
+		}
+
+		selectedHot = append(selectedHot, llm.Message{
+			Role:      llm.Role(r.Role),
+			Content:   content,
+			ImageURLs: r.ImageURLs,
+			ToolName:  r.ToolName,
+		})
+		hotTokens += tokens
+	}
+
+	// 5. Reverse to chronological order
+	for i, j := 0, len(selectedHot)-1; i < j; i, j = i+1, j-1 {
+		selectedHot[i], selectedHot[j] = selectedHot[j], selectedHot[i]
+	}
+
+	// 6. Assemble: system + warm + hot
+	messages := make([]llm.Message, 0, 1+len(warmMessages)+len(selectedHot))
+	messages = append(messages, llm.Message{Role: llm.RoleSystem, Content: fullSystem})
+	messages = append(messages, warmMessages...)
+	messages = append(messages, selectedHot...)
+
+	return BuildResult{
+		Messages:     messages,
+		TotalTokens:  systemTokens + warmTokens + hotTokens,
+		DroppedCount: dropped,
+	}
+}
+
+// truncateToTokens truncates text to approximately maxTokens.
+func truncateToTokens(text string, maxTokens int) string {
+	if maxTokens <= 0 {
+		return text
+	}
+	tokens := memory.EstimateTokens(text)
+	if tokens <= maxTokens {
+		return text
+	}
+	// Approximate: cut by ratio
+	ratio := float64(maxTokens) / float64(tokens)
+	cutAt := int(float64(len(text)) * ratio)
+	if cutAt >= len(text) {
+		return text
+	}
+	return text[:cutAt] + "\n...(truncated)"
 }
 
 // CleanResponse removes thinking tags from LLM output.

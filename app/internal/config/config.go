@@ -70,14 +70,22 @@ type UIConfig struct {
 	Window      WindowConfig `json:"window"`
 }
 
+// ContextBudgetConfig controls how many tokens are sent to the LLM.
+type ContextBudgetConfig struct {
+	MaxContextTokens    int `json:"max_context_tokens"`     // total token budget (0 = unlimited)
+	MaxWarmTokens       int `json:"max_warm_tokens"`        // budget for warm summaries
+	MaxToolResultTokens int `json:"max_tool_result_tokens"` // per-tool-result truncation
+}
+
 // Config is the root application configuration.
 type Config struct {
-	LLM         LLMConfig    `json:"llm"`
-	Memory      MemoryConfig `json:"memory"`
-	Tools       ToolsConfig  `json:"tools"`
-	UI          UIConfig     `json:"ui"`
-	Location    string       `json:"location,omitempty"` // user-set location (e.g. "Tokyo, Japan")
-	LastSession string       `json:"last_session,omitempty"`
+	LLM            LLMConfig           `json:"llm"`
+	Memory         MemoryConfig        `json:"memory"`
+	ContextBudget  ContextBudgetConfig `json:"context_budget"`
+	Tools          ToolsConfig         `json:"tools"`
+	UI             UIConfig            `json:"ui"`
+	Location       string              `json:"location,omitempty"`
+	LastSession    string              `json:"last_session,omitempty"`
 }
 
 // Default returns a Config with default values.
@@ -100,6 +108,11 @@ func Default() *Config {
 			HotTokenLimit: 4096,
 			WarmRetention: "24h",
 			ColdRetention: "7d",
+		},
+		ContextBudget: ContextBudgetConfig{
+			MaxContextTokens:    8192,
+			MaxWarmTokens:       1024,
+			MaxToolResultTokens: 512,
 		},
 		Tools: ToolsConfig{
 			ScriptDir: filepath.Join(DataDir(), "tools"),

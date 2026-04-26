@@ -381,10 +381,18 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 	logger.Debug("agentLoop: %d tools available", len(allTools))
 	toolsExecutedLastRound := false
 
+	// Synchronous compaction before entering the loop
+	a.compactIfOverBudget(ctx)
+
 	// Step 2: Agent loop (max rounds)
 	for round := 0; round < maxToolRounds; round++ {
 		if err := ctx.Err(); err != nil {
 			return "(Cancelled)", nil
+		}
+
+		// Compact again after tool rounds (tool results inflate context)
+		if round > 0 {
+			a.compactIfOverBudget(ctx)
 		}
 
 		// LM Studio spec: after tool execution, call WITHOUT tools
@@ -396,11 +404,33 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 			tools = allTools
 		}
 
-		messages := a.chat.BuildMessages(
-			a.session,
-			a.pinned.FormatForPrompt(),
-			a.findings.FormatForPrompt(),
-		)
+		// Build messages with context budget for local backend;
+		// unlimited for cloud backends.
+		// Design: docs/en/agent-data-flow.md Section 3.3
+		var messages []llm.Message
+		budget := a.cfg.ContextBudget
+		if budget.MaxContextTokens > 0 && a.backend.Name() == "local" {
+			result := a.chat.BuildMessagesWithBudget(
+				a.session,
+				a.pinned.FormatForPrompt(),
+				a.findings.FormatForPrompt(),
+				chat.BuildOptions{
+					MaxConversationTokens: budget.MaxContextTokens,
+					MaxWarmTokens:         budget.MaxWarmTokens,
+					MaxToolResultTokens:   budget.MaxToolResultTokens,
+				},
+			)
+			messages = result.Messages
+			if result.DroppedCount > 0 {
+				logger.Debug("agentLoop: budget control dropped %d old messages (total ~%d tokens)", result.DroppedCount, result.TotalTokens)
+			}
+		} else {
+			messages = a.chat.BuildMessages(
+				a.session,
+				a.pinned.FormatForPrompt(),
+				a.findings.FormatForPrompt(),
+			)
+		}
 
 		logger.Debug("agentLoop: round=%d messages=%d tools=%d backend=%s", round, len(messages), len(tools), a.backend.Name())
 
@@ -497,8 +527,38 @@ func (a *Agent) postResponseTasks(ctx context.Context) {
 	go a.extractPinnedMemories(ctx)
 }
 
+// compactIfOverBudget runs compaction synchronously before BuildMessages.
+// This ensures the context stays within budget for local LLMs.
+func (a *Agent) compactIfOverBudget(ctx context.Context) {
+	if a.session == nil {
+		return
+	}
+	summarizer := func(c context.Context, text string) (string, error) {
+		messages := []llm.Message{
+			{Role: "system", Content: "Summarize the following conversation segment concisely. Preserve key facts, decisions, and context. Use the same language as the conversation."},
+			{Role: "user", Content: text},
+		}
+		resp, err := a.backend.Chat(c, messages, nil)
+		if err != nil {
+			return "", err
+		}
+		return resp.Content, nil
+	}
+	compacted, err := a.session.CompactIfNeeded(ctx, memory.CompactOptions{
+		HotTokenLimit: a.cfg.Memory.HotTokenLimit,
+		Summarizer:    summarizer,
+	})
+	if err != nil {
+		logger.Error("compactIfOverBudget: %v", err)
+	}
+	if compacted {
+		logger.Info("compactIfOverBudget: compacted session %s", a.session.ID)
+		_ = a.session.Save()
+	}
+}
+
 // compactMemoryIfNeeded summarizes old hot messages when token budget exceeded.
-// Design: docs/en/agent-data-flow.md Section 4.2
+// Design: docs/en/agent-data-flow.md Section 4.2 (async safety net)
 func (a *Agent) compactMemoryIfNeeded(ctx context.Context) {
 	if a.session == nil {
 		return
