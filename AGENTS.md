@@ -4,8 +4,8 @@
 
 macOS local-first chat & agent tool with interactive data analysis.
 Wails v2 (Go + React) desktop application. Redesign of shell-agent v1
-with session-scoped DuckDB, Idle/Busy agent model, global Findings, and
-hybrid LLM backend (Local + Vertex AI).
+with session-scoped DuckDB, Idle/Busy agent model, global Findings,
+hybrid LLM backend (Local + Vertex AI), and central object storage.
 
 ## Build & Test
 
@@ -15,6 +15,10 @@ make build      # Build .app bundle → dist/shell-agent-v2.app
 make dev        # Wails dev server with hot reload
 make test       # go test ./... (add -tags no_duckdb_arrow for CGO builds)
 make clean      # Remove build artifacts
+
+# Integration tests (require running services):
+go test ./internal/llm/ -tags lmstudio -v    # LM Studio at localhost:1234
+VERTEX_PROJECT=xxx go test ./internal/llm/ -tags vertexai -v  # Vertex AI
 ```
 
 ## Module
@@ -29,53 +33,58 @@ shell-agent-v2/
 │   ├── main.go              # Entry point, Wails app setup
 │   ├── bindings.go          # Wails bindings (thin delegation)
 │   ├── internal/
-│   │   ├── agent/           # State machine (Idle/Busy), execution loop, tool dispatch
-│   │   │                      agent.go, tools.go, integration_test.go
-│   │   ├── chat/            # Message building, temporal context, resolve-date tool
-│   │   ├── llm/             # Backend interface + Local (OpenAI SSE) + Vertex AI (genai)
-│   │   ├── analysis/        # Session-scoped DuckDB engine (CSV, SQL, COMMENT ON TABLE)
-│   │   ├── memory/          # Hot/Warm/Cold compaction, sessions, pinned memory
-│   │   ├── findings/        # Global findings store with provenance
-│   │   ├── toolcall/        # Shell script registry, header parsing, MITL, execution
-│   │   ├── mcp/             # mcp-guardian stdio, JSON-RPC 2.0
-│   │   ├── objstore/        # Image/blob repository (12-char hex IDs)
-│   │   ├── config/          # JSON config with path expansion
-│   │   └── logger/          # Structured logging
-│   ├── frontend/src/        # React + TypeScript UI
-│   │   ├── App.tsx          # Chat, sidebar (sessions/findings/settings), Idle/Busy
-│   │   └── App.css          # Dark theme styles
-│   ├── build/               # macOS app assets (Info.plist, icon)
+│   │   ├── agent/           # State machine, execution loop, tool dispatch
+│   │   ├── chat/            # Message building, temporal context
+│   │   ├── llm/             # Backend abstraction (Local + Vertex AI)
+│   │   │   ├── backend.go   # Role types, Backend interface
+│   │   │   ├── local.go     # LM Studio (OpenAI compat, tool→user mapping)
+│   │   │   ├── vertex.go    # Vertex AI (genai SDK, FunctionCall/Response)
+│   │   │   └── mock.go      # Mock backend for testing
+│   │   ├── analysis/        # Session-scoped DuckDB engine
+│   │   ├── memory/          # Hot/Warm/Cold compaction, sessions, pinned
+│   │   ├── findings/        # Global findings store
+│   │   ├── objstore/        # Central object repository (image/blob/report)
+│   │   ├── toolcall/        # Shell script registry, MITL
+│   │   ├── mcp/             # mcp-guardian stdio
+│   │   ├── config/          # JSON config
+│   │   └── logger/          # File-based logging
+│   ├── frontend/src/
+│   │   ├── App.tsx          # Main UI
+│   │   ├── ChatInput.tsx    # Input with IME, history, image drop
+│   │   └── ObjectImage.tsx  # Lazy object:ID URL resolver
+│   ├── build/               # macOS app assets
 │   ├── wails.json
 │   └── Makefile
 ├── docs/
-│   ├── en/                  # English documentation (RFP)
-│   └── ja/                  # Japanese documentation (RFP)
-├── CLAUDE.md
-├── README.md / README.ja.md
+│   ├── en/                  # Design documents (authoritative)
+│   │   ├── agent-data-flow.md
+│   │   ├── object-storage.md
+│   │   ├── llm-abstraction.md
+│   │   └── shell-agent-v2-rfp.md
+│   └── ja/                  # Japanese translations
 └── CHANGELOG.md
 ```
+
+## Design Documents
+
+All implementation must follow these design documents:
+- **agent-data-flow.md** — agent loop state machine, session records, memory compaction
+- **object-storage.md** — central object storage, lifecycle, LLM tools
+- **llm-abstraction.md** — backend role mapping, tool format conversion, multimodal
 
 ## Environment
 
 - Config: `~/Library/Application Support/shell-agent-v2/config.json`
 - Sessions: `~/Library/Application Support/shell-agent-v2/sessions/{id}/`
-  - Each session has: `chat.json` + `analysis.duckdb` (lazy-created)
-- Pinned memory: `~/Library/Application Support/shell-agent-v2/pinned.json`
-- Findings: `~/Library/Application Support/shell-agent-v2/findings.json`
 - Objects: `~/Library/Application Support/shell-agent-v2/objects/`
-
-## Test Coverage
-
-95 tests across 9 packages (agent, analysis, chat, config, findings, llm, mcp, memory, objstore, toolcall).
-
-Run with: `cd app && go test ./internal/... -tags no_duckdb_arrow`
+- Log: `~/Library/Application Support/shell-agent-v2/app.log`
 
 ## Gotchas
 
-- DuckDB requires CGO — use `-tags no_duckdb_arrow` to exclude Arrow extensions
+- DuckDB requires CGO — use `-tags no_duckdb_arrow` for builds
 - `wails build` outputs to `build/bin/`, Makefile copies to `dist/`
-- Frontend assets are embedded via `//go:embed all:frontend/dist`
-- Vertex AI requires ADC (`gcloud auth application-default login`)
-- Agent must be in Idle state for `/model` switch and session switch
-- Analysis tools are dynamically filtered: minimal set (load-data, reset) when no data, full set when data exists
-- Shell tool scripts must have `@tool:` header comments for auto-discovery
+- Local backend maps tool→user role (gemma-4 workaround)
+- Vertex AI uses native FunctionCall/FunctionResponse
+- Agent loop uses Chat() for all rounds (no streaming in loop)
+- BuildMessages passes application-level roles — backends map internally
+- Reports have dedicated UI (report-container), not regular chat bubbles
