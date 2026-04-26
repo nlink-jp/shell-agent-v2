@@ -380,8 +380,28 @@ function App() {
         <div className="app">
             <div className="titlebar-drag" />
             {sidebarCollapsed && (
-                <div className="sidebar-collapsed" onClick={() => setSidebarCollapsed(false)} title="Expand sidebar">
-                    <span>&#x25B6;</span>
+                <div className="sidebar-collapsed">
+                    <div className="sidebar-collapsed-top">
+                        <button className="sidebar-nav-btn" onClick={() => { setSidebarCollapsed(false); setSidebarPanel('sessions') }} title="Sessions">
+                            <span className="sidebar-nav-ic">&#x2630;</span>
+                        </button>
+                    </div>
+                    <div className="sidebar-collapsed-bottom">
+                        <button className="sidebar-nav-btn" onClick={handleNewSession} disabled={state === 'busy'} title="New Chat">
+                            <span className="sidebar-nav-ic">+</span>
+                        </button>
+                        <div className="sidebar-nav-divider" />
+                        <button className="sidebar-nav-btn" onClick={() => { setSidebarCollapsed(false); setSidebarPanel('status') }} title="Status">
+                            <span className="sidebar-nav-ic">&#x2261;</span>
+                        </button>
+                        <button className="sidebar-nav-btn" onClick={() => { setSidebarCollapsed(false); openSettings() }} title="Settings">
+                            <span className="sidebar-nav-ic">&#x2699;</span>
+                        </button>
+                        <div className="sidebar-nav-divider" />
+                        <button className="sidebar-nav-btn" onClick={() => setSidebarCollapsed(false)} title="Expand sidebar">
+                            <span className="sidebar-nav-ic">&#x25B6;</span>
+                        </button>
+                    </div>
                 </div>
             )}
             <div className="sidebar" style={{display: sidebarCollapsed ? 'none' : undefined}}>
