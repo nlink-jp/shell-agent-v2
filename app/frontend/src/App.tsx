@@ -133,6 +133,7 @@ function App() {
     const [streaming, setStreaming] = useState('')
     const [backend, setBackend] = useState('')
     const [sidebarPanel, setSidebarPanel] = useState<SidebarPanel>('sessions')
+    const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
     const [sessions, setSessions] = useState<SessionInfo[]>([])
     const [currentSessionId, setCurrentSessionId] = useState<string>('')
     const [findings, setFindings] = useState<Finding[]>([])
@@ -378,7 +379,16 @@ function App() {
     return (
         <div className="app">
             <div className="titlebar-drag" />
-            <div className="sidebar">
+            {sidebarCollapsed && (
+                <div className="sidebar-collapsed" onClick={() => setSidebarCollapsed(false)} title="Expand sidebar">
+                    <span>&#x25B6;</span>
+                </div>
+            )}
+            <div className="sidebar" style={{display: sidebarCollapsed ? 'none' : undefined}}>
+                <div className="sidebar-header">
+                    <span className="sidebar-header-ic">{sidebarPanel === 'sessions' ? '\u2630' : '\u2261'}</span>
+                    <span>{sidebarPanel === 'sessions' ? 'Sessions' : 'Status'}</span>
+                </div>
                 <div className="sidebar-panel">
                     {sidebarPanel === 'sessions' && (<>
                         {sessions.length === 0 ? (
@@ -482,6 +492,10 @@ function App() {
                     </button>
                     <button className="sidebar-nav-btn" onClick={openSettings}>
                         <span className="sidebar-nav-ic">&#x2699;</span> Settings
+                    </button>
+                    <div className="sidebar-nav-divider" />
+                    <button className="sidebar-nav-btn" onClick={() => setSidebarCollapsed(true)} title="Collapse sidebar">
+                        <span className="sidebar-nav-ic">&#x25C0;</span>
                     </button>
                 </div>
             </div>
