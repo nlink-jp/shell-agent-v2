@@ -124,7 +124,11 @@ func (b *Bindings) IsBusy() bool {
 
 // Send sends a user message to the agent.
 func (b *Bindings) Send(message string) (string, error) {
-	return b.agent.Send(b.ctx, message)
+	resp, err := b.agent.Send(b.ctx, message)
+	if err != nil {
+		return "", err
+	}
+	return b.resolveObjectURLs(resp), nil
 }
 
 // SendWithImages sends a user message with images to the agent.
@@ -146,7 +150,11 @@ func (b *Bindings) SendWithImages(message string, imageDataURLs []string) (strin
 		objectIDs = append(objectIDs, meta.ID)
 		dataURLs = append(dataURLs, du) // keep data URL for LLM context
 	}
-	return b.agent.SendWithImages(b.ctx, message, objectIDs, dataURLs)
+	resp, err := b.agent.SendWithImages(b.ctx, message, objectIDs, dataURLs)
+	if err != nil {
+		return "", err
+	}
+	return b.resolveObjectURLs(resp), nil
 }
 
 // Abort cancels the current agent task.
@@ -219,19 +227,18 @@ func (b *Bindings) LoadSession(sessionID string) ([]MessageData, error) {
 	for _, r := range session.Records {
 		switch r.Role {
 		case "summary", "tool":
-			continue // hidden from UI
+			continue
 		case "assistant":
-			// Hide tool call request markers
 			if strings.HasPrefix(r.Content, "[Calling:") {
 				continue
 			}
 			msgs = append(msgs, MessageData{
-				Role: r.Role, Content: r.Content,
+				Role: r.Role, Content: b.resolveObjectURLs(r.Content),
 				Timestamp: r.Timestamp.Format("15:04:05"),
 			})
 		default:
 			msgs = append(msgs, MessageData{
-				Role: r.Role, Content: r.Content,
+				Role: r.Role, Content: b.resolveObjectURLs(r.Content),
 				Timestamp: r.Timestamp.Format("15:04:05"),
 			})
 		}
@@ -384,7 +391,14 @@ func (b *Bindings) SaveImage(dataURL string) (string, error) {
 
 // GetImageDataURL loads an image by ID and returns a data URL.
 func (b *Bindings) GetImageDataURL(id string) (string, error) {
-	return b.objects.LoadAsDataURL(id)
+	logger.Debug("GetImageDataURL called: id=%s", id)
+	du, err := b.objects.LoadAsDataURL(id)
+	if err != nil {
+		logger.Error("GetImageDataURL error: id=%s err=%v", id, err)
+		return "", err
+	}
+	logger.Debug("GetImageDataURL success: id=%s len=%d", id, len(du))
+	return du, nil
 }
 
 // --- Report bindings ---
@@ -486,6 +500,33 @@ func (b *Bindings) switchAnalysis(sessionID string) {
 	}
 	b.analysis = analysis.New(sessionID)
 	b.agent.SetAnalysis(b.analysis)
+}
+
+// resolveObjectURLs replaces object:ID references in Markdown with data URLs.
+func (b *Bindings) resolveObjectURLs(content string) string {
+	if b.objects == nil || !strings.Contains(content, "object:") {
+		return content
+	}
+	result := content
+	for {
+		idx := strings.Index(result, "(object:")
+		if idx < 0 {
+			break
+		}
+		end := strings.Index(result[idx:], ")")
+		if end < 0 {
+			break
+		}
+		id := result[idx+8 : idx+end]
+		du, err := b.objects.LoadAsDataURL(id)
+		if err == nil && du != "" {
+			result = result[:idx+1] + du + result[idx+end:]
+		} else {
+			// Skip this reference to avoid infinite loop
+			result = result[:idx] + "(objref:" + result[idx+8:]
+		}
+	}
+	return result
 }
 
 func nowUnixMilli() int64 {

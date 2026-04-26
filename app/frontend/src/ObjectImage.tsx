@@ -31,13 +31,21 @@ export default function ObjectImage({id, alt, onClick}: Props) {
         (async () => {
             try {
                 if (window.go) {
+                    console.log('[ObjectImage] resolving:', id)
                     const dataURL = await window.go.main.Bindings.GetImageDataURL(id)
+                    console.log('[ObjectImage] result:', id, dataURL ? `OK (${dataURL.length} chars)` : 'EMPTY')
                     if (mounted.current && dataURL) {
                         objectCache[id] = dataURL
                         setSrc(dataURL)
+                    } else if (mounted.current) {
+                        setError(true)
                     }
+                } else {
+                    console.error('[ObjectImage] window.go not available')
+                    if (mounted.current) setError(true)
                 }
-            } catch {
+            } catch (e) {
+                console.error('[ObjectImage] error:', id, e)
                 if (mounted.current) setError(true)
             }
         })()

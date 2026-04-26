@@ -4,9 +4,31 @@ import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
 import ChatInput from './ChatInput'
 import ObjectImage, {clearObjectCache} from './ObjectImage'
+import {defaultUrlTransform} from 'react-markdown'
 import 'highlight.js/styles/github-dark.css'
 import './themes.css'
 import './App.css'
+
+// Object URL resolution cache
+const objectUrlCache: Record<string, string> = {}
+
+// Custom URL transform: resolve object: URLs to data URLs synchronously from cache
+// First pass: ReactMarkdown renders with object: URL (triggers ObjectImage)
+// This transform allows the URL through unchanged
+function urlTransform(url: string): string {
+    if (url.startsWith('object:')) {
+        const id = url.slice(7)
+        if (objectUrlCache[id]) return objectUrlCache[id]
+        // Trigger async resolution in background
+        if (window.go) {
+            window.go.main.Bindings.GetImageDataURL(id).then(du => {
+                if (du) objectUrlCache[id] = du
+            })
+        }
+        return url // pass through for now
+    }
+    return url
+}
 
 declare global {
     interface Window {
@@ -494,6 +516,7 @@ function App() {
                                             <ReactMarkdown
                                                 remarkPlugins={[remarkGfm]}
                                                 rehypePlugins={[rehypeHighlight]}
+                                                urlTransform={urlTransform}
                                                 components={{img: ({src, alt}) => {
                                                     if (src?.startsWith('object:')) {
                                                         const id = src.slice(7)
@@ -555,7 +578,7 @@ function App() {
                                 <span className="message-role">assistant</span>
                             </div>
                             <div className="message-content">
-                                <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+                                <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]} urlTransform={urlTransform}>
                                     {streaming}
                                 </ReactMarkdown>
                             </div>
@@ -684,6 +707,7 @@ function App() {
                             <ReactMarkdown
                                 remarkPlugins={[remarkGfm]}
                                 rehypePlugins={[rehypeHighlight]}
+                                urlTransform={urlTransform}
                                 components={{img: ({src, alt}) => {
                                     if (src?.startsWith('object:')) {
                                         const id = src.slice(7)
