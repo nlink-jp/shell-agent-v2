@@ -142,6 +142,7 @@ function App() {
     const [editTitle, setEditTitle] = useState('')
     const [mitlRequest, setMitlRequest] = useState<{tool_name: string; arguments: string; category: string} | null>(null)
     const [mitlFeedback, setMitlFeedback] = useState('')
+    const [cmdResult, setCmdResult] = useState<string | null>(null)
     const [tools, setTools] = useState<ToolInfo[]>([])
     const [pinnedMemories, setPinnedMemories] = useState<PinnedMemory[]>([])
     const [llmStatus, setLLMStatus] = useState<LLMStatus | null>(null)
@@ -345,6 +346,28 @@ function App() {
     const handleSend = useCallback(async (text: string, images: string[]) => {
         if ((!text && images.length === 0) || state === 'busy' || !currentSessionId) return
 
+        // Commands: don't add to chat, show as popup
+        if (text.startsWith('/')) {
+            try {
+                setState('busy')
+                const response = await window.go.main.Bindings.Send(text)
+                if (response && response.startsWith('[CMD]')) {
+                    setCmdResult(response.slice(5))
+                    return
+                }
+                // Not a command after all (e.g. /tmp/file.csv), fall through handled below
+                setMessages(prev => [...prev, {role: 'user', content: text, timestamp: nowTime()}])
+                if (response && response.trim()) {
+                    setMessages(prev => [...prev, {role: 'assistant', content: response, timestamp: nowTime()}])
+                }
+            } catch (err: any) {
+                setMessages(prev => [...prev, {role: 'system', content: `Error: ${err.message || err}`, timestamp: nowTime()}])
+            } finally {
+                setState('idle')
+            }
+            return
+        }
+
         setMessages(prev => [...prev, {
             role: 'user', content: text, timestamp: nowTime(),
             imageUrls: images.length > 0 ? images : undefined,
@@ -357,9 +380,7 @@ function App() {
                 ? await window.go.main.Bindings.SendWithImages(text, images)
                 : await window.go.main.Bindings.Send(text)
             if (response && response.trim()) {
-                const isCmd = response.startsWith('[CMD]')
-                const content = isCmd ? response.slice(5) : response
-                setMessages(prev => [...prev, {role: isCmd ? 'system' : 'assistant', content, timestamp: nowTime()}])
+                setMessages(prev => [...prev, {role: 'assistant', content: response, timestamp: nowTime()}])
             }
         } catch (err: any) {
             setMessages(prev => [...prev, {role: 'system', content: `Error: ${err.message || err}`, timestamp: nowTime()}])
@@ -612,6 +633,19 @@ function App() {
                     )}
                     <div ref={messagesEndRef} />
                 </div>
+                {cmdResult && (
+                    <div className="cmd-popup">
+                        <div className="cmd-popup-header">
+                            <span>Command Result</span>
+                            <button onClick={() => setCmdResult(null)}>&#x2715;</button>
+                        </div>
+                        <div className="cmd-popup-body">
+                            <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeHighlight, rehypeKatex]}>
+                                {cmdResult}
+                            </ReactMarkdown>
+                        </div>
+                    </div>
+                )}
                 <div className="input-status-bar">
                     <span className={`backend-badge ${backend}`}>{backend || '...'}</span>
                     {state === 'busy' && <span className="tool-progress">{progressTool || 'Thinking...'}</span>}

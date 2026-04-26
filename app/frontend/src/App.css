@@ -113,6 +113,63 @@
     margin: 4px 0;
 }
 
+.cmd-popup {
+    margin: 0 12px;
+    border: 1px solid var(--border-primary, #2a3a4a);
+    border-radius: 8px;
+    background: var(--bg-primary, #1b2636);
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.cmd-popup-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary, #8899aa);
+    border-bottom: 1px solid var(--border-primary, #2a3a4a);
+}
+
+.cmd-popup-header button {
+    border: none;
+    background: none;
+    color: var(--text-secondary, #8899aa);
+    cursor: pointer;
+    font-size: 14px;
+    padding: 0 4px;
+}
+
+.cmd-popup-header button:hover {
+    color: var(--text-primary, #e0e0e0);
+}
+
+.cmd-popup-body {
+    padding: 10px 14px;
+    font-size: 13px;
+    color: var(--text-primary, #e0e0e0);
+    line-height: 1.5;
+}
+
+.cmd-popup-body table {
+    border-collapse: collapse;
+    width: 100%;
+}
+
+.cmd-popup-body th, .cmd-popup-body td {
+    border: 1px solid var(--border-primary, #2a3a4a);
+    padding: 4px 8px;
+    text-align: left;
+    font-size: 12px;
+}
+
+.cmd-popup-body th {
+    background: rgba(128, 128, 128, 0.2);
+    font-weight: 600;
+}
+
 .input-status-bar {
     display: flex;
     align-items: center;
