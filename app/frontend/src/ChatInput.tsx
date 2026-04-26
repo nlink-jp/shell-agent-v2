@@ -122,6 +122,9 @@ function ChatInput({onSend, disabled}: Props) {
                     placeholder={disabled ? 'Agent is busy...' : 'Type a message... (Cmd+Enter to send)'}
                     disabled={disabled}
                     rows={3}
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    spellCheck={false}
                 />
                 <button onClick={handleSend} disabled={disabled || (!input.trim() && pendingImages.length === 0)}>
                     {disabled ? '...' : 'Send'}

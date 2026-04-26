@@ -5,6 +5,17 @@
     color: var(--text-primary, #e0e0e0);
 }
 
+.app input, .app textarea {
+    -webkit-text-size-adjust: none;
+}
+
+/* Disable OS auto-correct globally */
+input, textarea {
+    autocorrect: off;
+    autocapitalize: off;
+    spellcheck: false;
+}
+
 .titlebar-drag {
     position: fixed;
     top: 0;
