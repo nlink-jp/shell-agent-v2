@@ -397,32 +397,24 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 			tools = allTools
 		}
 
-		// Build messages with context budget for local backend;
-		// unlimited for cloud backends.
+		// Build messages with [Calling:] exclusion and optional token budget.
+		// [Calling:] exclusion prevents LLM from mimicking the pattern.
+		// Token budget is an optional safety net (0 = unlimited).
 		// Design: docs/en/agent-data-flow.md Section 3.3
-		var messages []llm.Message
 		budget := a.cfg.ContextBudget
-		if budget.MaxContextTokens > 0 && a.backend.Name() == "local" {
-			result := a.chat.BuildMessagesWithBudget(
-				a.session,
-				a.pinned.FormatForPrompt(),
-				a.findings.FormatForPrompt(),
-				chat.BuildOptions{
-					MaxConversationTokens: budget.MaxContextTokens,
-					MaxWarmTokens:         budget.MaxWarmTokens,
-					MaxToolResultTokens:   budget.MaxToolResultTokens,
-				},
-			)
-			messages = result.Messages
-			if result.DroppedCount > 0 {
-				logger.Debug("agentLoop: budget control dropped %d old messages (total ~%d tokens)", result.DroppedCount, result.TotalTokens)
-			}
-		} else {
-			messages = a.chat.BuildMessages(
-				a.session,
-				a.pinned.FormatForPrompt(),
-				a.findings.FormatForPrompt(),
-			)
+		buildResult := a.chat.BuildMessagesWithBudget(
+			a.session,
+			a.pinned.FormatForPrompt(),
+			a.findings.FormatForPrompt(),
+			chat.BuildOptions{
+				MaxConversationTokens: budget.MaxContextTokens,
+				MaxWarmTokens:         budget.MaxWarmTokens,
+				MaxToolResultTokens:   budget.MaxToolResultTokens,
+			},
+		)
+		messages := buildResult.Messages
+		if buildResult.DroppedCount > 0 {
+			logger.Debug("agentLoop: budget control dropped %d old messages (total ~%d tokens)", buildResult.DroppedCount, buildResult.TotalTokens)
 		}
 
 		logger.Debug("agentLoop: round=%d messages=%d tools=%d backend=%s", round, len(messages), len(tools), a.backend.Name())

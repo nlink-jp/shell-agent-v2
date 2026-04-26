@@ -183,19 +183,29 @@ Total budget:               8,192 tokens
 5. Assemble: system + warm + hot
 ```
 
-#### Per-Backend Configuration
+#### Root Cause: [Calling:] Pattern Contamination
 
-Local backend uses conservative budget (8,192 tokens). Cloud backends
-(Vertex AI) use the existing unbounded `BuildMessages` since they handle
-long contexts reliably.
+Testing revealed that the tool calling failure was NOT caused by context
+length. gemma-4 supports 256K tokens. The actual cause: when `[Calling: tool]`
+synthetic messages are included in the LLM context, the model mimics the
+pattern as text output instead of making real tool calls. This occurs as
+early as turn 3 (10 records).
+
+The fix: `BuildMessagesWithBudget` excludes `[Calling:]` messages from
+the LLM context. This is applied to ALL backends, not just local.
+
+#### Configuration
 
 ```go
 type ContextBudgetConfig struct {
-    MaxContextTokens    int // default: 8192
+    MaxContextTokens    int // default: 0 (unlimited — rely on [Calling:] exclusion)
     MaxWarmTokens       int // default: 1024
-    MaxToolResultTokens int // default: 512
+    MaxToolResultTokens int // default: 2048
 }
 ```
+
+Token budget is an optional safety net. The primary mechanism is
+`[Calling:]` exclusion, which is always active.
 
 #### Synchronous Compaction
 

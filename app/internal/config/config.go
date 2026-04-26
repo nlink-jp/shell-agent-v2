@@ -110,9 +110,9 @@ func Default() *Config {
 			ColdRetention: "7d",
 		},
 		ContextBudget: ContextBudgetConfig{
-			MaxContextTokens:    8192,
+			MaxContextTokens:    0,    // 0 = unlimited (rely on [Calling:] exclusion + compaction)
 			MaxWarmTokens:       1024,
-			MaxToolResultTokens: 512,
+			MaxToolResultTokens: 2048,
 		},
 		Tools: ToolsConfig{
 			ScriptDir: filepath.Join(DataDir(), "tools"),
