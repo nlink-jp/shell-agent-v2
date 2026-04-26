@@ -48,7 +48,7 @@ declare global {
 }
 
 interface ChatMessage {
-    role: 'user' | 'assistant' | 'system' | 'tool';
+    role: 'user' | 'assistant' | 'system' | 'tool' | 'report';
     content: string;
     timestamp: string;
     imageUrls?: string[];
@@ -127,6 +127,7 @@ function App() {
     const [pinnedMemories, setPinnedMemories] = useState<PinnedMemory[]>([])
     const [llmStatus, setLLMStatus] = useState<LLMStatus | null>(null)
     const [lightboxImage, setLightboxImage] = useState<string | null>(null)
+    const [expandedReport, setExpandedReport] = useState<{title: string; content: string} | null>(null)
     const [settings, setSettings] = useState<Settings | null>(null)
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const composingRef = useRef(false)
@@ -472,42 +473,74 @@ function App() {
                 <div className="messages">
                     {messages.filter(msg => msg.role !== 'tool').map((msg, i) => (
                         <div key={i} className={`message ${msg.role}`}>
-                            <div className="message-header">
-                                <span className="message-role">{msg.role}</span>
-                                <span className="message-time">{msg.timestamp || ''}</span>
-                            </div>
-                            {msg.imageUrls && msg.imageUrls.length > 0 && (
-                                <div className="message-images">
-                                    {msg.imageUrls.map((url, j) => (
-                                        <img key={j} src={url} alt="" className="message-image" onClick={() => setLightboxImage(url)} />
-                                    ))}
-                                </div>
+                            {msg.role === 'report' ? (
+                                <>
+                                    <div className="report-container">
+                                        <div className="report-header">
+                                            <span className="report-title">{msg.content.split('\n')[0].replace(/^#\s*/, '')}</span>
+                                            <div className="report-actions">
+                                                <button onClick={() => setExpandedReport({title: msg.content.split('\n')[0].replace(/^#\s*/, ''), content: msg.content})}>Expand</button>
+                                                <button onClick={() => navigator.clipboard.writeText(msg.content)}>Copy</button>
+                                                <button onClick={() => window.go?.main.Bindings.SaveReport(msg.content, 'report.md')}>Save</button>
+                                            </div>
+                                        </div>
+                                        <div className="report-content" onClick={() => setExpandedReport({title: msg.content.split('\n')[0].replace(/^#\s*/, ''), content: msg.content})}>
+                                            <ReactMarkdown
+                                                remarkPlugins={[remarkGfm]}
+                                                rehypePlugins={[rehypeHighlight]}
+                                                components={{img: ({src, alt}) => {
+                                                    if (src?.startsWith('object:')) {
+                                                        const id = src.slice(7)
+                                                        return <ObjectImage id={id} alt={alt || ''} onClick={setLightboxImage} />
+                                                    }
+                                                    return <img src={src} alt={alt || ''} className="message-image" onClick={() => src && setLightboxImage(src)} />
+                                                }}}
+                                            >
+                                                {msg.content}
+                                            </ReactMarkdown>
+                                        </div>
+                                    </div>
+                                </>
+                            ) : (
+                                <>
+                                    <div className="message-header">
+                                        <span className="message-role">{msg.role}</span>
+                                        <span className="message-time">{msg.timestamp || ''}</span>
+                                    </div>
+                                    {msg.imageUrls && msg.imageUrls.length > 0 && (
+                                        <div className="message-images">
+                                            {msg.imageUrls.map((url, j) => (
+                                                <img key={j} src={url} alt="" className="message-image" onClick={() => setLightboxImage(url)} />
+                                            ))}
+                                        </div>
+                                    )}
+                                    <div className="message-content">
+                                        <ReactMarkdown
+                                            remarkPlugins={[remarkGfm]}
+                                            rehypePlugins={[rehypeHighlight]}
+                                            components={{img: ({src, alt}) => {
+                                                if (src?.startsWith('object:')) {
+                                                    const id = src.slice(7)
+                                                    return <ObjectImage id={id} alt={alt || ''} onClick={setLightboxImage} />
+                                                }
+                                                return <img src={src} alt={alt || ''} className="message-image" onClick={() => src && setLightboxImage(src)} />
+                                            }}}
+                                        >
+                                            {msg.content}
+                                        </ReactMarkdown>
+                                    </div>
+                                    <div className="message-footer">
+                                        <button className="message-copy" onClick={(e) => {
+                                            navigator.clipboard.writeText(msg.content)
+                                            const b = e.currentTarget; b.classList.add('copied')
+                                            setTimeout(() => b.classList.remove('copied'), 1000)
+                                        }} title="Copy">
+                                            <span className="copy-icon">{'\u2398'}</span>
+                                            <span className="copy-check">{'\u2713'}</span>
+                                        </button>
+                                    </div>
+                                </>
                             )}
-                            <div className="message-content">
-                                <ReactMarkdown
-                                    remarkPlugins={[remarkGfm]}
-                                    rehypePlugins={[rehypeHighlight]}
-                                    components={{img: ({src, alt}) => {
-                                        if (src?.startsWith('object:')) {
-                                            const id = src.slice(7)
-                                            return <ObjectImage id={id} alt={alt || ''} onClick={setLightboxImage} />
-                                        }
-                                        return <img src={src} alt={alt || ''} className="message-image" onClick={() => src && setLightboxImage(src)} />
-                                    }}}
-                                >
-                                    {msg.content}
-                                </ReactMarkdown>
-                            </div>
-                            <div className="message-footer">
-                                <button className="message-copy" onClick={(e) => {
-                                    navigator.clipboard.writeText(msg.content)
-                                    const b = e.currentTarget; b.classList.add('copied')
-                                    setTimeout(() => b.classList.remove('copied'), 1000)
-                                }} title="Copy">
-                                    <span className="copy-icon">{'\u2398'}</span>
-                                    <span className="copy-check">{'\u2713'}</span>
-                                </button>
-                            </div>
                         </div>
                     ))}
                     {streaming && (
@@ -627,6 +660,36 @@ function App() {
                 <div className="lightbox-overlay" onClick={() => setLightboxImage(null)}>
                     <img src={lightboxImage} alt="" className="lightbox-image" onClick={e => e.stopPropagation()} />
                     <button className="lightbox-close" onClick={() => setLightboxImage(null)}>&#x2715;</button>
+                </div>
+            )}
+
+            {expandedReport && (
+                <div className="report-overlay" onClick={() => setExpandedReport(null)}>
+                    <div className="report-fullscreen" onClick={e => e.stopPropagation()}>
+                        <div className="report-fullscreen-header">
+                            <span className="report-title">{expandedReport.title}</span>
+                            <div className="report-actions">
+                                <button onClick={() => navigator.clipboard.writeText(expandedReport.content)}>Copy</button>
+                                <button onClick={() => window.go?.main.Bindings.SaveReport(expandedReport.content, 'report.md')}>Save</button>
+                                <button onClick={() => setExpandedReport(null)}>Close</button>
+                            </div>
+                        </div>
+                        <div className="report-fullscreen-content">
+                            <ReactMarkdown
+                                remarkPlugins={[remarkGfm]}
+                                rehypePlugins={[rehypeHighlight]}
+                                components={{img: ({src, alt}) => {
+                                    if (src?.startsWith('object:')) {
+                                        const id = src.slice(7)
+                                        return <ObjectImage id={id} alt={alt || ''} onClick={setLightboxImage} />
+                                    }
+                                    return <img src={src} alt={alt || ''} className="message-image" onClick={() => src && setLightboxImage(src)} />
+                                }}}
+                            >
+                                {expandedReport.content}
+                            </ReactMarkdown>
+                        </div>
+                    </div>
                 </div>
             )}
         </div>

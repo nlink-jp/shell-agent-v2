@@ -373,6 +373,102 @@
     background: var(--bg-msg-error, #3a2020);
 }
 
+/* Report display */
+.report-container {
+    border: 1px solid var(--border-accent, #3a6a9a);
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.report-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 14px;
+    background: var(--bg-btn-primary, #1a3a5a);
+    border-bottom: 1px solid var(--border-accent, #3a6a9a);
+}
+
+.report-title {
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--text-accent, #aaccee);
+}
+
+.report-actions {
+    display: flex;
+    gap: 6px;
+}
+
+.report-actions button {
+    background: none;
+    border: 1px solid var(--border-accent, #3a6a9a);
+    color: var(--text-accent, #aaccee);
+    cursor: pointer;
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 4px;
+    --wails-draggable: no-drag;
+}
+
+.report-actions button:hover {
+    background: var(--bg-btn-primary-hover, #2a4a6a);
+}
+
+.report-content {
+    padding: 14px;
+    max-height: 400px;
+    overflow-y: auto;
+    font-size: 13px;
+    line-height: 1.6;
+    cursor: pointer;
+}
+
+.report-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 400;
+    padding: 32px;
+    --wails-draggable: no-drag;
+}
+
+.report-fullscreen {
+    background: var(--bg-primary, #1b2636);
+    border: 1px solid var(--border-accent, #3a6a9a);
+    border-radius: 12px;
+    width: 100%;
+    max-width: 900px;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.report-fullscreen-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 20px;
+    background: var(--bg-btn-primary, #1a3a5a);
+    border-bottom: 1px solid var(--border-accent, #3a6a9a);
+    flex-shrink: 0;
+}
+
+.report-fullscreen-content {
+    padding: 24px;
+    overflow-y: auto;
+    flex: 1;
+    font-size: 14px;
+    line-height: 1.7;
+}
+
 /* MITL Dialog */
 .mitl-dialog {
     position: fixed;
