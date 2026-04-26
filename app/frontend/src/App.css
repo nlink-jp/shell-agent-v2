@@ -906,6 +906,99 @@
     border-color: var(--border-accent, #5a8abf);
 }
 
+.mcp-profile-item {
+    padding: 10px;
+    border: 1px solid var(--border-primary, #2a3a4a);
+    border-radius: 6px;
+    margin-bottom: 8px;
+}
+
+.mcp-profile-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 6px;
+}
+
+.mcp-profile-name {
+    font-weight: 600;
+    font-size: 14px;
+    flex: 1;
+}
+
+.mcp-toggle {
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+}
+
+.mcp-delete {
+    border: none;
+    background: none;
+    color: var(--text-secondary, #8899aa);
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.mcp-delete:hover {
+    color: #ee6666;
+}
+
+.mcp-profile-detail {
+    font-size: 12px;
+    color: var(--text-secondary, #8899aa);
+    padding-left: 4px;
+}
+
+.mcp-label {
+    font-weight: 600;
+    margin-right: 4px;
+}
+
+.mcp-add-form {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-primary, #2a3a4a);
+}
+
+.mcp-add-form h4 {
+    font-size: 13px;
+    margin: 0 0 10px;
+}
+
+.mcp-add-btn {
+    padding: 6px 16px;
+    background: var(--bg-hover, rgba(255,255,255,0.05));
+    border: 1px solid var(--border-primary, #3a4a5a);
+    border-radius: 6px;
+    color: var(--text-primary, #e0e0e0);
+    cursor: pointer;
+    font-size: 13px;
+    margin-top: 8px;
+}
+
+.mcp-add-btn:hover {
+    background: var(--border-accent, #5a8abf);
+    color: #fff;
+}
+
+.mcp-restart-btn {
+    padding: 8px 20px;
+    background: #1a3a2a;
+    border: 1px solid #44aa66;
+    border-radius: 6px;
+    color: #66cc88;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.mcp-restart-btn:hover {
+    background: #2a4a3a;
+}
+
 .settings-footer {
     display: flex;
     justify-content: flex-end;

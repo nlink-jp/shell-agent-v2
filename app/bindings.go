@@ -352,20 +352,33 @@ func (b *Bindings) GetFindings() []FindingsResult {
 
 // --- Settings bindings ---
 
+// MCPProfileData is a MCP profile for the frontend.
+type MCPProfileData struct {
+	Name        string `json:"name"`
+	Binary      string `json:"binary"`
+	ProfilePath string `json:"profile_path"`
+	Enabled     bool   `json:"enabled"`
+}
+
 // SettingsData is the JSON-serializable settings for the frontend.
 type SettingsData struct {
-	DefaultBackend string `json:"default_backend"`
-	LocalEndpoint  string `json:"local_endpoint"`
-	LocalModel     string `json:"local_model"`
-	VertexProject  string `json:"vertex_project"`
-	VertexRegion   string `json:"vertex_region"`
-	VertexModel    string `json:"vertex_model"`
-	Theme          string `json:"theme"`
-	Location       string `json:"location"`
+	DefaultBackend string            `json:"default_backend"`
+	LocalEndpoint  string            `json:"local_endpoint"`
+	LocalModel     string            `json:"local_model"`
+	VertexProject  string            `json:"vertex_project"`
+	VertexRegion   string            `json:"vertex_region"`
+	VertexModel    string            `json:"vertex_model"`
+	Theme          string            `json:"theme"`
+	Location       string            `json:"location"`
+	MCPProfiles    []MCPProfileData  `json:"mcp_profiles"`
 }
 
 // GetSettings returns current settings.
 func (b *Bindings) GetSettings() SettingsData {
+	profiles := make([]MCPProfileData, len(b.cfg.Tools.MCPProfiles))
+	for i, p := range b.cfg.Tools.MCPProfiles {
+		profiles[i] = MCPProfileData{Name: p.Name, Binary: p.Binary, ProfilePath: p.ProfilePath, Enabled: p.Enabled}
+	}
 	return SettingsData{
 		DefaultBackend: string(b.cfg.LLM.DefaultBackend),
 		LocalEndpoint:  b.cfg.LLM.Local.Endpoint,
@@ -375,6 +388,7 @@ func (b *Bindings) GetSettings() SettingsData {
 		VertexModel:    b.cfg.LLM.VertexAI.Model,
 		Theme:          b.cfg.UI.Theme,
 		Location:       b.cfg.Location,
+		MCPProfiles:    profiles,
 	}
 }
 
@@ -388,7 +402,22 @@ func (b *Bindings) SaveSettings(s SettingsData) error {
 	b.cfg.LLM.VertexAI.Model = s.VertexModel
 	b.cfg.UI.Theme = s.Theme
 	b.cfg.Location = s.Location
+
+	// Update MCP profiles
+	profiles := make([]config.MCPProfileConfig, len(s.MCPProfiles))
+	for i, p := range s.MCPProfiles {
+		profiles[i] = config.MCPProfileConfig{Name: p.Name, Binary: p.Binary, ProfilePath: p.ProfilePath, Enabled: p.Enabled}
+	}
+	b.cfg.Tools.MCPProfiles = profiles
+
 	return b.cfg.Save()
+}
+
+// RestartMCP restarts all MCP guardian processes from current config.
+func (b *Bindings) RestartMCP() {
+	if b.agent != nil {
+		b.agent.RestartGuardians()
+	}
 }
 
 // --- Image bindings ---

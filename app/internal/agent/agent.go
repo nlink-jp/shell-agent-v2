@@ -15,6 +15,7 @@ import (
 	"github.com/nlink-jp/shell-agent-v2/internal/findings"
 	"github.com/nlink-jp/shell-agent-v2/internal/llm"
 	"github.com/nlink-jp/shell-agent-v2/internal/logger"
+	"github.com/nlink-jp/shell-agent-v2/internal/mcp"
 	"github.com/nlink-jp/shell-agent-v2/internal/memory"
 	"github.com/nlink-jp/shell-agent-v2/internal/objstore"
 	"github.com/nlink-jp/shell-agent-v2/internal/toolcall"
@@ -77,6 +78,8 @@ type Agent struct {
 	pinnedHandler   func()
 	activityHandler func(actType, detail string)
 	toolRegistry    *toolcall.Registry
+	guardians       map[string]*mcp.Guardian
+	guardiansMu     sync.RWMutex
 	postTasksWg     sync.WaitGroup // ensures post-response tasks finish before next Send
 
 	// Token usage tracking (session-scoped, reset on session switch)
@@ -102,7 +105,9 @@ func New(cfg *config.Config) *Agent {
 		pinned:       memory.NewPinnedStore(),
 		chat:         chatEngine,
 		toolRegistry: registry,
+		guardians:    make(map[string]*mcp.Guardian),
 	}
+	a.startGuardians()
 	a.setBackend(cfg.LLM.DefaultBackend)
 	_ = a.findings.Load()
 	_ = a.pinned.Load()
@@ -229,6 +234,43 @@ func (a *Agent) Abort() {
 // Close releases all resources held by the agent.
 func (a *Agent) Close() {
 	a.Abort()
+	a.stopGuardians()
+}
+
+// startGuardians launches MCP guardian processes from config.
+func (a *Agent) startGuardians() {
+	for _, p := range a.cfg.Tools.MCPProfiles {
+		if !p.Enabled || p.Name == "" || p.Binary == "" {
+			continue
+		}
+		g := mcp.NewGuardian(p.Binary, "--profile", p.ProfilePath)
+		if err := g.Start(); err != nil {
+			logger.Error("MCP guardian %q start failed: %v", p.Name, err)
+			continue
+		}
+		a.guardians[p.Name] = g
+		logger.Info("MCP guardian %q started (%d tools)", p.Name, len(g.Tools()))
+	}
+}
+
+// stopGuardians stops all running MCP guardian processes.
+func (a *Agent) stopGuardians() {
+	a.guardiansMu.Lock()
+	defer a.guardiansMu.Unlock()
+	for name, g := range a.guardians {
+		g.Stop()
+		logger.Info("MCP guardian %q stopped", name)
+	}
+	a.guardians = make(map[string]*mcp.Guardian)
+}
+
+// RestartGuardians stops and restarts all MCP guardians from current config.
+func (a *Agent) RestartGuardians() {
+	a.stopGuardians()
+	a.guardiansMu.Lock()
+	a.guardians = make(map[string]*mcp.Guardian)
+	a.guardiansMu.Unlock()
+	a.startGuardians()
 }
 
 // LoadSession switches to the given session. Must be called in Idle state.
@@ -303,6 +345,20 @@ func (a *Agent) ListTools() []ToolInfoItem {
 	for _, t := range a.toolRegistry.All() {
 		items = append(items, ToolInfoItem{Name: t.Name, Description: t.Description, Category: string(t.Category), Source: "shell"})
 	}
+
+	// MCP guardian tools
+	a.guardiansMu.RLock()
+	for name, g := range a.guardians {
+		for _, t := range g.Tools() {
+			items = append(items, ToolInfoItem{
+				Name:        "mcp__" + name + "__" + t.Name,
+				Description: "[" + name + "] " + t.Description,
+				Category:    "read",
+				Source:      "mcp",
+			})
+		}
+	}
+	a.guardiansMu.RUnlock()
 
 	return items
 }
@@ -632,6 +688,25 @@ func (a *Agent) executeTool(ctx context.Context, tc llm.ToolCall) string {
 		}
 		return result
 	default:
+		// Check MCP guardian tools (prefixed with "mcp__")
+		if strings.HasPrefix(tc.Name, "mcp__") {
+			parts := strings.SplitN(strings.TrimPrefix(tc.Name, "mcp__"), "__", 2)
+			if len(parts) != 2 {
+				return "Error: invalid MCP tool name format"
+			}
+			a.guardiansMu.RLock()
+			g, ok := a.guardians[parts[0]]
+			a.guardiansMu.RUnlock()
+			if !ok {
+				return fmt.Sprintf("Error: MCP guardian %q not found", parts[0])
+			}
+			result, err := g.CallTool(parts[1], json.RawMessage(tc.Arguments))
+			if err != nil {
+				return fmt.Sprintf("Error: MCP %s: %v", parts[1], err)
+			}
+			return string(result)
+		}
+
 		// Check shell script tool registry
 		if tool, ok := a.toolRegistry.Get(tc.Name); ok {
 			// MITL check for write/execute tools
@@ -674,6 +749,23 @@ func (a *Agent) buildToolDefs() []llm.ToolDef {
 			Parameters:  t.ToolDefParams(),
 		})
 	}
+
+	// Add MCP guardian tools
+	a.guardiansMu.RLock()
+	for name, g := range a.guardians {
+		for _, t := range g.Tools() {
+			var params any
+			if len(t.InputSchema) > 0 {
+				json.Unmarshal(t.InputSchema, &params)
+			}
+			tools = append(tools, llm.ToolDef{
+				Name:        "mcp__" + name + "__" + t.Name,
+				Description: "[" + name + "] " + t.Description,
+				Parameters:  params,
+			})
+		}
+	}
+	a.guardiansMu.RUnlock()
 
 	return tools
 }

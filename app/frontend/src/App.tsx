@@ -51,6 +51,7 @@ declare global {
                     DeletePinnedMemory(key: string): Promise<void>;
                     GetLLMStatus(): Promise<LLMStatus>;
                     SaveReport(content: string, filename: string): Promise<void>;
+                    RestartMCP(): Promise<void>;
                 };
             };
         };
@@ -114,6 +115,13 @@ interface LLMStatus {
     output_tokens: number;
 }
 
+interface MCPProfile {
+    name: string;
+    binary: string;
+    profile_path: string;
+    enabled: boolean;
+}
+
 interface Settings {
     default_backend: string;
     local_endpoint: string;
@@ -123,6 +131,7 @@ interface Settings {
     vertex_model: string;
     theme: string;
     location: string;
+    mcp_profiles: MCPProfile[];
 }
 
 type SidebarPanel = 'sessions' | 'status';
@@ -149,7 +158,7 @@ function App() {
     const [lightboxImage, setLightboxImage] = useState<string | null>(null)
     const [expandedReport, setExpandedReport] = useState<{title: string; content: string} | null>(null)
     const [settings, setSettings] = useState<Settings | null>(null)
-    const [settingsTab, setSettingsTab] = useState<'general' | 'tools'>('general')
+    const [settingsTab, setSettingsTab] = useState<'general' | 'tools' | 'mcp'>('general')
     const [progressTool, setProgressTool] = useState('')
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const composingRef = useRef(false)
@@ -739,6 +748,7 @@ function App() {
                         <div className="settings-tabs">
                             <button className={settingsTab === 'general' ? 'active' : ''} onClick={() => setSettingsTab('general')}>General</button>
                             <button className={settingsTab === 'tools' ? 'active' : ''} onClick={() => setSettingsTab('tools')}>Tools</button>
+                            <button className={settingsTab === 'mcp' ? 'active' : ''} onClick={() => setSettingsTab('mcp')}>MCP</button>
                         </div>
                         <div className="settings-body">
                             {settingsTab === 'general' && (<>
@@ -810,6 +820,59 @@ function App() {
                                             <div className="tool-desc">{t.description}</div>
                                         </div>
                                     ))}
+                                </div>
+                            </>)}
+                            {settingsTab === 'mcp' && (<>
+                                <div className="settings-section">
+                                    <h3>MCP Profiles</h3>
+                                    {(settings.mcp_profiles || []).length === 0 ? (
+                                        <p className="sidebar-hint">No MCP profiles configured</p>
+                                    ) : (settings.mcp_profiles || []).map((p, i) => (
+                                        <div key={i} className="mcp-profile-item">
+                                            <div className="mcp-profile-header">
+                                                <span className="mcp-profile-name">{p.name}</span>
+                                                <label className="mcp-toggle">
+                                                    <input type="checkbox" checked={p.enabled} onChange={e => {
+                                                        const updated = [...(settings.mcp_profiles || [])]
+                                                        updated[i] = {...p, enabled: e.target.checked}
+                                                        updateSetting({mcp_profiles: updated} as any)
+                                                    }} />
+                                                    <span>{p.enabled ? 'ON' : 'OFF'}</span>
+                                                </label>
+                                                <button className="mcp-delete" onClick={() => {
+                                                    const updated = (settings.mcp_profiles || []).filter((_, j) => j !== i)
+                                                    updateSetting({mcp_profiles: updated} as any)
+                                                }}>&#x2715;</button>
+                                            </div>
+                                            <div className="mcp-profile-detail">
+                                                <span className="mcp-label">Binary:</span> {p.binary}
+                                            </div>
+                                            <div className="mcp-profile-detail">
+                                                <span className="mcp-label">Profile:</span> {p.profile_path}
+                                            </div>
+                                        </div>
+                                    ))}
+                                    <div className="mcp-add-form">
+                                        <h4>Add Profile</h4>
+                                        <label><span>Name</span><input id="mcp-name" placeholder="e.g. github" /></label>
+                                        <label><span>Binary</span><input id="mcp-binary" defaultValue="/usr/local/bin/mcp-guardian" /></label>
+                                        <label><span>Profile</span><input id="mcp-profile" placeholder="~/.config/mcp-guardian/profiles/xxx.json" /></label>
+                                        <button className="mcp-add-btn" onClick={() => {
+                                            const name = (document.getElementById('mcp-name') as HTMLInputElement).value.trim()
+                                            const binary = (document.getElementById('mcp-binary') as HTMLInputElement).value.trim()
+                                            const profile = (document.getElementById('mcp-profile') as HTMLInputElement).value.trim()
+                                            if (!name || !binary || !profile) return
+                                            const updated = [...(settings.mcp_profiles || []), {name, binary, profile_path: profile, enabled: true}]
+                                            updateSetting({mcp_profiles: updated} as any);
+                                            (document.getElementById('mcp-name') as HTMLInputElement).value = '';
+                                            (document.getElementById('mcp-profile') as HTMLInputElement).value = ''
+                                        }}>Add</button>
+                                    </div>
+                                </div>
+                                <div className="settings-section">
+                                    <button className="mcp-restart-btn" onClick={() => {
+                                        if (window.go) window.go.main.Bindings.RestartMCP()
+                                    }}>Restart MCP Guardians</button>
                                 </div>
                             </>)}
                         </div>

@@ -43,16 +43,18 @@ type MemoryConfig struct {
 	ColdRetention string `json:"cold_retention"`
 }
 
-// MCPGuardianConfig holds mcp-guardian settings.
-type MCPGuardianConfig struct {
-	Binary     string `json:"binary"`
-	ConfigFile string `json:"config"`
+// MCPProfileConfig holds a single mcp-guardian profile configuration.
+type MCPProfileConfig struct {
+	Name        string `json:"name"`
+	Binary      string `json:"binary"`
+	ProfilePath string `json:"profile_path"`
+	Enabled     bool   `json:"enabled"`
 }
 
 // ToolsConfig holds tool-related settings.
 type ToolsConfig struct {
-	ScriptDir   string            `json:"script_dir"`
-	MCPGuardian MCPGuardianConfig `json:"mcp_guardian"`
+	ScriptDir   string             `json:"script_dir"`
+	MCPProfiles []MCPProfileConfig `json:"mcp_profiles"`
 }
 
 // WindowConfig holds window position and size for restoration.
@@ -115,11 +117,8 @@ func Default() *Config {
 			MaxToolResultTokens: 2048,
 		},
 		Tools: ToolsConfig{
-			ScriptDir: filepath.Join(DataDir(), "tools"),
-			MCPGuardian: MCPGuardianConfig{
-				Binary:     "/usr/local/bin/mcp-guardian",
-				ConfigFile: "~/.config/mcp-guardian/config.json",
-			},
+			ScriptDir:   filepath.Join(DataDir(), "tools"),
+			MCPProfiles: []MCPProfileConfig{},
 		},
 		UI: UIConfig{
 			Theme:       "dark",
