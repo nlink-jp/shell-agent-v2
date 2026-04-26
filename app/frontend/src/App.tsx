@@ -1,11 +1,14 @@
 import {useState, useEffect, useRef, useCallback} from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import remarkMath from 'remark-math'
 import rehypeHighlight from 'rehype-highlight'
+import rehypeKatex from 'rehype-katex'
 import ChatInput from './ChatInput'
 import ObjectImage, {clearObjectCache} from './ObjectImage'
 import {defaultUrlTransform} from 'react-markdown'
 import 'highlight.js/styles/github-dark.css'
+import 'katex/dist/katex.min.css'
 import './themes.css'
 import './App.css'
 
@@ -513,8 +516,8 @@ function App() {
                                         </div>
                                         <div className="report-content" onClick={() => setExpandedReport({title: msg.content.split('\n')[0].replace(/^#\s*/, ''), content: msg.content})}>
                                             <ReactMarkdown
-                                                remarkPlugins={[remarkGfm]}
-                                                rehypePlugins={[rehypeHighlight]}
+                                                remarkPlugins={[remarkGfm, remarkMath]}
+                                                rehypePlugins={[rehypeHighlight, rehypeKatex]}
                                                 urlTransform={urlTransform}
                                                 components={{img: ({src, alt}) => {
                                                     if (src?.startsWith('object:')) {
@@ -544,8 +547,8 @@ function App() {
                                     )}
                                     <div className="message-content">
                                         <ReactMarkdown
-                                            remarkPlugins={[remarkGfm]}
-                                            rehypePlugins={[rehypeHighlight]}
+                                            remarkPlugins={[remarkGfm, remarkMath]}
+                                            rehypePlugins={[rehypeHighlight, rehypeKatex]}
                                             urlTransform={urlTransform}
                                             components={{img: ({src, alt}) => {
                                                 if (src?.startsWith('object:')) {
@@ -578,7 +581,7 @@ function App() {
                                 <span className="message-role">assistant</span>
                             </div>
                             <div className="message-content">
-                                <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]} urlTransform={urlTransform}>
+                                <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeHighlight, rehypeKatex]} urlTransform={urlTransform}>
                                     {streaming}
                                 </ReactMarkdown>
                             </div>
@@ -712,8 +715,8 @@ function App() {
                         </div>
                         <div className="report-fullscreen-content">
                             <ReactMarkdown
-                                remarkPlugins={[remarkGfm]}
-                                rehypePlugins={[rehypeHighlight]}
+                                remarkPlugins={[remarkGfm, remarkMath]}
+                                rehypePlugins={[rehypeHighlight, rehypeKatex]}
                                 urlTransform={urlTransform}
                                 components={{img: ({src, alt}) => {
                                     if (src?.startsWith('object:')) {
