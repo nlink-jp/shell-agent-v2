@@ -50,11 +50,12 @@
 
 .sidebar-collapsed .sidebar-nav-btn {
     justify-content: center;
-    padding: 6px;
+    padding: 6px 0;
+    width: 100%;
 }
 
 .sidebar-collapsed .sidebar-nav-divider {
-    margin: 4px 6px;
+    margin: 4px 8px;
 }
 
 .sidebar-header {
@@ -116,12 +117,12 @@
 }
 
 .sidebar-nav-ic {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 20px;
-    height: 20px;
-    font-size: 16px;
+    display: inline-block;
+    width: 22px;
+    font-size: 18px;
+    line-height: 13px;
+    vertical-align: 1px;
+    text-align: center;
     flex-shrink: 0;
 }
 
