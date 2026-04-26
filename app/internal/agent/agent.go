@@ -711,9 +711,11 @@ func (a *Agent) executeTool(ctx context.Context, tc llm.ToolCall) string {
 	default:
 		// Check MCP guardian tools (prefixed with "mcp__")
 		if strings.HasPrefix(tc.Name, "mcp__") {
-			// MITL: all MCP tools require approval (external service operations)
-			if rejection := a.requestMITL(tc.Name, tc.Arguments, "execute"); rejection != "" {
-				return rejection
+			// MITL for MCP: default on, can be overridden per tool
+			if a.IsToolMITLRequired(tc.Name) {
+				if rejection := a.requestMITL(tc.Name, tc.Arguments, "execute"); rejection != "" {
+					return rejection
+				}
 			}
 			parts := strings.SplitN(strings.TrimPrefix(tc.Name, "mcp__"), "__", 2)
 			if len(parts) != 2 {
@@ -735,7 +737,11 @@ func (a *Agent) executeTool(ctx context.Context, tc llm.ToolCall) string {
 		// Check shell script tool registry
 		if tool, ok := a.toolRegistry.Get(tc.Name); ok {
 			// MITL check for write/execute tools
-			if tool.NeedsMITL() {
+			needsMITL := tool.NeedsMITL() // category-based default
+			if override, ok := a.cfg.Tools.MITLOverrides[tc.Name]; ok {
+				needsMITL = override
+			}
+			if needsMITL {
 				result := a.requestMITL(tc.Name, tc.Arguments, string(tool.Category))
 				if result != "" {
 					return result
@@ -792,7 +798,36 @@ func (a *Agent) buildToolDefs() []llm.ToolDef {
 	}
 	a.guardiansMu.RUnlock()
 
+	// Filter out disabled tools
+	disabled := make(map[string]bool)
+	for _, name := range a.cfg.Tools.DisabledTools {
+		disabled[name] = true
+	}
+	if len(disabled) > 0 {
+		var filtered []llm.ToolDef
+		for _, t := range tools {
+			if !disabled[t.Name] {
+				filtered = append(filtered, t)
+			}
+		}
+		tools = filtered
+	}
+
 	return tools
+}
+
+// IsToolMITLRequired checks if a tool requires MITL approval,
+// considering per-tool overrides in config.
+// Default: MCP tools and write/execute shell tools require MITL.
+func (a *Agent) IsToolMITLRequired(toolName string) bool {
+	if override, ok := a.cfg.Tools.MITLOverrides[toolName]; ok {
+		return override
+	}
+	// Default: MCP tools require MITL
+	if strings.HasPrefix(toolName, "mcp__") {
+		return true
+	}
+	return false
 }
 
 func (a *Agent) handleCommand(message string) (string, error) {

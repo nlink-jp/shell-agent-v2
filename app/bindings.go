@@ -371,6 +371,8 @@ type SettingsData struct {
 	Theme          string            `json:"theme"`
 	Location       string            `json:"location"`
 	MCPProfiles    []MCPProfileData  `json:"mcp_profiles"`
+	DisabledTools  []string          `json:"disabled_tools"`
+	MITLOverrides  map[string]bool   `json:"mitl_overrides"`
 }
 
 // GetSettings returns current settings.
@@ -389,6 +391,8 @@ func (b *Bindings) GetSettings() SettingsData {
 		Theme:          b.cfg.UI.Theme,
 		Location:       b.cfg.Location,
 		MCPProfiles:    profiles,
+		DisabledTools:  b.cfg.Tools.DisabledTools,
+		MITLOverrides:  b.cfg.Tools.MITLOverrides,
 	}
 }
 
@@ -409,6 +413,8 @@ func (b *Bindings) SaveSettings(s SettingsData) error {
 		profiles[i] = config.MCPProfileConfig{Name: p.Name, Binary: p.Binary, ProfilePath: p.ProfilePath, Enabled: p.Enabled}
 	}
 	b.cfg.Tools.MCPProfiles = profiles
+	b.cfg.Tools.DisabledTools = s.DisabledTools
+	b.cfg.Tools.MITLOverrides = s.MITLOverrides
 
 	return b.cfg.Save()
 }

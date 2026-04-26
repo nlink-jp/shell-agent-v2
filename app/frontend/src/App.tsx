@@ -133,6 +133,8 @@ interface Settings {
     theme: string;
     location: string;
     mcp_profiles: MCPProfile[];
+    disabled_tools: string[];
+    mitl_overrides: Record<string, boolean>;
 }
 
 type SidebarPanel = 'sessions' | 'status';
@@ -816,16 +818,41 @@ function App() {
                                     <h3>Registered Tools</h3>
                                     {tools.length === 0 ? (
                                         <p className="sidebar-hint">No tools available</p>
-                                    ) : tools.map(t => (
-                                        <div key={t.name} className="tool-item">
-                                            <div className="tool-name">
-                                                <code>{t.name}</code>
-                                                <span className={`tool-category ${t.category}`}>{t.category}</span>
-                                                <span className="tool-source">{t.source}</span>
+                                    ) : tools.map(t => {
+                                        const disabled = (settings.disabled_tools || []).includes(t.name)
+                                        const mitlOverride = (settings.mitl_overrides || {})[t.name]
+                                        const mitlDefault = t.category === 'write' || t.category === 'execute' || t.source === 'mcp'
+                                        const mitlActive = mitlOverride !== undefined ? mitlOverride : mitlDefault
+                                        return (
+                                            <div key={t.name} className={`tool-item ${disabled ? 'tool-disabled' : ''}`}>
+                                                <div className="tool-name">
+                                                    <label className="tool-enabled-toggle" title="Enable/Disable">
+                                                        <input type="checkbox" checked={!disabled} onChange={e => {
+                                                            const list = (settings.disabled_tools || []).filter(n => n !== t.name)
+                                                            if (!e.target.checked) list.push(t.name)
+                                                            updateSetting({disabled_tools: list} as any)
+                                                        }} />
+                                                    </label>
+                                                    <code>{t.name}</code>
+                                                    <span className={`tool-category ${t.category}`}>{t.category}</span>
+                                                    <span className="tool-source">{t.source}</span>
+                                                    <label className="tool-mitl-toggle" title="MITL approval">
+                                                        <input type="checkbox" checked={mitlActive} onChange={e => {
+                                                            const overrides = {...(settings.mitl_overrides || {})}
+                                                            if (e.target.checked === mitlDefault) {
+                                                                delete overrides[t.name]
+                                                            } else {
+                                                                overrides[t.name] = e.target.checked
+                                                            }
+                                                            updateSetting({mitl_overrides: overrides} as any)
+                                                        }} />
+                                                        <span className="mitl-label-text">MITL</span>
+                                                    </label>
+                                                </div>
+                                                <div className="tool-desc">{t.description}</div>
                                             </div>
-                                            <div className="tool-desc">{t.description}</div>
-                                        </div>
-                                    ))}
+                                        )
+                                    })}
                                 </div>
                             </>)}
                             {settingsTab === 'mcp' && (<>

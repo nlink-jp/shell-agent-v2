@@ -386,8 +386,29 @@ input, textarea {
     border-bottom: 1px solid var(--border-primary, #2a3a4a);
 }
 
+.tool-item.tool-disabled {
+    opacity: 0.5;
+}
+
 .tool-item:last-child {
     border-bottom: none;
+}
+
+.tool-enabled-toggle, .tool-mitl-toggle {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    cursor: pointer;
+    font-size: 11px;
+}
+
+.tool-mitl-toggle {
+    margin-left: auto;
+}
+
+.mitl-label-text {
+    font-size: 10px;
+    color: var(--text-muted, #888);
 }
 
 .tool-name {

@@ -54,8 +54,10 @@ type MCPProfileConfig struct {
 
 // ToolsConfig holds tool-related settings.
 type ToolsConfig struct {
-	ScriptDir   string             `json:"script_dir"`
-	MCPProfiles []MCPProfileConfig `json:"mcp_profiles"`
+	ScriptDir     string             `json:"script_dir"`
+	MCPProfiles   []MCPProfileConfig `json:"mcp_profiles"`
+	DisabledTools []string           `json:"disabled_tools,omitempty"` // tool names to exclude from LLM
+	MITLOverrides map[string]bool    `json:"mitl_overrides,omitempty"` // tool name → force MITL on/off
 }
 
 // WindowConfig holds window position and size for restoration.
