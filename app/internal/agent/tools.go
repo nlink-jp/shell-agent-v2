@@ -460,9 +460,29 @@ func (a *Agent) toolCreateReport(argsJSON string) (string, error) {
 
 	reportContent := fmt.Sprintf("# %s\n\n%s", args.Title, args.Content)
 
-	// Store report in session records (persisted on reload)
+	// Save report to objstore as TypeReport
+	var reportObjectID string
+	if a.objects != nil {
+		sessionID := ""
+		if a.session != nil {
+			sessionID = a.session.ID
+		}
+		meta, err := a.objects.Store(
+			strings.NewReader(reportContent),
+			objstore.TypeReport, "text/markdown", args.Title+".md", sessionID,
+		)
+		if err == nil {
+			reportObjectID = meta.ID
+		}
+	}
+
+	// Store report in session records with ObjectID reference
 	if a.session != nil {
 		a.session.AddReportMessage(args.Title, reportContent)
+		if reportObjectID != "" {
+			last := &a.session.Records[len(a.session.Records)-1]
+			last.ObjectIDs = []string{reportObjectID}
+		}
 	}
 
 	// Notify frontend for immediate display
