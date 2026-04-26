@@ -733,6 +733,7 @@ function App() {
                     <div className="settings-modal" onClick={e => e.stopPropagation()}>
                         <div className="settings-header">
                             <h2>Settings</h2>
+                            <button className="settings-close" onClick={() => setShowSettings(false)}>&#x2715;</button>
                         </div>
                         <div className="settings-body">
                             <div className="settings-section">
