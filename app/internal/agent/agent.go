@@ -721,7 +721,7 @@ func (a *Agent) generateTitleIfNeeded(ctx context.Context) {
 const defaultSystemPrompt = `You are a helpful assistant with data analysis capabilities.
 You can use tools to help answer questions.
 
-Before calling a tool, briefly explain what you are about to do and why in the same language the user is using. For example, show the SQL you will execute, or explain the file and table name for load-data.
+When you call a tool, include a brief explanation of what you are doing and why in the same response. For example, when calling query-sql, mention the SQL and its intent in the same message.
 
 When asked about dates, use the resolve-date tool if you are unsure about the calculation.
 

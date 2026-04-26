@@ -658,6 +658,21 @@ func (a *Agent) toolAnalyzeData(ctx context.Context, argsJSON string) (string, e
 		return "", fmt.Errorf("analysis: %w", err)
 	}
 
+	// Auto-promote significant findings to global findings store
+	sessionID := ""
+	sessionTitle := ""
+	if a.session != nil {
+		sessionID = a.session.ID
+		sessionTitle = a.session.Title
+	}
+	for _, f := range result.Findings {
+		sev := strings.ToLower(f.Severity)
+		if sev == "critical" || sev == "high" || sev == "medium" {
+			a.findings.Add(f.Description, sessionID, sessionTitle, []string{sev, tableName})
+		}
+	}
+	_ = a.findings.Save()
+
 	// Generate report
 	report := analysis.GenerateReport(args.Prompt, result)
 
