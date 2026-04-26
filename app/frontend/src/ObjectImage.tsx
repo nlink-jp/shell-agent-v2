@@ -31,9 +31,7 @@ export default function ObjectImage({id, alt, onClick}: Props) {
         (async () => {
             try {
                 if (window.go) {
-                    console.log('[ObjectImage] resolving:', id)
                     const dataURL = await window.go.main.Bindings.GetImageDataURL(id)
-                    console.log('[ObjectImage] result:', id, dataURL ? `OK (${dataURL.length} chars)` : 'EMPTY')
                     if (mounted.current && dataURL) {
                         objectCache[id] = dataURL
                         setSrc(dataURL)
@@ -41,11 +39,9 @@ export default function ObjectImage({id, alt, onClick}: Props) {
                         setError(true)
                     }
                 } else {
-                    console.error('[ObjectImage] window.go not available')
                     if (mounted.current) setError(true)
                 }
-            } catch (e) {
-                console.error('[ObjectImage] error:', id, e)
+            } catch {
                 if (mounted.current) setError(true)
             }
         })()
@@ -55,7 +51,7 @@ export default function ObjectImage({id, alt, onClick}: Props) {
         return <span className="object-error" title={`Object ${id} not found`}>&#x1F5BC; {alt || id}</span>
     }
     if (!src) {
-        return <span className="object-loading">Loading {alt || id}...</span>
+        return <span className="object-loading">Loading...</span>
     }
     return <img src={src} alt={alt || ''} className="message-image" onClick={() => onClick?.(src)} />
 }

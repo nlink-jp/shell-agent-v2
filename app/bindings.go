@@ -383,14 +383,7 @@ func (b *Bindings) SaveImage(dataURL string) (string, error) {
 
 // GetImageDataURL loads an image by ID and returns a data URL.
 func (b *Bindings) GetImageDataURL(id string) (string, error) {
-	logger.Debug("GetImageDataURL called: id=%s", id)
-	du, err := b.objects.LoadAsDataURL(id)
-	if err != nil {
-		logger.Error("GetImageDataURL error: id=%s err=%v", id, err)
-		return "", err
-	}
-	logger.Debug("GetImageDataURL success: id=%s len=%d", id, len(du))
-	return du, nil
+	return b.objects.LoadAsDataURL(id)
 }
 
 // --- Report bindings ---
@@ -492,33 +485,6 @@ func (b *Bindings) switchAnalysis(sessionID string) {
 	}
 	b.analysis = analysis.New(sessionID)
 	b.agent.SetAnalysis(b.analysis)
-}
-
-// resolveObjectURLs replaces object:ID references in Markdown with data URLs.
-func (b *Bindings) resolveObjectURLs(content string) string {
-	if b.objects == nil || !strings.Contains(content, "object:") {
-		return content
-	}
-	result := content
-	for {
-		idx := strings.Index(result, "(object:")
-		if idx < 0 {
-			break
-		}
-		end := strings.Index(result[idx:], ")")
-		if end < 0 {
-			break
-		}
-		id := result[idx+8 : idx+end]
-		du, err := b.objects.LoadAsDataURL(id)
-		if err == nil && du != "" {
-			result = result[:idx+1] + du + result[idx+end:]
-		} else {
-			// Skip this reference to avoid infinite loop
-			result = result[:idx] + "(objref:" + result[idx+8:]
-		}
-	}
-	return result
 }
 
 func nowUnixMilli() int64 {
