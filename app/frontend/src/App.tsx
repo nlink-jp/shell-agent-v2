@@ -357,7 +357,9 @@ function App() {
                 ? await window.go.main.Bindings.SendWithImages(text, images)
                 : await window.go.main.Bindings.Send(text)
             if (response && response.trim()) {
-                setMessages(prev => [...prev, {role: 'assistant', content: response, timestamp: nowTime()}])
+                const isCmd = response.startsWith('[CMD]')
+                const content = isCmd ? response.slice(5) : response
+                setMessages(prev => [...prev, {role: isCmd ? 'system' : 'assistant', content, timestamp: nowTime()}])
             }
         } catch (err: any) {
             setMessages(prev => [...prev, {role: 'system', content: `Error: ${err.message || err}`, timestamp: nowTime()}])

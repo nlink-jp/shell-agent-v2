@@ -205,7 +205,11 @@ func (a *Agent) SendWithImages(ctx context.Context, message string, objectIDs, d
 		parts := strings.Fields(message)
 		switch parts[0] {
 		case "/model", "/finding", "/findings", "/help":
-			return a.handleCommand(message)
+			result, err := a.handleCommand(message)
+			if err != nil {
+				return "", err
+			}
+			return "[CMD]" + result, nil
 		}
 	}
 
