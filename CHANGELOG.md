@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.1] - 2026-04-27
+
+### Security
+
+- weather.sh: pass region/XML via env vars instead of shell-expanded Python heredoc
+  (eliminates code injection if LLM is induced to supply a malicious region string)
+- chat: sanitize location string before embedding in system prompt
+  (strips control chars and newlines, caps length — blocks prompt-injection via geolocation)
+- findings: sanitize stored content/title before embedding in system prompt
+- memory/pinned: sanitize fact/native/category before embedding in system prompt
+- analysis: validate file paths and escape SQL strings in LoadCSV/LoadJSON/LoadJSONL
+  (eliminates SQL injection via filename)
+- analysis: enforce MaxQueryRows (10000) on QuerySQL results to bound memory use
+- agent: propagate cancellation context into shell tool execution
+- agent: validate MCP guardian binary executable bit and profile path before launch
+- agent: separate Info/Debug logging — message bodies no longer logged at Info level
+- objstore: tighten new-object file permissions to 0600
+
+### Tests
+
+- chat/sanitize_test, findings/sanitize_test, analysis/security_test
+
 ## [0.1.0] - 2026-04-27
 
 Initial release. Full rewrite of shell-agent v1.
