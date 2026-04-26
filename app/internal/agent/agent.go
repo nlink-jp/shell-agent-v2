@@ -71,6 +71,10 @@ type Agent struct {
 	reportHandler func(title, content string)
 	pinnedHandler func()
 	toolRegistry  *toolcall.Registry
+
+	// Token usage tracking (session-scoped, reset on session switch)
+	promptTokens int
+	outputTokens int
 }
 
 // New creates a new Agent with the given configuration.
@@ -203,6 +207,8 @@ func (a *Agent) LoadSession(session *memory.Session) error {
 		return ErrBusy
 	}
 	a.session = session
+	a.promptTokens = 0
+	a.outputTokens = 0
 	return nil
 }
 
@@ -286,6 +292,8 @@ func (a *Agent) LLMStatus() struct {
 	HotMessages   int    `json:"hot_messages"`
 	WarmSummaries int    `json:"warm_summaries"`
 	SessionID     string `json:"session_id"`
+	PromptTokens  int    `json:"prompt_tokens"`
+	OutputTokens  int    `json:"output_tokens"`
 } {
 	hot, warm := 0, 0
 	sessionID := ""
@@ -305,11 +313,15 @@ func (a *Agent) LLMStatus() struct {
 		HotMessages   int    `json:"hot_messages"`
 		WarmSummaries int    `json:"warm_summaries"`
 		SessionID     string `json:"session_id"`
+		PromptTokens  int    `json:"prompt_tokens"`
+		OutputTokens  int    `json:"output_tokens"`
 	}{
 		Backend:       a.backend.Name(),
 		HotMessages:   hot,
 		WarmSummaries: warm,
 		SessionID:     sessionID,
+		PromptTokens:  a.promptTokens,
+		OutputTokens:  a.outputTokens,
 	}
 }
 
@@ -382,6 +394,10 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 			logger.Error("agentLoop: LLM error: %v", err)
 			return "", fmt.Errorf("LLM: %w", err)
 		}
+
+		// Accumulate token usage
+		a.promptTokens += resp.PromptTokens
+		a.outputTokens += resp.OutputTokens
 
 		// Clean response: thinking tags + gemma text tool calls (every round)
 		resp.Content = chat.CleanResponse(resp.Content)

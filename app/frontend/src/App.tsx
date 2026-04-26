@@ -106,6 +106,8 @@ interface LLMStatus {
     hot_messages: number;
     warm_summaries: number;
     session_id: string;
+    prompt_tokens: number;
+    output_tokens: number;
 }
 
 interface Settings {
@@ -346,6 +348,7 @@ function App() {
             setStreaming('')
             if (window.go) {
                 window.go.main.Bindings.GetBackend().then(setBackend)
+                window.go.main.Bindings.GetLLMStatus().then(setLLMStatus)
             }
         }
     }, [state, currentSessionId])
@@ -453,6 +456,8 @@ function App() {
                                 <div className="status-row"><span>Session</span><span>{llmStatus.session_id || '-'}</span></div>
                                 <div className="status-row"><span>Hot messages</span><span>{llmStatus.hot_messages}</span></div>
                                 <div className="status-row"><span>Warm summaries</span><span>{llmStatus.warm_summaries}</span></div>
+                                <div className="status-row"><span>Prompt tokens</span><span>{llmStatus.prompt_tokens.toLocaleString()}</span></div>
+                                <div className="status-row"><span>Output tokens</span><span>{llmStatus.output_tokens.toLocaleString()}</span></div>
                             </div>
                         )}
                         <div className="status-section">

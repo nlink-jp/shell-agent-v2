@@ -459,15 +459,25 @@ func (b *Bindings) DeletePinnedMemory(key string) error {
 
 // LLMStatusData is the LLM status for the frontend.
 type LLMStatusData struct {
-	Backend      string `json:"backend"`
-	HotMessages  int    `json:"hot_messages"`
-	WarmSummaries int   `json:"warm_summaries"`
-	SessionID    string `json:"session_id"`
+	Backend       string `json:"backend"`
+	HotMessages   int    `json:"hot_messages"`
+	WarmSummaries int    `json:"warm_summaries"`
+	SessionID     string `json:"session_id"`
+	PromptTokens  int    `json:"prompt_tokens"`
+	OutputTokens  int    `json:"output_tokens"`
 }
 
 // GetLLMStatus returns the current LLM and memory status.
 func (b *Bindings) GetLLMStatus() LLMStatusData {
-	return b.agent.LLMStatus()
+	s := b.agent.LLMStatus()
+	return LLMStatusData{
+		Backend:       s.Backend,
+		HotMessages:   s.HotMessages,
+		WarmSummaries: s.WarmSummaries,
+		SessionID:     s.SessionID,
+		PromptTokens:  s.PromptTokens,
+		OutputTokens:  s.OutputTokens,
+	}
 }
 
 // --- Info ---
