@@ -437,7 +437,10 @@ function App() {
                                 </div>
                                 {f.tags && f.tags.length > 0 && (
                                     <div className="finding-tags">
-                                        {f.tags.map(tag => <span key={tag} className="tag">{tag}</span>)}
+                                        {f.tags.map(tag => {
+                                            const sevClass = ['critical','high','medium','low','info'].includes(tag) ? ` severity-${tag}` : ''
+                                            return <span key={tag} className={`tag${sevClass}`}>{tag}</span>
+                                        })}
                                     </div>
                                 )}
                             </div>

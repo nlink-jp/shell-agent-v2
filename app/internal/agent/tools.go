@@ -667,7 +667,11 @@ func (a *Agent) toolAnalyzeData(ctx context.Context, argsJSON string) (string, e
 	}
 	for _, f := range result.Findings {
 		sev := strings.ToLower(f.Severity)
-		a.findings.Add(f.Description, sessionID, sessionTitle, []string{sev, tableName})
+		content := f.Description
+		if f.Evidence != "" {
+			content += "\nEvidence: " + f.Evidence
+		}
+		a.findings.Add(content, sessionID, sessionTitle, []string{sev, tableName})
 	}
 	_ = a.findings.Save()
 

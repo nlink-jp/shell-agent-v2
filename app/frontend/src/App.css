@@ -227,13 +227,14 @@
     border-radius: 8px;
     padding: 10px;
     margin-bottom: 8px;
+    color: #e0e8f0;
 }
 
 .finding-content {
     font-size: 13px;
     line-height: 1.4;
     margin-bottom: 6px;
-    color: var(--text-primary, #e0e0e0);
+    color: #e0e8f0;
 }
 
 .finding-meta {
@@ -266,6 +267,12 @@
     color: #8899aa;
     font-size: 10px;
 }
+
+.tag.severity-critical { background: #8b1a1a; color: #ffaaaa; }
+.tag.severity-high { background: #7a3b1a; color: #ffcc88; }
+.tag.severity-medium { background: #6a5a1a; color: #eedd88; }
+.tag.severity-low { background: #2a4a3a; color: #88ccaa; }
+.tag.severity-info { background: #2a3a5a; color: #88aadd; }
 
 /* Tools panel */
 .tool-item {
