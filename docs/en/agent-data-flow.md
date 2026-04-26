@@ -363,7 +363,87 @@ ReactMarkdown `img` component:
 - `src` starts with `data:` → use directly
 - Other → render as-is (external URL)
 
-## 6. Report Generation
+## 6. Tool Execution Confirmation (MITL)
+
+### 6.1 Confirmation Categories
+
+| Tool | Confirmation | Rationale |
+|------|-------------|-----------|
+| query-sql | **SQL Preview** | Show generated SQL before execution |
+| analyze-data | **Plan Approval** | Show analysis perspective + target table |
+| create-report | None | Read-only output |
+| load-data | None | File path already specified by user |
+| Shell tools (write/execute) | **MITL Dialog** | Existing approval for dangerous ops |
+| Shell tools (read) | None | Safe operations |
+| Other builtin tools | None | Low-risk read operations |
+
+### 6.2 SQL Preview Flow (query-sql)
+
+```
+LLM calls query-sql with {sql: "SELECT ..."}
+  ↓
+Agent emits MITL request: type=sql_preview
+  - Shows: SQL query text
+  - Shows: Target tables
+  ↓
+User chooses:
+  - Approve → Execute SQL, return results to LLM
+  - Reject → Return "User rejected" to LLM, LLM re-responds
+  - Reject + Feedback → Return user's feedback to LLM as context
+    ("User rejected this SQL. Feedback: ...")
+    LLM generates new SQL in next round
+```
+
+### 6.3 Analysis Plan Approval (analyze-data)
+
+Inspired by data-agent's Planning → Approval → Execution pattern.
+
+```
+LLM calls analyze-data with {prompt: "...", table: "..."}
+  ↓
+Agent emits MITL request: type=analysis_plan
+  - Shows: Analysis perspective (prompt)
+  - Shows: Target table name + row count
+  - Shows: Estimated windows
+  ↓
+User chooses:
+  - Approve → Execute sliding window analysis
+  - Reject → Return "User rejected" to LLM
+  - Reject + Feedback → Return feedback to LLM
+    ("User wants to focus on X instead of Y")
+    LLM generates new analyze-data call with revised perspective
+```
+
+### 6.4 MITL Response Model
+
+```go
+type MITLResponse struct {
+    Approved bool   // true = proceed, false = reject
+    Feedback string // non-empty only when rejected with reason
+}
+```
+
+Frontend MITL dialog shows three actions:
+- **Approve** button
+- **Reject** button (no feedback)
+- **Reject + text input** (feedback field + reject button)
+
+When rejected with feedback, the tool result returned to LLM is:
+```
+User rejected this operation.
+Feedback: <user's feedback text>
+Please revise your approach based on the feedback.
+```
+
+This allows the LLM to adjust its SQL or analysis perspective in the
+next round without requiring a new user message.
+
+### 6.5 Shell Tool MITL (existing)
+
+Unchanged from current implementation. Write/execute category shell
+tools require approval. Read category shell tools execute directly.
+
+## 7. Report Generation
 
 ### 6.1 Flow
 
@@ -449,11 +529,21 @@ The text is already stored in the session record for persistence.
 - [x] Frontend object: URL resolution
 - [x] Report image references via object IDs
 
-### Phase 3: Context Budget & Event Architecture
-- [ ] ContextBudgetConfig in config.go
-- [ ] BuildMessagesWithBudget in chat.go (token budget, tool result truncation, [Calling:] skip)
-- [ ] Synchronous compaction before BuildMessages in agentLoop
-- [ ] agent:activity event (consolidate agent:explanation + agent:progress)
-- [ ] Frontend activity state (transient display, not chat message)
-- [ ] postResponseTasks WaitGroup synchronization
-- [ ] Design document update (this file)
+### Phase 3: Context Budget & Event Architecture (completed)
+- [x] ContextBudgetConfig in config.go
+- [x] BuildMessagesWithBudget in chat.go (token budget, tool result truncation, [Calling:] skip)
+- [x] Synchronous compaction before BuildMessages in agentLoop
+- [x] agent:activity event (consolidate agent:explanation + agent:progress)
+- [x] Frontend activity state (transient display, not chat message)
+- [x] postResponseTasks WaitGroup synchronization
+- [x] LM Studio / Vertex AI integration tests
+- [x] Root cause identified: [Calling:] pattern contamination
+
+### Phase 4: Tool Execution Confirmation
+- [ ] Extend MITLResponse with Feedback field (Approve / Reject / Reject+Feedback)
+- [ ] SQL Preview MITL for query-sql (show SQL before execution)
+- [ ] Analysis Plan MITL for analyze-data (show perspective + target)
+- [ ] Frontend MITL dialog redesign (feedback text input on reject)
+- [ ] Feedback-based tool result for LLM re-generation
+- [ ] Shell tool MITL verification (existing code, untested)
+- [ ] System prompt update for user-language responses
