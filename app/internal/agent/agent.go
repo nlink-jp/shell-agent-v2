@@ -361,12 +361,23 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 
 		logger.Debug("agentLoop: round=%d messages=%d tools=%d backend=%s", round, len(messages), len(tools), a.backend.Name())
 
-		// All rounds in the agent loop use Chat() (non-streaming).
-		// Reason: even in tools=nil rounds, the model may output gemma-style
-		// text tool calls (<|tool_call>...) which would leak through streaming
-		// before stripGemmaToolCallTags can clean them.
-		// The final clean response is emitted to the frontend after the loop.
-		resp, err := a.backend.Chat(ctx, messages, tools)
+		var resp *llm.Response
+		var err error
+
+		if tools == nil && a.streamHandler != nil {
+			// Final text response round (after tool execution): stream tokens
+			// to the frontend for real-time display. tools=nil guarantees the
+			// LLM won't produce proper tool calls. Any residual gemma-style
+			// text tool tags are cleaned from the accumulated response below;
+			// the streaming preview is ephemeral and replaced by the clean message.
+			resp, err = a.backend.ChatStream(ctx, messages, nil, func(token string, _ []llm.ToolCall, done bool) {
+				a.streamHandler(token, done)
+			})
+		} else {
+			// Tool-calling round or no stream handler: non-streaming.
+			// Prevents gemma tool call markup from leaking to the UI.
+			resp, err = a.backend.Chat(ctx, messages, tools)
+		}
 		if err != nil {
 			logger.Error("agentLoop: LLM error: %v", err)
 			return "", fmt.Errorf("LLM: %w", err)
