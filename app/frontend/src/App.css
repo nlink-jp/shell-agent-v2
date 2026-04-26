@@ -453,31 +453,7 @@
     cursor: pointer;
 }
 
-/* Report and fullscreen report shared styles */
-.report-content ul, .report-content ol,
-.report-fullscreen-content ul, .report-fullscreen-content ol {
-    padding-left: 1.5em;
-    margin: 0.4em 0;
-}
-
-.report-content table, .report-fullscreen-content table {
-    border-collapse: collapse;
-    width: 100%;
-    margin: 0.5em 0;
-}
-
-.report-content th, .report-content td,
-.report-fullscreen-content th, .report-fullscreen-content td {
-    border: 1px solid var(--border-primary, #2a3a4a);
-    padding: 6px 10px;
-    text-align: left;
-    font-size: 12px;
-}
-
-.report-content th, .report-fullscreen-content th {
-    background: rgba(128, 128, 128, 0.15);
-    font-weight: 600;
-}
+/* Report uses same markdown styles as chat bubbles */
 
 .report-overlay {
     position: fixed;
@@ -962,32 +938,40 @@
     border-radius: 3px;
 }
 
-.message-content table {
+.message-content table,
+.report-content table,
+.report-fullscreen-content table {
     border-collapse: collapse;
     margin: 8px 0;
     width: 100%;
     font-size: 13px;
 }
 
-.message-content th,
-.message-content td {
+.message-content th, .message-content td,
+.report-content th, .report-content td,
+.report-fullscreen-content th, .report-fullscreen-content td {
     border: 1px solid #3a4a5a;
     padding: 6px 10px;
     text-align: left;
 }
 
-.message-content th {
+.message-content th,
+.report-content th,
+.report-fullscreen-content th {
     background: #1a2a3a;
     font-weight: 600;
 }
 
-.message-content ul,
-.message-content ol {
+.message-content ul, .message-content ol,
+.report-content ul, .report-content ol,
+.report-fullscreen-content ul, .report-fullscreen-content ol {
     margin: 4px 0;
     padding-left: 20px;
 }
 
-.message-content blockquote {
+.message-content blockquote,
+.report-content blockquote,
+.report-fullscreen-content blockquote {
     border-left: 3px solid #3a6a9a;
     margin: 8px 0;
     padding: 4px 12px;
