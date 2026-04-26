@@ -666,7 +666,13 @@ When you discover a significant analysis insight (a pattern, anomaly, or conclus
 
 When the user asks you to create a report, summary document, or formatted output, you MUST use the create-report tool. Do not write the report as a chat message — always call the create-report tool so the report is properly structured and rendered with full markdown support.
 
-When the user shares images in the conversation, the image data is included in the conversation context. If asked to include images in a report or reference earlier images, you can do so.`
+When the user shares images in the conversation, the image data is included in the conversation context.
+
+To reference images or other objects from the session:
+1. Use the list-objects tool to discover available objects (images, reports, files)
+2. Use the get-object tool to retrieve an object by its ID
+3. In reports, reference images with: ![description](object:ID)
+Never fabricate image URLs or object IDs. Always use list-objects first to find valid IDs.`
 
 // extractPinnedMemories runs after each response to auto-extract important facts.
 // This is a system task, not an LLM tool — the backend drives the extraction.
