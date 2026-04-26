@@ -521,9 +521,6 @@ function App() {
                 </div>
             </div>
             <div className="main">
-                <div className="chat-header">
-                    <span className={`backend-badge ${backend}`}>{backend || '...'}</span>
-                </div>
                 <div className="messages">
                     {messages.filter(msg => msg.role !== 'tool').map((msg, i) => (
                         <div key={i} className={`message ${msg.role}`}>
@@ -613,9 +610,12 @@ function App() {
                     )}
                     <div ref={messagesEndRef} />
                 </div>
+                <div className="input-status-bar">
+                    <span className={`backend-badge ${backend}`}>{backend || '...'}</span>
+                    {state === 'busy' && <span className="tool-progress">{progressTool || 'Thinking...'}</span>}
+                </div>
                 {state === 'busy' ? (
                     <div className="input-area">
-                        <div className="tool-progress">{progressTool || 'Thinking...'}</div>
                         <div className="input-row">
                             <textarea disabled rows={3} placeholder="Agent is busy..." />
                             <button className="abort-btn" onClick={handleAbort}>Abort</button>
