@@ -256,6 +256,12 @@ func (a *Agent) Findings() []findings.Finding {
 	return a.findings.All()
 }
 
+// DeleteFindingsBySession removes all findings originating from the given session.
+func (a *Agent) DeleteFindingsBySession(sessionID string) {
+	a.findings.DeleteBySession(sessionID)
+	_ = a.findings.Save()
+}
+
 // ToolInfoItem describes a tool for listing.
 type ToolInfoItem struct {
 	Name        string

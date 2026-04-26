@@ -267,6 +267,10 @@ func (b *Bindings) DeleteSession(sessionID string) error {
 	if b.objects != nil {
 		_ = b.objects.DeleteBySession(sessionID)
 	}
+	// Clean up findings originating from this session
+	if b.agent != nil {
+		b.agent.DeleteFindingsBySession(sessionID)
+	}
 	return memory.DeleteSessionDir(sessionID)
 }
 

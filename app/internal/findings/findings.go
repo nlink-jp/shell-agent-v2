@@ -82,6 +82,17 @@ func (s *Store) All() []Finding {
 	return s.findings
 }
 
+// DeleteBySession removes all findings originating from the given session.
+func (s *Store) DeleteBySession(sessionID string) {
+	var kept []Finding
+	for _, f := range s.findings {
+		if f.OriginSessionID != sessionID {
+			kept = append(kept, f)
+		}
+	}
+	s.findings = kept
+}
+
 // FormatForPrompt returns findings formatted for system prompt injection.
 func (s *Store) FormatForPrompt() string {
 	if len(s.findings) == 0 {
