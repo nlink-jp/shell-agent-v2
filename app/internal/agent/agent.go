@@ -367,14 +367,14 @@ func (a *Agent) ListTools() []ToolInfoItem {
 		items = append(items, ToolInfoItem{Name: t.Name, Description: t.Description, Category: string(t.Category), Source: "shell"})
 	}
 
-	// MCP guardian tools
+	// MCP guardian tools (all treated as "execute" — external service operations)
 	a.guardiansMu.RLock()
 	for name, g := range a.guardians {
 		for _, t := range g.Tools() {
 			items = append(items, ToolInfoItem{
 				Name:        "mcp__" + name + "__" + t.Name,
 				Description: "[" + name + "] " + t.Description,
-				Category:    "read",
+				Category:    "execute",
 				Source:      "mcp",
 			})
 		}
@@ -711,6 +711,10 @@ func (a *Agent) executeTool(ctx context.Context, tc llm.ToolCall) string {
 	default:
 		// Check MCP guardian tools (prefixed with "mcp__")
 		if strings.HasPrefix(tc.Name, "mcp__") {
+			// MITL: all MCP tools require approval (external service operations)
+			if rejection := a.requestMITL(tc.Name, tc.Arguments, "execute"); rejection != "" {
+				return rejection
+			}
 			parts := strings.SplitN(strings.TrimPrefix(tc.Name, "mcp__"), "__", 2)
 			if len(parts) != 2 {
 				return "Error: invalid MCP tool name format"
