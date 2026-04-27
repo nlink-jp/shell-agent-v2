@@ -136,6 +136,9 @@ func (s *PinnedStore) FormatForPrompt() string {
 		if native != "" && native != fact {
 			sb.WriteString(fmt.Sprintf(" (%s)", native))
 		}
+		if !e.CreatedAt.IsZero() {
+			sb.WriteString(fmt.Sprintf(" (learned %s)", e.CreatedAt.Format("2006-01-02")))
+		}
 		sb.WriteString("\n")
 	}
 	return sb.String()

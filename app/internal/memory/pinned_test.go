@@ -63,4 +63,8 @@ func TestPinnedFormatForPrompt(t *testing.T) {
 	if !strings.Contains(prompt, "data scientist") {
 		t.Error("prompt missing role")
 	}
+	// learned-date suffix lets the LLM weigh fact recency.
+	if !strings.Contains(prompt, "(learned ") {
+		t.Errorf("prompt should include learned-date suffix; got %q", prompt)
+	}
 }
