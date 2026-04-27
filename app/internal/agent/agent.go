@@ -177,6 +177,25 @@ func (a *Agent) CurrentBackend() string {
 	return a.backend.Name()
 }
 
+// currentBackendKey returns the active backend's config key.
+// Caller must already hold a.mu, or accept a stale read.
+func (a *Agent) currentBackendKey() config.LLMBackend {
+	if a.backend == nil {
+		return a.cfg.LLM.DefaultBackend
+	}
+	return config.LLMBackend(a.backend.Name())
+}
+
+// currentBudget returns the per-backend context budget for the active backend.
+func (a *Agent) currentBudget() config.ContextBudgetConfig {
+	return a.cfg.ContextBudgetFor(a.currentBackendKey())
+}
+
+// currentHotTokenLimit returns the per-backend hot tier compaction trigger.
+func (a *Agent) currentHotTokenLimit() int {
+	return a.cfg.HotTokenLimitFor(a.currentBackendKey())
+}
+
 // CurrentSession returns the current session (for session ID access).
 func (a *Agent) CurrentSession() *memory.Session {
 	return a.session
@@ -555,7 +574,7 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 		// [Calling:] exclusion prevents LLM from mimicking the pattern.
 		// Token budget is an optional safety net (0 = unlimited).
 		// Design: docs/en/agent-data-flow.md Section 3.3
-		budget := a.cfg.ContextBudget
+		budget := a.currentBudget()
 		buildResult := a.chat.BuildMessagesWithBudget(
 			a.session,
 			a.pinned.FormatForPrompt(),
@@ -687,7 +706,7 @@ func (a *Agent) compactIfOverBudget(ctx context.Context) {
 		return resp.Content, nil
 	}
 	compacted, err := a.session.CompactIfNeeded(ctx, memory.CompactOptions{
-		HotTokenLimit: a.cfg.Memory.HotTokenLimit,
+		HotTokenLimit: a.currentHotTokenLimit(),
 		Summarizer:    summarizer,
 	})
 	if err != nil {
@@ -719,7 +738,7 @@ func (a *Agent) compactMemoryIfNeeded(ctx context.Context) {
 	}
 
 	compacted, err := a.session.CompactIfNeeded(ctx, memory.CompactOptions{
-		HotTokenLimit: a.cfg.Memory.HotTokenLimit,
+		HotTokenLimit: a.currentHotTokenLimit(),
 		Summarizer:    summarizer,
 	})
 	if err != nil {

@@ -18,16 +18,20 @@ const (
 
 // LocalConfig holds local LLM settings.
 type LocalConfig struct {
-	Endpoint  string `json:"endpoint"`
-	Model     string `json:"model"`
-	APIKeyEnv string `json:"api_key_env"`
+	Endpoint      string              `json:"endpoint"`
+	Model         string              `json:"model"`
+	APIKeyEnv     string              `json:"api_key_env"`
+	HotTokenLimit int                 `json:"hot_token_limit,omitempty"` // 0 = inherit from Memory.HotTokenLimit
+	ContextBudget ContextBudgetConfig `json:"context_budget,omitzero"`   // zero fields inherit from top-level ContextBudget
 }
 
 // VertexAIConfig holds Vertex AI settings.
 type VertexAIConfig struct {
-	ProjectID string `json:"project_id"`
-	Region    string `json:"region"`
-	Model     string `json:"model"`
+	ProjectID     string              `json:"project_id"`
+	Region        string              `json:"region"`
+	Model         string              `json:"model"`
+	HotTokenLimit int                 `json:"hot_token_limit,omitempty"`
+	ContextBudget ContextBudgetConfig `json:"context_budget,omitzero"`
 }
 
 // LLMConfig holds all LLM backend settings.
@@ -99,23 +103,35 @@ func Default() *Config {
 		LLM: LLMConfig{
 			DefaultBackend: BackendLocal,
 			Local: LocalConfig{
-				Endpoint:  "http://localhost:1234/v1",
-				Model:     "google/gemma-4-26b-a4b",
-				APIKeyEnv: "SHELL_AGENT_API_KEY",
+				Endpoint:      "http://localhost:1234/v1",
+				Model:         "google/gemma-4-26b-a4b",
+				APIKeyEnv:     "SHELL_AGENT_API_KEY",
+				HotTokenLimit: 4096,
+				ContextBudget: ContextBudgetConfig{
+					MaxContextTokens:    16384,
+					MaxWarmTokens:       1024,
+					MaxToolResultTokens: 2048,
+				},
 			},
 			VertexAI: VertexAIConfig{
-				ProjectID: "",
-				Region:    "us-central1",
-				Model:     "gemini-2.5-flash",
+				ProjectID:     "",
+				Region:        "us-central1",
+				Model:         "gemini-2.5-flash",
+				HotTokenLimit: 65536,
+				ContextBudget: ContextBudgetConfig{
+					MaxContextTokens:    524288,
+					MaxWarmTokens:       16384,
+					MaxToolResultTokens: 32768,
+				},
 			},
 		},
 		Memory: MemoryConfig{
-			HotTokenLimit: 4096,
+			HotTokenLimit: 4096, // legacy fallback
 			WarmRetention: "24h",
 			ColdRetention: "7d",
 		},
-		ContextBudget: ContextBudgetConfig{
-			MaxContextTokens:    0,    // 0 = unlimited (rely on [Calling:] exclusion + compaction)
+		ContextBudget: ContextBudgetConfig{ // legacy fallback
+			MaxContextTokens:    0,
 			MaxWarmTokens:       1024,
 			MaxToolResultTokens: 2048,
 		},
@@ -163,7 +179,68 @@ func Load() (*Config, error) {
 	if err := json.Unmarshal(data, cfg); err != nil {
 		return nil, err
 	}
+	cfg.applyBackendInheritance()
 	return cfg, nil
+}
+
+// applyBackendInheritance fills zero per-backend budget fields from the
+// legacy top-level Memory.HotTokenLimit / ContextBudget so older configs
+// keep working and unset fields fall back to a sensible default.
+func (c *Config) applyBackendInheritance() {
+	resolve := func(hot *int, b *ContextBudgetConfig) {
+		if *hot == 0 {
+			*hot = c.Memory.HotTokenLimit
+		}
+		if b.MaxContextTokens == 0 {
+			b.MaxContextTokens = c.ContextBudget.MaxContextTokens
+		}
+		if b.MaxWarmTokens == 0 {
+			b.MaxWarmTokens = c.ContextBudget.MaxWarmTokens
+		}
+		if b.MaxToolResultTokens == 0 {
+			b.MaxToolResultTokens = c.ContextBudget.MaxToolResultTokens
+		}
+	}
+	resolve(&c.LLM.Local.HotTokenLimit, &c.LLM.Local.ContextBudget)
+	resolve(&c.LLM.VertexAI.HotTokenLimit, &c.LLM.VertexAI.ContextBudget)
+}
+
+// HotTokenLimitFor returns the active backend's HotTokenLimit, falling back
+// to the legacy Memory.HotTokenLimit when unset.
+func (c *Config) HotTokenLimitFor(backend LLMBackend) int {
+	switch backend {
+	case BackendVertexAI:
+		if c.LLM.VertexAI.HotTokenLimit > 0 {
+			return c.LLM.VertexAI.HotTokenLimit
+		}
+	default:
+		if c.LLM.Local.HotTokenLimit > 0 {
+			return c.LLM.Local.HotTokenLimit
+		}
+	}
+	return c.Memory.HotTokenLimit
+}
+
+// ContextBudgetFor returns the active backend's ContextBudget, falling back
+// per-field to the legacy top-level ContextBudget for any zero value.
+func (c *Config) ContextBudgetFor(backend LLMBackend) ContextBudgetConfig {
+	var b ContextBudgetConfig
+	switch backend {
+	case BackendVertexAI:
+		b = c.LLM.VertexAI.ContextBudget
+	default:
+		b = c.LLM.Local.ContextBudget
+	}
+	if b.MaxContextTokens == 0 {
+		b.MaxContextTokens = c.ContextBudget.MaxContextTokens
+	}
+	if b.MaxWarmTokens == 0 {
+		b.MaxWarmTokens = c.ContextBudget.MaxWarmTokens
+	}
+	if b.MaxToolResultTokens == 0 {
+		b.MaxToolResultTokens = c.ContextBudget.MaxToolResultTokens
+	}
+	return b
 }
 
 // Save writes the config to disk.

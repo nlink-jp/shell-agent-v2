@@ -360,14 +360,24 @@ type MCPProfileData struct {
 	Enabled     bool   `json:"enabled"`
 }
 
+// BackendBudgetData mirrors config.LocalConfig/VertexAIConfig token settings.
+type BackendBudgetData struct {
+	HotTokenLimit       int `json:"hot_token_limit"`
+	MaxContextTokens    int `json:"max_context_tokens"`
+	MaxWarmTokens       int `json:"max_warm_tokens"`
+	MaxToolResultTokens int `json:"max_tool_result_tokens"`
+}
+
 // SettingsData is the JSON-serializable settings for the frontend.
 type SettingsData struct {
 	DefaultBackend string            `json:"default_backend"`
 	LocalEndpoint  string            `json:"local_endpoint"`
 	LocalModel     string            `json:"local_model"`
+	LocalBudget    BackendBudgetData `json:"local_budget"`
 	VertexProject  string            `json:"vertex_project"`
 	VertexRegion   string            `json:"vertex_region"`
 	VertexModel    string            `json:"vertex_model"`
+	VertexBudget   BackendBudgetData `json:"vertex_budget"`
 	Theme          string            `json:"theme"`
 	Location       string            `json:"location"`
 	MCPProfiles    []MCPProfileData  `json:"mcp_profiles"`
@@ -381,13 +391,23 @@ func (b *Bindings) GetSettings() SettingsData {
 	for i, p := range b.cfg.Tools.MCPProfiles {
 		profiles[i] = MCPProfileData{Name: p.Name, Binary: p.Binary, ProfilePath: p.ProfilePath, Enabled: p.Enabled}
 	}
+	toBudget := func(hot int, b config.ContextBudgetConfig) BackendBudgetData {
+		return BackendBudgetData{
+			HotTokenLimit:       hot,
+			MaxContextTokens:    b.MaxContextTokens,
+			MaxWarmTokens:       b.MaxWarmTokens,
+			MaxToolResultTokens: b.MaxToolResultTokens,
+		}
+	}
 	return SettingsData{
 		DefaultBackend: string(b.cfg.LLM.DefaultBackend),
 		LocalEndpoint:  b.cfg.LLM.Local.Endpoint,
 		LocalModel:     b.cfg.LLM.Local.Model,
+		LocalBudget:    toBudget(b.cfg.LLM.Local.HotTokenLimit, b.cfg.LLM.Local.ContextBudget),
 		VertexProject:  b.cfg.LLM.VertexAI.ProjectID,
 		VertexRegion:   b.cfg.LLM.VertexAI.Region,
 		VertexModel:    b.cfg.LLM.VertexAI.Model,
+		VertexBudget:   toBudget(b.cfg.LLM.VertexAI.HotTokenLimit, b.cfg.LLM.VertexAI.ContextBudget),
 		Theme:          b.cfg.UI.Theme,
 		Location:       b.cfg.Location,
 		MCPProfiles:    profiles,
@@ -401,9 +421,21 @@ func (b *Bindings) SaveSettings(s SettingsData) error {
 	b.cfg.LLM.DefaultBackend = config.LLMBackend(s.DefaultBackend)
 	b.cfg.LLM.Local.Endpoint = s.LocalEndpoint
 	b.cfg.LLM.Local.Model = s.LocalModel
+	b.cfg.LLM.Local.HotTokenLimit = s.LocalBudget.HotTokenLimit
+	b.cfg.LLM.Local.ContextBudget = config.ContextBudgetConfig{
+		MaxContextTokens:    s.LocalBudget.MaxContextTokens,
+		MaxWarmTokens:       s.LocalBudget.MaxWarmTokens,
+		MaxToolResultTokens: s.LocalBudget.MaxToolResultTokens,
+	}
 	b.cfg.LLM.VertexAI.ProjectID = s.VertexProject
 	b.cfg.LLM.VertexAI.Region = s.VertexRegion
 	b.cfg.LLM.VertexAI.Model = s.VertexModel
+	b.cfg.LLM.VertexAI.HotTokenLimit = s.VertexBudget.HotTokenLimit
+	b.cfg.LLM.VertexAI.ContextBudget = config.ContextBudgetConfig{
+		MaxContextTokens:    s.VertexBudget.MaxContextTokens,
+		MaxWarmTokens:       s.VertexBudget.MaxWarmTokens,
+		MaxToolResultTokens: s.VertexBudget.MaxToolResultTokens,
+	}
 	b.cfg.UI.Theme = s.Theme
 	b.cfg.Location = s.Location
 
