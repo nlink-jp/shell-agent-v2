@@ -305,24 +305,34 @@ func validateBinaryPath(path string) (string, error) {
 	return abs, nil
 }
 
-// validateProfilePath ensures the profile config file exists and is readable.
+// validateProfilePath validates the --profile arg for mcp-guardian, which
+// accepts either a bare profile name or a file path. For paths, verify the
+// file exists; for bare names, pass through after rejecting control chars.
 func validateProfilePath(path string) (string, error) {
 	if path == "" {
 		return "", fmt.Errorf("empty profile path")
 	}
-	expanded := config.ExpandPath(path)
-	abs, err := filepath.Abs(expanded)
-	if err != nil {
-		return "", fmt.Errorf("invalid path: %w", err)
+	for _, r := range path {
+		if r < 0x20 || r == 0x7f {
+			return "", fmt.Errorf("control characters not allowed in profile")
+		}
 	}
-	info, err := os.Stat(abs)
-	if err != nil {
-		return "", fmt.Errorf("profile not found: %w", err)
+	if strings.ContainsRune(path, '/') || strings.HasPrefix(path, "~") {
+		expanded := config.ExpandPath(path)
+		abs, err := filepath.Abs(expanded)
+		if err != nil {
+			return "", fmt.Errorf("invalid path: %w", err)
+		}
+		info, err := os.Stat(abs)
+		if err != nil {
+			return "", fmt.Errorf("profile not found: %w", err)
+		}
+		if info.IsDir() {
+			return "", fmt.Errorf("profile is a directory: %s", abs)
+		}
+		return abs, nil
 	}
-	if info.IsDir() {
-		return "", fmt.Errorf("profile is a directory: %s", abs)
-	}
-	return abs, nil
+	return path, nil
 }
 
 // MCPStatuses returns the status of all configured MCP guardians.
