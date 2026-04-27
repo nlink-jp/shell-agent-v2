@@ -45,6 +45,35 @@ func TestPinnedDelete(t *testing.T) {
 	}
 }
 
+func TestPinnedDeleteByKeys(t *testing.T) {
+	s := &PinnedStore{path: "/tmp/test-pinned.json", Entries: []PinnedFact{}}
+	s.Set("name", "Alice")
+	s.Set("role", "data scientist")
+	s.Set("city", "Tokyo")
+
+	deleted := s.DeleteByKeys([]string{"name", "city", "missing"})
+	if deleted != 2 {
+		t.Errorf("deleted = %d, want 2", deleted)
+	}
+	if len(s.Entries) != 1 || s.Entries[0].Key != "role" {
+		t.Errorf("remaining = %+v", s.Entries)
+	}
+}
+
+func TestPinnedDeleteByKeys_MatchesByFact(t *testing.T) {
+	// LLM-extracted facts have separate Key and Fact values; the frontend
+	// passes p.fact when deleting, so the lookup must hit on Fact too.
+	s := &PinnedStore{path: "/tmp/test-pinned.json", Entries: []PinnedFact{
+		{Key: "preference-1", Fact: "user prefers dark mode", Category: "fact"},
+	}}
+	if got := s.DeleteByKeys([]string{"user prefers dark mode"}); got != 1 {
+		t.Errorf("delete by fact: got %d, want 1", got)
+	}
+	if len(s.Entries) != 0 {
+		t.Errorf("entries should be empty")
+	}
+}
+
 func TestPinnedFormatForPrompt(t *testing.T) {
 	s := &PinnedStore{path: "/tmp/test-pinned.json", Entries: []PinnedFact{}}
 

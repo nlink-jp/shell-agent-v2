@@ -46,3 +46,33 @@ func TestFormatForPromptEmpty(t *testing.T) {
 		t.Error("empty store should return empty string")
 	}
 }
+
+func TestDeleteByIDs(t *testing.T) {
+	s := &Store{path: "/tmp/test-findings.json", findings: []Finding{}}
+	s.Add("first", "sess-1", "S1", nil)
+	s.Add("second", "sess-1", "S1", nil)
+	s.Add("third", "sess-2", "S2", nil)
+	all := s.All()
+	if len(all) != 3 {
+		t.Fatalf("setup: got %d findings", len(all))
+	}
+	deleted := s.DeleteByIDs([]string{all[0].ID, all[2].ID, "missing"})
+	if deleted != 2 {
+		t.Errorf("deleted = %d, want 2", deleted)
+	}
+	remaining := s.All()
+	if len(remaining) != 1 || remaining[0].Content != "second" {
+		t.Errorf("remaining = %+v", remaining)
+	}
+}
+
+func TestDeleteByIDs_Empty(t *testing.T) {
+	s := &Store{path: "/tmp/test-findings.json", findings: []Finding{}}
+	s.Add("a", "sess", "S", nil)
+	if got := s.DeleteByIDs(nil); got != 0 {
+		t.Errorf("nil ids: deleted = %d, want 0", got)
+	}
+	if len(s.All()) != 1 {
+		t.Error("store should be unchanged")
+	}
+}

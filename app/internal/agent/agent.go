@@ -547,6 +547,24 @@ func (a *Agent) PinnedDelete(key string) error {
 	return a.pinned.Save()
 }
 
+// PinnedDeleteByKeys bulk-removes pinned facts. Returns the count actually deleted.
+func (a *Agent) PinnedDeleteByKeys(keys []string) (int, error) {
+	n := a.pinned.DeleteByKeys(keys)
+	if n == 0 {
+		return 0, nil
+	}
+	return n, a.pinned.Save()
+}
+
+// FindingsDeleteByIDs bulk-removes findings. Returns the count actually deleted.
+func (a *Agent) FindingsDeleteByIDs(ids []string) (int, error) {
+	n := a.findings.DeleteByIDs(ids)
+	if n == 0 {
+		return 0, nil
+	}
+	return n, a.findings.Save()
+}
+
 // LLMStatus returns current LLM and memory status.
 func (a *Agent) LLMStatus() struct {
 	Backend       string `json:"backend"`

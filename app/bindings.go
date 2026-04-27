@@ -607,6 +607,16 @@ func (b *Bindings) DeletePinnedMemory(key string) error {
 	return b.agent.PinnedDelete(key)
 }
 
+// DeletePinnedMemories bulk-removes pinned facts. Returns count actually deleted.
+func (b *Bindings) DeletePinnedMemories(keys []string) (int, error) {
+	return b.agent.PinnedDeleteByKeys(keys)
+}
+
+// DeleteFindings bulk-removes findings by ID. Returns count actually deleted.
+func (b *Bindings) DeleteFindings(ids []string) (int, error) {
+	return b.agent.FindingsDeleteByIDs(ids)
+}
+
 // --- LLM Status bindings ---
 
 // LLMStatusData is the LLM status for the frontend.

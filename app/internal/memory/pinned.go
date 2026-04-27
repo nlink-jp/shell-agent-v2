@@ -105,6 +105,31 @@ func (s *PinnedStore) Delete(key string) bool {
 	return false
 }
 
+// DeleteByKeys removes facts whose Key or Fact matches any value in the
+// given list. Returns the count actually deleted.
+func (s *PinnedStore) DeleteByKeys(keys []string) int {
+	if len(keys) == 0 {
+		return 0
+	}
+	wanted := make(map[string]struct{}, len(keys))
+	for _, k := range keys {
+		wanted[k] = struct{}{}
+	}
+	var kept []PinnedFact
+	deleted := 0
+	for _, f := range s.Entries {
+		_, hitKey := wanted[f.Key]
+		_, hitFact := wanted[f.Fact]
+		if hitKey || hitFact {
+			deleted++
+			continue
+		}
+		kept = append(kept, f)
+	}
+	s.Entries = kept
+	return deleted
+}
+
 // Get retrieves a pinned fact by key.
 func (s *PinnedStore) Get(key string) (PinnedFact, bool) {
 	for _, f := range s.Entries {

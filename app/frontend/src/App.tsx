@@ -42,6 +42,8 @@ declare global {
                     DeleteSession(id: string): Promise<void>;
                     HasData(): Promise<boolean>;
                     GetFindings(): Promise<Finding[]>;
+                    DeleteFindings(ids: string[]): Promise<number>;
+                    DeletePinnedMemories(keys: string[]): Promise<number>;
                     GetSettings(): Promise<Settings>;
                     SaveSettings(s: Settings): Promise<void>;
                     ApproveMITL(): Promise<void>;
@@ -247,6 +249,51 @@ const MessageItem = memo(function MessageItem({msg, onLightbox, onExpandReport}:
     )
 })
 
+// BulkActions renders the small toolbar above a selectable list.
+// Delete uses a two-click confirm pattern (the Wails webview may not
+// surface native window.confirm dialogs reliably, so we keep the
+// confirmation in-component).
+function BulkActions({total, selectedCount, onSelectAll, onClear, onDelete}: {
+    total: number;
+    selectedCount: number;
+    onSelectAll: () => void;
+    onClear: () => void;
+    onDelete: () => void;
+}) {
+    const [confirming, setConfirming] = useState(false)
+    useEffect(() => {
+        if (!confirming) return
+        const t = setTimeout(() => setConfirming(false), 4000)
+        return () => clearTimeout(t)
+    }, [confirming])
+    useEffect(() => { if (selectedCount === 0) setConfirming(false) }, [selectedCount])
+
+    if (total === 0) return null
+    const allSelected = selectedCount === total && total > 0
+    return (
+        <div className="bulk-actions">
+            {selectedCount > 0 ? (
+                <>
+                    <span className="bulk-count">{selectedCount} selected</span>
+                    <button
+                        className={`bulk-btn bulk-btn-danger ${confirming ? 'confirming' : ''}`}
+                        onClick={() => {
+                            if (confirming) { onDelete(); setConfirming(false) }
+                            else setConfirming(true)
+                        }}
+                        title={confirming ? `Click again to delete ${selectedCount} item(s)` : `Delete ${selectedCount} selected`}
+                    >
+                        {confirming ? 'Confirm' : 'Delete'}
+                    </button>
+                    <button className="bulk-btn" onClick={onClear}>Clear</button>
+                </>
+            ) : (
+                <button className="bulk-btn" onClick={onSelectAll} disabled={allSelected}>Select all</button>
+            )}
+        </div>
+    )
+}
+
 function BackendBudgetEditor({budget, onChange}: {budget: BackendBudget; onChange: (b: BackendBudget) => void}) {
     const num = (v: string) => Math.max(0, parseInt(v, 10) || 0)
     return (
@@ -292,6 +339,8 @@ function App() {
     const [tools, setTools] = useState<ToolInfo[]>([])
     const [mcpStatus, setMcpStatus] = useState<{name: string; status: string; tool_count: number; error?: string}[]>([])
     const [pinnedMemories, setPinnedMemories] = useState<PinnedMemory[]>([])
+    const [selectedFindingIds, setSelectedFindingIds] = useState<Set<string>>(new Set())
+    const [selectedPinnedKeys, setSelectedPinnedKeys] = useState<Set<string>>(new Set())
     const [llmStatus, setLLMStatus] = useState<LLMStatus | null>(null)
     const [lightboxImage, setLightboxImage] = useState<string | null>(null)
     const [expandedReport, setExpandedReport] = useState<{title: string; content: string} | null>(null)
@@ -643,35 +692,91 @@ function App() {
 
                     {sidebarPanel === 'status' && (<>
                         {findings.length > 0 && (
-                            <div className="status-section">
-                                <h3>Findings</h3>
+                            <div className={`status-section ${selectedFindingIds.size > 0 ? 'bulk-active' : ''}`}>
+                                <div className="bulk-section-header">
+                                    <h3>Findings</h3>
+                                    <BulkActions
+                                        total={findings.length}
+                                        selectedCount={selectedFindingIds.size}
+                                        onSelectAll={() => setSelectedFindingIds(new Set(findings.map(f => f.id)))}
+                                        onClear={() => setSelectedFindingIds(new Set())}
+                                        onDelete={async () => {
+                                            const ids = Array.from(selectedFindingIds)
+                                            if (ids.length === 0) return
+                                            await window.go.main.Bindings.DeleteFindings(ids)
+                                            setSelectedFindingIds(new Set())
+                                            const updated = await window.go.main.Bindings.GetFindings()
+                                            setFindings(updated)
+                                        }}
+                                    />
+                                </div>
                                 {findings.map(f => (
-                                    <div key={f.id} className="finding-card">
-                                        <div className="finding-content">{f.content}</div>
-                                        <div className="finding-meta">
-                                            <span className="finding-date">{f.created_label}</span>
-                                            {f.session_title && (
-                                                <span className="finding-origin" title={`Session: ${f.session_id}`}>{f.session_title}</span>
+                                    <div key={f.id} className={`finding-card ${selectedFindingIds.has(f.id) ? 'selected' : ''}`}>
+                                        <input
+                                            type="checkbox"
+                                            className="bulk-check"
+                                            checked={selectedFindingIds.has(f.id)}
+                                            onChange={e => {
+                                                const next = new Set(selectedFindingIds)
+                                                if (e.target.checked) next.add(f.id); else next.delete(f.id)
+                                                setSelectedFindingIds(next)
+                                            }}
+                                        />
+                                        <div className="finding-body">
+                                            <div className="finding-content">{f.content}</div>
+                                            <div className="finding-meta">
+                                                <span className="finding-date">{f.created_label}</span>
+                                                {f.session_title && (
+                                                    <span className="finding-origin" title={`Session: ${f.session_id}`}>{f.session_title}</span>
+                                                )}
+                                            </div>
+                                            {f.tags && f.tags.length > 0 && (
+                                                <div className="finding-tags">
+                                                    {f.tags.map(tag => {
+                                                        const sevClass = ['critical','high','medium','low','info'].includes(tag) ? ` severity-${tag}` : ''
+                                                        return <span key={tag} className={`tag${sevClass}`}>{tag}</span>
+                                                    })}
+                                                </div>
                                             )}
                                         </div>
-                                        {f.tags && f.tags.length > 0 && (
-                                            <div className="finding-tags">
-                                                {f.tags.map(tag => {
-                                                    const sevClass = ['critical','high','medium','low','info'].includes(tag) ? ` severity-${tag}` : ''
-                                                    return <span key={tag} className={`tag${sevClass}`}>{tag}</span>
-                                                })}
-                                            </div>
-                                        )}
                                     </div>
                                 ))}
                             </div>
                         )}
-                        <div className="status-section">
-                            <h3>Pinned Memory</h3>
+                        <div className={`status-section ${selectedPinnedKeys.size > 0 ? 'bulk-active' : ''}`}>
+                            <div className="bulk-section-header">
+                                <h3>Pinned Memory</h3>
+                                {pinnedMemories.length > 0 && (
+                                    <BulkActions
+                                        total={pinnedMemories.length}
+                                        selectedCount={selectedPinnedKeys.size}
+                                        onSelectAll={() => setSelectedPinnedKeys(new Set(pinnedMemories.map(p => p.fact)))}
+                                        onClear={() => setSelectedPinnedKeys(new Set())}
+                                        onDelete={async () => {
+                                            const keys = Array.from(selectedPinnedKeys)
+                                            if (keys.length === 0) return
+                                            await window.go.main.Bindings.DeletePinnedMemories(keys)
+                                            setSelectedPinnedKeys(new Set())
+                                            const updated = await window.go.main.Bindings.GetPinnedMemories()
+                                            setPinnedMemories(updated)
+                                        }}
+                                    />
+                                )}
+                            </div>
                             {pinnedMemories.length === 0 ? (
                                 <p className="sidebar-hint">No pinned facts</p>
                             ) : pinnedMemories.map((p, i) => (
-                                <div key={i} className="pinned-item">
+                                <div key={i} className={`pinned-item ${selectedPinnedKeys.has(p.fact) ? 'selected' : ''}`}>
+                                    <input
+                                        type="checkbox"
+                                        className="bulk-check"
+                                        checked={selectedPinnedKeys.has(p.fact)}
+                                        onChange={e => {
+                                            const next = new Set(selectedPinnedKeys)
+                                            if (e.target.checked) next.add(p.fact); else next.delete(p.fact)
+                                            setSelectedPinnedKeys(next)
+                                        }}
+                                    />
                                     <span className={`pinned-category ${p.category}`}>{p.category}</span>
                                     <div className="pinned-content">
                                         <span className="pinned-fact">{p.native_fact || p.fact}</span>

@@ -94,6 +94,29 @@ func (s *Store) DeleteBySession(sessionID string) {
 	s.findings = kept
 }
 
+// DeleteByIDs removes findings whose ID is in the given set. Returns the
+// number actually deleted.
+func (s *Store) DeleteByIDs(ids []string) int {
+	if len(ids) == 0 {
+		return 0
+	}
+	wanted := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		wanted[id] = struct{}{}
+	}
+	var kept []Finding
+	deleted := 0
+	for _, f := range s.findings {
+		if _, hit := wanted[f.ID]; hit {
+			deleted++
+			continue
+		}
+		kept = append(kept, f)
+	}
+	s.findings = kept
+	return deleted
+}
+
 // FormatForPrompt returns findings formatted for system prompt injection.
 // Content is sanitized: newlines collapsed, length capped per finding,
 // to prevent prompt injection via user-influenced finding content.
