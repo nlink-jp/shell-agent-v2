@@ -5,6 +5,47 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.2] - 2026-04-27
+
+### Added
+
+- Per-backend HotTokenLimit and ContextBudget — local and Vertex have very
+  different context windows (~16K vs ~1M+); a single global limit forced
+  one to over-compact or starve. Settings UI exposes Hot Token Limit /
+  Max Context / Max Warm / Max Tool-Result per backend. Existing configs
+  with only the legacy top-level fields keep working via inheritance.
+- Tool-call timeline in chat — tool starts/ends now appear as inline
+  pill entries (running pulse → done check) alongside the existing
+  status-bar indicator. Ephemeral; not persisted across session reload.
+- Chat input auto-grow (3-row min, 280px max with internal scroll).
+- Attach button moved inside textarea bottom-left (Slack/Claude.ai style).
+
+### Fixed
+
+- Memory compaction preserves at least one recent message. A single
+  huge tool result (e.g. 278KB MCP response) previously moved every
+  hot record into the warm summary, so Vertex AI rejected the request
+  with "Error 400: at least one contents field is required".
+- Long single-line code blocks no longer collapse the chat-bubble
+  layout (min-width: 0 on flex chain; pre overflow-x: auto on reports).
+- Chat input area now follows the active theme (was hardcoded dark blue).
+- Backend indicator no longer stuck on "..." after slow Wails startup
+  (poll until window.go and the agent are ready).
+- MCP `--profile` accepts bare profile names again (validation was
+  forcing a stat that fails for non-path profile keys).
+
+### Performance
+
+- MessageItem memoized — pushing tool-event entries or streaming
+  tokens no longer re-parses the entire ReactMarkdown history.
+- Plugin arrays moved to module scope so ReactMarkdown sees stable
+  prop references.
+
+### Chore
+
+- Disabled WindowIsTranslucent to drop the macOS private-API warning;
+  the vibrancy effect wasn't a deliberate design feature.
+
 ## [0.1.1] - 2026-04-27
 
 ### Security
