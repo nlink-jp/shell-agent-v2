@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/nlink-jp/shell-agent-v2/internal/agent"
+	"github.com/nlink-jp/shell-agent-v2/internal/bundled"
 	"github.com/nlink-jp/shell-agent-v2/internal/logger"
 	"github.com/nlink-jp/shell-agent-v2/internal/analysis"
 	"github.com/nlink-jp/shell-agent-v2/internal/config"
@@ -45,6 +46,12 @@ func (b *Bindings) startup(ctx context.Context) {
 
 	_ = logger.Init(config.DataDir())
 	logger.Info("shell-agent-v2 starting, config=%s", config.ConfigPath())
+
+	if installed, err := bundled.Install(cfg.Tools.ScriptDir); err != nil {
+		logger.Error("bundled tool install: %v", err)
+	} else if len(installed) > 0 {
+		logger.Info("bundled tools: installed %d new (%v)", len(installed), installed)
+	}
 
 	b.objects = objstore.NewStore()
 	_ = b.objects.Load()
