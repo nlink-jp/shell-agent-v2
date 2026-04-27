@@ -68,7 +68,7 @@ declare global {
 }
 
 interface ChatMessage {
-    role: 'user' | 'assistant' | 'system' | 'tool' | 'report' | 'tool-event';
+    role: 'user' | 'assistant' | 'system' | 'tool' | 'report' | 'tool-event' | 'summary';
     content: string;
     timestamp: string;
     imageUrls?: string[];
@@ -150,6 +150,7 @@ interface Settings {
     mcp_profiles: MCPProfile[];
     disabled_tools: string[];
     mitl_overrides: Record<string, boolean>;
+    memory_use_v2: boolean;
 }
 
 type SidebarPanel = 'sessions' | 'status';
@@ -179,6 +180,18 @@ const MessageItem = memo(function MessageItem({msg, onLightbox, onExpandReport}:
             <div className={`tool-event ${msg.status === 'running' ? 'running' : 'done'}`}>
                 <span className="tool-event-icon">{msg.status === 'running' ? '\u25CF' : '\u2713'}</span>
                 <span className="tool-event-name">{msg.content}</span>
+            </div>
+        )
+    }
+    if (msg.role === 'summary') {
+        return (
+            <div className="summary-block">
+                <div className="summary-block-header">Summarized earlier turns</div>
+                <div className="summary-block-body">
+                    <ReactMarkdown remarkPlugins={MD_REMARK_PLUGINS} rehypePlugins={MD_REHYPE_PLUGINS} urlTransform={urlTransform} components={components}>
+                        {msg.content}
+                    </ReactMarkdown>
+                </div>
             </div>
         )
     }
@@ -880,6 +893,14 @@ function App() {
                                         <span>Location</span>
                                         <input value={settings.location || ''} placeholder="e.g. Tokyo, Japan" onChange={e => updateSetting({location: e.target.value})} />
                                     </label>
+                                </div>
+                                <div className="settings-section">
+                                    <h3>Memory</h3>
+                                    <label>
+                                        <input type="checkbox" checked={!!settings.memory_use_v2} onChange={e => updateSetting({memory_use_v2: e.target.checked})} />
+                                        <span>Use v2 context builder (experimental)</span>
+                                    </label>
+                                    <p className="sidebar-hint">Records stay immutable; older context is summarized on demand and cached. Time-range markers added for LLM temporal awareness. See docs/en/memory-architecture-v2.md.</p>
                                 </div>
                                 <div className="settings-section">
                                     <h3>Local LLM</h3>

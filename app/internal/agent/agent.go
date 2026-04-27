@@ -14,6 +14,7 @@ import (
 	"github.com/nlink-jp/shell-agent-v2/internal/analysis"
 	"github.com/nlink-jp/shell-agent-v2/internal/chat"
 	"github.com/nlink-jp/shell-agent-v2/internal/config"
+	"github.com/nlink-jp/shell-agent-v2/internal/contextbuild"
 	"github.com/nlink-jp/shell-agent-v2/internal/findings"
 	"github.com/nlink-jp/shell-agent-v2/internal/llm"
 	"github.com/nlink-jp/shell-agent-v2/internal/logger"
@@ -175,6 +176,66 @@ func (a *Agent) CurrentBackend() string {
 		return ""
 	}
 	return a.backend.Name()
+}
+
+// buildMessagesV2 assembles the LLM messages via the contextbuild package
+// (memory-architecture-v2.md). Opt-in via Memory.UseV2.
+func (a *Agent) buildMessagesV2(ctx context.Context, budget config.ContextBudgetConfig) []llm.Message {
+	cache, err := contextbuild.LoadCache(a.session.ID)
+	if err != nil {
+		logger.Error("buildMessagesV2: load cache: %v", err)
+		cache = &contextbuild.SummaryCache{}
+	}
+
+	systemPrompt := a.chat.BuildSystemPrompt(
+		a.pinned.FormatForPrompt(),
+		a.findings.FormatForPrompt(),
+	)
+
+	summarize := func(c context.Context, records []memory.Record) (string, error) {
+		var sb strings.Builder
+		for _, r := range records {
+			sb.WriteString(fmt.Sprintf("[%s] %s: %s\n", r.Timestamp.Format("15:04"), r.Role, r.Content))
+		}
+		msgs := []llm.Message{
+			{Role: llm.RoleSystem, Content: "Summarize the following conversation segment concisely. Preserve key facts, decisions, and context. Use the same language as the conversation."},
+			{Role: llm.RoleUser, Content: sb.String()},
+		}
+		resp, err := a.backend.Chat(c, msgs, nil)
+		if err != nil {
+			return "", err
+		}
+		return resp.Content, nil
+	}
+
+	res := contextbuild.Build(ctx, a.session, cache, contextbuild.BuildOptions{
+		SystemPrompt:        systemPrompt,
+		MaxContextTokens:    budget.MaxContextTokens,
+		MaxToolResultTokens: budget.MaxToolResultTokens,
+		OutputReserve:       4096,
+		SummarizerID:        a.backend.Name() + "/" + a.currentModelName(),
+		Summarize:           summarize,
+		WrapUserToolContent: a.chat.WrapUserToolContent,
+	})
+
+	if !res.UsedCache && res.SummarizedSpan > 0 {
+		if err := cache.Save(a.session.ID); err != nil {
+			logger.Error("buildMessagesV2: save cache: %v", err)
+		}
+	}
+	logger.Info("buildMessagesV2: raw=%d summarized=%d cache_hit=%v total_tokens=%d budget=%d",
+		res.IncludedRaw, res.SummarizedSpan, res.UsedCache, res.TotalTokens, budget.MaxContextTokens)
+	return res.Messages
+}
+
+// currentModelName returns the active backend's configured model string.
+func (a *Agent) currentModelName() string {
+	switch a.currentBackendKey() {
+	case config.BackendVertexAI:
+		return a.cfg.LLM.VertexAI.Model
+	default:
+		return a.cfg.LLM.Local.Model
+	}
 }
 
 // currentBackendKey returns the active backend's config key.
@@ -574,23 +635,29 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 		// [Calling:] exclusion prevents LLM from mimicking the pattern.
 		// Token budget is an optional safety net (0 = unlimited).
 		// Design: docs/en/agent-data-flow.md Section 3.3
+		// V2: contextbuild package (memory-architecture-v2.md), opt-in.
 		budget := a.currentBudget()
-		buildResult := a.chat.BuildMessagesWithBudget(
-			a.session,
-			a.pinned.FormatForPrompt(),
-			a.findings.FormatForPrompt(),
-			chat.BuildOptions{
-				MaxConversationTokens: budget.MaxContextTokens,
-				MaxWarmTokens:         budget.MaxWarmTokens,
-				MaxToolResultTokens:   budget.MaxToolResultTokens,
-			},
-		)
-		messages := buildResult.Messages
-		if buildResult.DroppedCount > 0 {
-			logger.Debug("agentLoop: budget control dropped %d old messages (total ~%d tokens)", buildResult.DroppedCount, buildResult.TotalTokens)
+		var messages []llm.Message
+		if a.cfg.Memory.UseV2 {
+			messages = a.buildMessagesV2(ctx, budget)
+		} else {
+			buildResult := a.chat.BuildMessagesWithBudget(
+				a.session,
+				a.pinned.FormatForPrompt(),
+				a.findings.FormatForPrompt(),
+				chat.BuildOptions{
+					MaxConversationTokens: budget.MaxContextTokens,
+					MaxWarmTokens:         budget.MaxWarmTokens,
+					MaxToolResultTokens:   budget.MaxToolResultTokens,
+				},
+			)
+			messages = buildResult.Messages
+			if buildResult.DroppedCount > 0 {
+				logger.Debug("agentLoop: budget control dropped %d old messages (total ~%d tokens)", buildResult.DroppedCount, buildResult.TotalTokens)
+			}
 		}
 
-		logger.Debug("agentLoop: round=%d messages=%d tools=%d backend=%s", round, len(messages), len(tools), a.backend.Name())
+		logger.Debug("agentLoop: round=%d messages=%d tools=%d backend=%s v2=%v", round, len(messages), len(tools), a.backend.Name(), a.cfg.Memory.UseV2)
 
 		var resp *llm.Response
 		var err error
@@ -690,8 +757,12 @@ func (a *Agent) postResponseTasks(ctx context.Context) {
 
 // compactIfOverBudget runs compaction synchronously before BuildMessages.
 // This ensures the context stays within budget for local LLMs.
+//
+// When Memory.UseV2 is true, this is a no-op: contextbuild handles
+// older-tail folding non-destructively. Running both paths would let
+// v1's destructive compaction overwrite records that v2 wants to keep.
 func (a *Agent) compactIfOverBudget(ctx context.Context) {
-	if a.session == nil {
+	if a.session == nil || a.cfg.Memory.UseV2 {
 		return
 	}
 	summarizer := func(c context.Context, text string) (string, error) {
@@ -719,9 +790,10 @@ func (a *Agent) compactIfOverBudget(ctx context.Context) {
 }
 
 // compactMemoryIfNeeded summarizes old hot messages when token budget exceeded.
-// Design: docs/en/agent-data-flow.md Section 4.2 (async safety net)
+// Design: docs/en/agent-data-flow.md Section 4.2 (async safety net).
+// Skipped when Memory.UseV2 is true (see compactIfOverBudget).
 func (a *Agent) compactMemoryIfNeeded(ctx context.Context) {
-	if a.session == nil {
+	if a.session == nil || a.cfg.Memory.UseV2 {
 		return
 	}
 

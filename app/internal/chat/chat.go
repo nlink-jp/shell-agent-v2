@@ -56,6 +56,37 @@ func sanitizeSystemContext(s string, maxLen int) string {
 	return strings.TrimSpace(b.String())
 }
 
+// BuildSystemPrompt assembles the full system block (base prompt + temporal
+// context + pinned + findings). Callers using contextbuild.Build directly
+// pass this as BuildOptions.SystemPrompt instead of going through
+// BuildMessages. The guard tag is rotated as a side effect, matching
+// BuildMessages' behavior.
+func (e *Engine) BuildSystemPrompt(pinnedContext, findingsContext string) string {
+	e.guardTag = guard.NewTag()
+	timeContext := buildTemporalContext()
+	if e.location != "" {
+		timeContext += "\nLocation: " + e.location
+	}
+	full := fmt.Sprintf("%s\n\n%s", e.systemPrompt, timeContext)
+	if pinnedContext != "" {
+		full += "\n\nImportant facts you remember about the user:\n" + pinnedContext
+	}
+	if findingsContext != "" {
+		full += "\n\nAnalysis findings from other sessions:\n" + findingsContext
+	}
+	return full
+}
+
+// WrapUserToolContent exposes the current guard tag's wrap function for
+// callers that render records outside BuildMessages (e.g. contextbuild).
+// Returns identity if guard wrap fails.
+func (e *Engine) WrapUserToolContent(s string) string {
+	if wrapped, err := e.guardTag.Wrap(s); err == nil {
+		return wrapped
+	}
+	return s
+}
+
 // BuildMessages constructs the message array for the API call,
 // injecting temporal context, pinned memory, and findings.
 // User and tool content is wrapped with guard tags for prompt injection defense.

@@ -47,6 +47,40 @@ func TestBuildMessages(t *testing.T) {
 	}
 }
 
+func TestBuildSystemPrompt_IncludesAllChannels(t *testing.T) {
+	e := New("BASE PROMPT")
+	e.SetLocation("Tokyo")
+	got := e.BuildSystemPrompt("- pinned fact (learned 2026-04-15)", "- finding from 2026-04-20")
+	for _, want := range []string{
+		"BASE PROMPT",
+		"Tokyo",
+		"Current date and time",
+		"pinned fact",
+		"learned 2026-04-15",
+		"finding from 2026-04-20",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("system prompt missing %q\nfull: %s", want, got)
+		}
+	}
+}
+
+func TestWrapUserToolContent_RotatesWithSystemPrompt(t *testing.T) {
+	e := New("base")
+	_ = e.BuildSystemPrompt("", "")
+	wrapped1 := e.WrapUserToolContent("hi")
+	if wrapped1 == "hi" {
+		t.Error("expected wrap to add markers")
+	}
+	// Building the system prompt again rotates the guard tag, so a
+	// previously-wrapped string from the old tag would no longer match.
+	_ = e.BuildSystemPrompt("", "")
+	wrapped2 := e.WrapUserToolContent("hi")
+	if wrapped1 == wrapped2 {
+		t.Error("guard tag should rotate per BuildSystemPrompt call")
+	}
+}
+
 func TestBuildMessagesWithFindings(t *testing.T) {
 	e := New("test")
 	session := &memory.Session{}

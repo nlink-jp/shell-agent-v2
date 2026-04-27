@@ -37,14 +37,19 @@ func formatTimestamp(t time.Time, loc *time.Location) string {
 	return t.In(loc).Format("2006-01-02 15:04 MST")
 }
 
-// renderRecordContent prepends a timestamp marker when warranted and
-// applies tool-result truncation. The original record is unchanged.
+// renderRecordContent prepends a timestamp marker when warranted, applies
+// tool-result truncation, and wraps user/tool content via the caller-
+// supplied guard hook. The original record is unchanged.
 func renderRecordContent(records []memory.Record, i int, opts BuildOptions) string {
 	r := records[i]
 	content := r.Content
 
 	if r.Role == "tool" && opts.MaxToolResultTokens > 0 {
 		content = truncateToTokens(content, opts.MaxToolResultTokens)
+	}
+
+	if opts.WrapUserToolContent != nil && (r.Role == "user" || r.Role == "tool") {
+		content = opts.WrapUserToolContent(content)
 	}
 
 	if shouldAnnotate(records, i) {

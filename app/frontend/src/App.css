@@ -1176,6 +1176,41 @@ input, textarea {
     margin-bottom: 4px;
 }
 
+.message.summary {
+    max-width: 100%;
+}
+
+.summary-block {
+    border-left: 3px solid var(--border-accent, #3a6a9a);
+    background: var(--bg-msg-tool, rgba(80, 100, 200, 0.08));
+    padding: 8px 12px;
+    border-radius: 0 6px 6px 0;
+    font-size: 13px;
+    color: var(--text-secondary, #8899aa);
+    opacity: 0.85;
+}
+
+.summary-block-header {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted, #6688aa);
+    margin-bottom: 4px;
+    font-weight: 600;
+}
+
+.summary-block-body {
+    line-height: 1.5;
+}
+
+.summary-block-body p:first-child {
+    margin-top: 0;
+}
+
+.summary-block-body p:last-child {
+    margin-bottom: 0;
+}
+
 .tool-event {
     display: inline-flex;
     align-items: center;

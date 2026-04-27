@@ -224,7 +224,7 @@ func (b *Bindings) LoadSession(sessionID string) ([]MessageData, error) {
 	var msgs []MessageData
 	for _, r := range session.Records {
 		switch r.Role {
-		case "summary", "tool":
+		case "tool":
 			continue
 		case "assistant":
 			if strings.HasPrefix(r.Content, "[Calling:") {
@@ -232,6 +232,20 @@ func (b *Bindings) LoadSession(sessionID string) ([]MessageData, error) {
 			}
 			msgs = append(msgs, MessageData{
 				Role: r.Role, Content: r.Content,
+				Timestamp: r.Timestamp.Format("15:04:05"),
+			})
+		case "summary":
+			// Surface legacy summaries as a distinct block so the user
+			// sees that older content was compacted, with its time range.
+			content := r.Content
+			if r.SummaryRange != nil {
+				content = fmt.Sprintf("[%s — %s]\n%s",
+					r.SummaryRange.From.Format("2006-01-02 15:04"),
+					r.SummaryRange.To.Format("2006-01-02 15:04"),
+					r.Content)
+			}
+			msgs = append(msgs, MessageData{
+				Role: "summary", Content: content,
 				Timestamp: r.Timestamp.Format("15:04:05"),
 			})
 		default:
@@ -383,6 +397,7 @@ type SettingsData struct {
 	MCPProfiles    []MCPProfileData  `json:"mcp_profiles"`
 	DisabledTools  []string          `json:"disabled_tools"`
 	MITLOverrides  map[string]bool   `json:"mitl_overrides"`
+	MemoryUseV2    bool              `json:"memory_use_v2"`
 }
 
 // GetSettings returns current settings.
@@ -413,6 +428,7 @@ func (b *Bindings) GetSettings() SettingsData {
 		MCPProfiles:    profiles,
 		DisabledTools:  b.cfg.Tools.DisabledTools,
 		MITLOverrides:  b.cfg.Tools.MITLOverrides,
+		MemoryUseV2:    b.cfg.Memory.UseV2,
 	}
 }
 
@@ -438,6 +454,7 @@ func (b *Bindings) SaveSettings(s SettingsData) error {
 	}
 	b.cfg.UI.Theme = s.Theme
 	b.cfg.Location = s.Location
+	b.cfg.Memory.UseV2 = s.MemoryUseV2
 
 	// Update MCP profiles
 	profiles := make([]config.MCPProfileConfig, len(s.MCPProfiles))

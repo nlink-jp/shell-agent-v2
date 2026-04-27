@@ -2,6 +2,7 @@ package contextbuild
 
 import (
 	"context"
+	"strings"
 
 	"github.com/nlink-jp/shell-agent-v2/internal/llm"
 	"github.com/nlink-jp/shell-agent-v2/internal/memory"
@@ -32,13 +33,21 @@ func Build(ctx context.Context, session *memory.Session, cache *SummaryCache, op
 		return res
 	}
 
-	// Filter out legacy summary records from the raw walk; they participate
-	// only as opaque older-tail content (handled below).
+	// Filter the records:
+	//   - "summary" records are legacy compaction output; they participate
+	//     only as opaque older-tail content (handled below).
+	//   - "[Calling: ...]" assistant messages are placeholder markers used
+	//     when the LLM emitted a tool call without text. Including them in
+	//     the LLM context teaches gemma-style models to mimic the pattern
+	//     as text instead of using the real tool API.
 	var raw []memory.Record
 	var legacy []memory.Record
 	for _, r := range session.Records {
 		if r.Role == "summary" {
 			legacy = append(legacy, r)
+			continue
+		}
+		if r.Role == "assistant" && strings.HasPrefix(r.Content, "[Calling:") {
 			continue
 		}
 		raw = append(raw, r)

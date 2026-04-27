@@ -46,6 +46,7 @@ type MemoryConfig struct {
 	HotTokenLimit int    `json:"hot_token_limit"`
 	WarmRetention string `json:"warm_retention"`
 	ColdRetention string `json:"cold_retention"`
+	UseV2         bool   `json:"use_v2,omitempty"` // contextbuild package; opt-in
 }
 
 // MCPProfileConfig holds a single mcp-guardian profile configuration.

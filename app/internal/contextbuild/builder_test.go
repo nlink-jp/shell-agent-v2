@@ -203,6 +203,32 @@ func TestBuild_CacheHitSkipsSummarizer(t *testing.T) {
 	}
 }
 
+func TestBuild_ExcludesCallingMarkers(t *testing.T) {
+	// Regression: gemma-style local models will mimic any [Calling: ...]
+	// pattern they see in context as plain text instead of using the real
+	// tool API. The legacy chat.BuildMessagesWithBudget filtered these
+	// out; the v2 path must too.
+	now := time.Date(2026, 4, 27, 10, 0, 0, 0, utc)
+	s := &memory.Session{Records: []memory.Record{
+		mkRec(now, "user", "load /tmp/x.csv"),
+		mkRec(now.Add(time.Second), "assistant", "[Calling: load_data{file_path:/tmp/x.csv}]"),
+		mkRec(now.Add(2*time.Second), "tool", "loaded 100 rows"),
+		mkRec(now.Add(3*time.Second), "assistant", "Loaded successfully."),
+	}}
+	res := Build(stdcontext.Background(), s, &SummaryCache{}, BuildOptions{
+		MaxContextTokens: 0, // unlimited
+		Loc:              utc,
+	})
+	for _, m := range res.Messages {
+		if strings.Contains(m.Content, "[Calling:") {
+			t.Errorf("[Calling: ...] marker leaked into LLM context: %q", m.Content)
+		}
+	}
+	if res.IncludedRaw != 3 {
+		t.Errorf("expected 3 raw records (user/tool/assistant), got %d", res.IncludedRaw)
+	}
+}
+
 func TestBuild_FitsInBudget_BasicSanity(t *testing.T) {
 	now := time.Date(2026, 4, 27, 10, 0, 0, 0, utc)
 	var recs []memory.Record

@@ -55,6 +55,11 @@ type BuildOptions struct {
 
 	// Loc is the time zone for rendered timestamps. Nil = time.Local.
 	Loc *time.Location
+
+	// WrapUserToolContent, if set, is applied to the content of every
+	// user and tool record before token estimation. The agent uses this
+	// for prompt-injection guard wrapping. Identity-equivalent if nil.
+	WrapUserToolContent func(string) string
 }
 
 func (o *BuildOptions) now() time.Time {
