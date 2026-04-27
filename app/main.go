@@ -56,7 +56,7 @@ func main() {
 				FullSizeContent:           true,
 			},
 			WebviewIsTransparent: true,
-			WindowIsTranslucent:  true,
+			WindowIsTranslucent:  false,
 		},
 	})
 
