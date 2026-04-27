@@ -94,6 +94,46 @@ func TestCompactIfNeeded_Compacts(t *testing.T) {
 	}
 }
 
+// Regression: a single most-recent message larger than the budget previously
+// caused everything to be summarized, leaving hot tier empty. Vertex AI then
+// rejected the request with "at least one contents field is required".
+func TestCompactIfNeeded_HugeRecentMessageStaysHot(t *testing.T) {
+	now := time.Now()
+	huge := strings.Repeat("payload ", 5000)
+	s := &Session{
+		ID: "test",
+		Records: []Record{
+			{Timestamp: now.Add(-10 * time.Minute), Role: "user", Content: "hello", Tier: TierHot},
+			{Timestamp: now.Add(-9 * time.Minute), Role: "assistant", Content: "hi", Tier: TierHot},
+			{Timestamp: now.Add(-1 * time.Minute), Role: "tool", Content: huge, Tier: TierHot},
+		},
+	}
+
+	compacted, err := s.CompactIfNeeded(context.Background(), CompactOptions{
+		HotTokenLimit: 100,
+		Summarizer:    mockSummarizer,
+	})
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+	if !compacted {
+		t.Fatal("should compact when over limit")
+	}
+
+	hotCount := 0
+	for _, r := range s.Records {
+		if r.Tier == TierHot {
+			hotCount++
+		}
+	}
+	if hotCount < 1 {
+		t.Errorf("hot tier should retain at least 1 record, got %d", hotCount)
+	}
+	if last := s.Records[len(s.Records)-1]; last.Tier != TierHot || last.Content != huge {
+		t.Errorf("most recent record should remain in hot, got tier=%v len=%d", last.Tier, len(last.Content))
+	}
+}
+
 func TestCompactIfNeeded_NoSummarizer(t *testing.T) {
 	s := &Session{
 		ID: "test",

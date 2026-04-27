@@ -55,16 +55,20 @@ func (s *Session) CompactIfNeeded(ctx context.Context, opts CompactOptions) (boo
 		return false, nil
 	}
 
-	// Find the split point: keep the most recent messages that fit in budget
-	keepTokens := 0
-	splitIdx := len(hotRecords)
-	for i := len(hotRecords) - 1; i >= 0; i-- {
+	// Find the split point: keep the most recent messages that fit in budget.
+	// Always keep at least the most recent message — even if it alone exceeds
+	// the budget — so the LLM has a current turn to respond to. Otherwise
+	// hot becomes empty and providers like Vertex reject empty contents.
+	splitIdx := len(hotRecords) - 1
+	keepTokens := EstimateTokens(hotRecords[splitIdx].Content)
+	for i := len(hotRecords) - 2; i >= 0; i-- {
 		tokens := EstimateTokens(hotRecords[i].Content)
 		if keepTokens+tokens > opts.HotTokenLimit/2 {
 			splitIdx = i + 1
 			break
 		}
 		keepTokens += tokens
+		splitIdx = i
 	}
 
 	if splitIdx <= 0 {
