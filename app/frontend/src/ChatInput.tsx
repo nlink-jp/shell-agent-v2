@@ -1,4 +1,4 @@
-import {useState, useRef, useEffect, memo} from 'react'
+import {useState, useRef, useEffect, useLayoutEffect, memo} from 'react'
 
 interface Props {
     onSend: (text: string, images: string[]) => void
@@ -16,6 +16,16 @@ function ChatInput({onSend, disabled}: Props) {
     useEffect(() => {
         if (!disabled) textareaRef.current?.focus()
     }, [disabled])
+
+    // Auto-grow: resize to content, capped by CSS max-height (overflow scrolls).
+    // +border compensates for box-sizing: border-box so content fits without scrollbar.
+    useLayoutEffect(() => {
+        const ta = textareaRef.current
+        if (!ta) return
+        ta.style.height = 'auto'
+        const border = ta.offsetHeight - ta.clientHeight
+        ta.style.height = (ta.scrollHeight + border) + 'px'
+    }, [input])
     const historyRef = useRef<string[]>([])
     const historyIndexRef = useRef(-1)
     const draftRef = useRef('')
@@ -109,23 +119,25 @@ function ChatInput({onSend, disabled}: Props) {
                 </div>
             )}
             <div className="input-row">
-                <button className="attach-btn" onClick={() => fileInputRef.current?.click()} disabled={disabled} title="Attach image">&#x1F4CE;</button>
                 <input ref={fileInputRef} type="file" accept="image/*" multiple style={{display: 'none'}} onChange={e => { if (e.target.files) addImages(e.target.files); e.target.value = '' }} />
-                <textarea
-                    ref={textareaRef}
-                    value={input}
-                    onChange={e => { setInput(e.target.value); historyIndexRef.current = -1 }}
-                    onKeyDown={handleKeyDown}
-                    onPaste={handlePaste}
-                    onCompositionStart={() => { composingRef.current = true }}
-                    onCompositionEnd={() => { setTimeout(() => { composingRef.current = false }, 50) }}
-                    placeholder={disabled ? 'Agent is busy...' : 'Type a message... (Cmd+Enter to send)'}
-                    disabled={disabled}
-                    rows={3}
-                    autoCorrect="off"
-                    autoCapitalize="off"
-                    spellCheck={false}
-                />
+                <div className="textarea-wrap">
+                    <textarea
+                        ref={textareaRef}
+                        value={input}
+                        onChange={e => { setInput(e.target.value); historyIndexRef.current = -1 }}
+                        onKeyDown={handleKeyDown}
+                        onPaste={handlePaste}
+                        onCompositionStart={() => { composingRef.current = true }}
+                        onCompositionEnd={() => { setTimeout(() => { composingRef.current = false }, 50) }}
+                        placeholder={disabled ? 'Agent is busy...' : 'Type a message... (Cmd+Enter to send)'}
+                        disabled={disabled}
+                        rows={3}
+                        autoCorrect="off"
+                        autoCapitalize="off"
+                        spellCheck={false}
+                    />
+                    <button className="attach-btn" onClick={() => fileInputRef.current?.click()} disabled={disabled} title="Attach image">&#x1F4CE;</button>
+                </div>
                 <button onClick={handleSend} disabled={disabled || (!input.trim() && pendingImages.length === 0)}>
                     {disabled ? '...' : 'Send'}
                 </button>
