@@ -63,10 +63,11 @@ declare global {
 }
 
 interface ChatMessage {
-    role: 'user' | 'assistant' | 'system' | 'tool' | 'report';
+    role: 'user' | 'assistant' | 'system' | 'tool' | 'report' | 'tool-event';
     content: string;
     timestamp: string;
     imageUrls?: string[];
+    status?: 'running' | 'done';
 }
 
 interface SessionInfo {
@@ -182,8 +183,16 @@ function App() {
             const cleanupActivity = window.runtime.EventsOn('agent:activity', (data: any) => {
                 if (data.type === 'tool_end') {
                     setProgressTool('')
+                    setMessages(prev => {
+                        const idx = prev.findLastIndex(m => m.role === 'tool-event' && m.status === 'running' && m.content === data.detail)
+                        if (idx === -1) return prev
+                        const next = prev.slice()
+                        next[idx] = {...next[idx], status: 'done'}
+                        return next
+                    })
                 } else if (data.type === 'tool_start') {
                     setProgressTool(data.detail || '')
+                    setMessages(prev => [...prev, {role: 'tool-event', content: data.detail || '', status: 'running', timestamp: nowTime()}])
                 } else if (data.type === 'thinking') {
                     setProgressTool(data.detail || '')
                 }
@@ -215,13 +224,23 @@ function App() {
     }, [messages, streaming])
 
     useEffect(() => {
-        if (window.go) {
-            window.go.main.Bindings.GetBackend().then(setBackend)
-            // Apply saved theme on startup
+        // Wails populates window.go and Go startup runs asynchronously.
+        // Retry until backend reports a non-empty name (agent ready).
+        let cancel = false
+        function load() {
+            if (cancel) return
+            if (!window.go) { setTimeout(load, 50); return }
+            window.go.main.Bindings.GetBackend().then(b => {
+                if (cancel) return
+                if (b) setBackend(b)
+                else setTimeout(load, 100)
+            })
             window.go.main.Bindings.GetSettings().then(s => {
-                if (s.theme) document.documentElement.setAttribute('data-theme', s.theme)
+                if (!cancel && s.theme) document.documentElement.setAttribute('data-theme', s.theme)
             })
         }
+        load()
+        return () => { cancel = true }
     }, [])
 
     const refreshSessions = useCallback(async () => {
@@ -387,6 +406,8 @@ function App() {
             setState('idle')
             setStreaming('')
             setProgressTool('')
+            // Mark any leftover running tool-events as done (e.g. on error or abort)
+            setMessages(prev => prev.map(m => m.role === 'tool-event' && m.status === 'running' ? {...m, status: 'done'} : m))
             if (window.go) {
                 window.go.main.Bindings.GetBackend().then(setBackend)
                 window.go.main.Bindings.GetLLMStatus().then(setLLMStatus)
@@ -565,7 +586,12 @@ function App() {
                 <div className="messages">
                     {messages.filter(msg => msg.role !== 'tool').map((msg, i) => (
                         <div key={i} className={`message ${msg.role}`}>
-                            {msg.role === 'report' ? (
+                            {msg.role === 'tool-event' ? (
+                                <div className={`tool-event ${msg.status === 'running' ? 'running' : 'done'}`}>
+                                    <span className="tool-event-icon">{msg.status === 'running' ? '\u25CF' : '\u2713'}</span>
+                                    <span className="tool-event-name">{msg.content}</span>
+                                </div>
+                            ) : msg.role === 'report' ? (
                                 <>
                                     <div className="report-container">
                                         <div className="report-header">

@@ -1153,6 +1153,42 @@ input, textarea {
     opacity: 0.8;
 }
 
+.message.tool-event {
+    max-width: 100%;
+    margin-bottom: 4px;
+}
+
+.tool-event {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 10px;
+    border-radius: 10px;
+    background: var(--bg-msg-tool, rgba(40, 80, 40, 0.2));
+    border: 1px solid var(--border-msg-tool, rgba(80, 180, 80, 0.2));
+    color: var(--text-tool, #80c080);
+    font-size: 11px;
+    font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+}
+
+.tool-event.running {
+    opacity: 0.85;
+}
+
+.tool-event.running .tool-event-icon {
+    animation: pulse 1.2s ease-in-out infinite;
+}
+
+.tool-event-icon {
+    font-size: 9px;
+    line-height: 1;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 1; }
+}
+
 .message-header {
     display: flex;
     justify-content: space-between;
