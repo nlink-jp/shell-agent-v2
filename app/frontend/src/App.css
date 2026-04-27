@@ -1344,6 +1344,7 @@ input, textarea {
     display: flex;
     flex-direction: column;
     padding: 12px;
+    background: var(--bg-input);
     border-top: 1px solid var(--border-primary, #2a3a4a);
 }
 
@@ -1407,10 +1408,10 @@ input, textarea {
 .input-row textarea {
     flex: 1;
     padding: 10px 14px 10px 44px;
-    border: 1px solid #3a4a5a;
+    border: 1px solid var(--border-input);
     border-radius: 8px;
-    background: #0d1520;
-    color: #e0e0e0;
+    background: var(--bg-input-field);
+    color: var(--text-primary);
     font-size: 14px;
     font-family: inherit;
     line-height: 1.5;
@@ -1424,7 +1425,7 @@ input, textarea {
 }
 
 .input-row textarea:focus {
-    border-color: #5a8abf;
+    border-color: var(--border-accent);
 }
 
 .input-row textarea:disabled {
@@ -1434,10 +1435,10 @@ input, textarea {
 
 .input-row button {
     padding: 10px 16px;
-    border: 1px solid #3a6a9a;
+    border: 1px solid var(--border-accent);
     border-radius: 8px;
-    background: #1a3a5a;
-    color: #aaccee;
+    background: var(--bg-btn-primary);
+    color: var(--text-accent);
     cursor: pointer;
     font-size: 14px;
     white-space: nowrap;
@@ -1445,7 +1446,7 @@ input, textarea {
 }
 
 .input-row button:hover {
-    background: #2a4a6a;
+    background: var(--bg-btn-primary-hover);
 }
 
 .input-row button:disabled {
@@ -1463,7 +1464,7 @@ input, textarea {
     border: none !important;
     border-radius: 50% !important;
     background: transparent !important;
-    color: #6688aa !important;
+    color: var(--text-muted) !important;
     font-size: 15px !important;
     line-height: 1 !important;
     display: flex;
@@ -1472,8 +1473,8 @@ input, textarea {
 }
 
 .attach-btn:hover {
-    background: #1a2a3a !important;
-    color: #aaccee !important;
+    background: var(--bg-hover) !important;
+    color: var(--text-primary) !important;
 }
 
 /* Pending images */
