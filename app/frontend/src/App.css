@@ -901,6 +901,24 @@ input, textarea {
     margin-bottom: 24px;
 }
 
+.budget-editor {
+    margin-top: 8px;
+    padding: 8px 12px;
+    border-left: 2px solid var(--border-primary, #2a3a4a);
+    background: var(--bg-hover, rgba(255, 255, 255, 0.03));
+    border-radius: 0 6px 6px 0;
+}
+
+.budget-editor label span {
+    font-size: 11px;
+    color: var(--text-muted, #6688aa);
+}
+
+.budget-editor input[type="number"] {
+    font-family: 'SF Mono', 'Menlo', monospace;
+    font-size: 12px;
+}
+
 .settings-section h3 {
     font-size: 13px;
     font-weight: 600;

@@ -1,4 +1,4 @@
-import {useState, useEffect, useRef, useCallback} from 'react'
+import {useState, useEffect, useRef, useCallback, memo, useMemo} from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
@@ -19,6 +19,11 @@ function urlTransform(url: string): string {
     if (url.startsWith('object:')) return url
     return defaultUrlTransform(url)
 }
+
+// Module-scope stable references avoid re-instantiating plugin arrays on every
+// render — otherwise ReactMarkdown sees new props and re-parses every message.
+const MD_REMARK_PLUGINS = [remarkGfm, remarkMath]
+const MD_REHYPE_PLUGINS = [rehypeHighlight, rehypeKatex]
 
 declare global {
     interface Window {
@@ -124,13 +129,22 @@ interface MCPProfile {
     enabled: boolean;
 }
 
+interface BackendBudget {
+    hot_token_limit: number;
+    max_context_tokens: number;
+    max_warm_tokens: number;
+    max_tool_result_tokens: number;
+}
+
 interface Settings {
     default_backend: string;
     local_endpoint: string;
     local_model: string;
+    local_budget: BackendBudget;
     vertex_project: string;
     vertex_region: string;
     vertex_model: string;
+    vertex_budget: BackendBudget;
     theme: string;
     location: string;
     mcp_profiles: MCPProfile[];
@@ -139,6 +153,110 @@ interface Settings {
 }
 
 type SidebarPanel = 'sessions' | 'status';
+
+// MessageItem renders a single message. Memoized so that pushing a new message
+// (e.g. tool-event) does not re-render the entire history — important when the
+// history contains huge ReactMarkdown blocks that are slow to re-parse.
+interface MessageItemProps {
+    msg: ChatMessage;
+    onLightbox: (url: string) => void;
+    onExpandReport: (r: {title: string; content: string}) => void;
+}
+
+const MessageItem = memo(function MessageItem({msg, onLightbox, onExpandReport}: MessageItemProps) {
+    const components = useMemo(() => ({
+        img: ({src, alt}: {src?: string; alt?: string}) => {
+            if (src?.startsWith('object:')) {
+                const id = src.slice(7)
+                return <ObjectImage id={id} alt={alt || ''} onClick={onLightbox} />
+            }
+            return <img src={src} alt={alt || ''} className="message-image" onClick={() => src && onLightbox(src)} />
+        },
+    }), [onLightbox])
+
+    if (msg.role === 'tool-event') {
+        return (
+            <div className={`tool-event ${msg.status === 'running' ? 'running' : 'done'}`}>
+                <span className="tool-event-icon">{msg.status === 'running' ? '\u25CF' : '\u2713'}</span>
+                <span className="tool-event-name">{msg.content}</span>
+            </div>
+        )
+    }
+    if (msg.role === 'report') {
+        const title = msg.content.split('\n')[0].replace(/^#\s*/, '')
+        return (
+            <div className="report-container">
+                <div className="report-header">
+                    <span className="report-title">{title}</span>
+                    <div className="report-actions">
+                        <button onClick={() => onExpandReport({title, content: msg.content})}>Expand</button>
+                        <button onClick={(e) => { navigator.clipboard.writeText(msg.content); const b = e.currentTarget; b.textContent = 'Copied!'; setTimeout(() => b.textContent = 'Copy', 1000) }}>Copy</button>
+                        <button onClick={() => window.go?.main.Bindings.SaveReport(msg.content, 'report.md')}>Save</button>
+                    </div>
+                </div>
+                <div className="report-content" onClick={() => onExpandReport({title, content: msg.content})}>
+                    <ReactMarkdown remarkPlugins={MD_REMARK_PLUGINS} rehypePlugins={MD_REHYPE_PLUGINS} urlTransform={urlTransform} components={components}>
+                        {msg.content}
+                    </ReactMarkdown>
+                </div>
+            </div>
+        )
+    }
+    return (
+        <>
+            <div className="message-header">
+                <span className="message-role">{msg.role}</span>
+                <span className="message-time">{msg.timestamp || ''}</span>
+            </div>
+            {msg.imageUrls && msg.imageUrls.length > 0 && (
+                <div className="message-images">
+                    {msg.imageUrls.map((url, j) => (
+                        <img key={j} src={url} alt="" className="message-image" onClick={() => onLightbox(url)} />
+                    ))}
+                </div>
+            )}
+            <div className="message-content">
+                <ReactMarkdown remarkPlugins={MD_REMARK_PLUGINS} rehypePlugins={MD_REHYPE_PLUGINS} urlTransform={urlTransform} components={components}>
+                    {msg.content}
+                </ReactMarkdown>
+            </div>
+            <div className="message-footer">
+                <button className="message-copy" onClick={(e) => {
+                    navigator.clipboard.writeText(msg.content)
+                    const b = e.currentTarget; b.classList.add('copied')
+                    setTimeout(() => b.classList.remove('copied'), 1000)
+                }} title="Copy">
+                    <span className="copy-icon">{'\u2398'}</span>
+                    <span className="copy-check">{'\u2713'}</span>
+                </button>
+            </div>
+        </>
+    )
+})
+
+function BackendBudgetEditor({budget, onChange}: {budget: BackendBudget; onChange: (b: BackendBudget) => void}) {
+    const num = (v: string) => Math.max(0, parseInt(v, 10) || 0)
+    return (
+        <div className="budget-editor">
+            <label>
+                <span>Hot Token Limit (compaction trigger)</span>
+                <input type="number" min={0} value={budget.hot_token_limit} onChange={e => onChange({...budget, hot_token_limit: num(e.target.value)})} />
+            </label>
+            <label>
+                <span>Max Context Tokens (0 = unlimited)</span>
+                <input type="number" min={0} value={budget.max_context_tokens} onChange={e => onChange({...budget, max_context_tokens: num(e.target.value)})} />
+            </label>
+            <label>
+                <span>Max Warm Summary Tokens</span>
+                <input type="number" min={0} value={budget.max_warm_tokens} onChange={e => onChange({...budget, max_warm_tokens: num(e.target.value)})} />
+            </label>
+            <label>
+                <span>Max Tool-Result Tokens (per call)</span>
+                <input type="number" min={0} value={budget.max_tool_result_tokens} onChange={e => onChange({...budget, max_tool_result_tokens: num(e.target.value)})} />
+            </label>
+        </div>
+    )
+}
 
 function App() {
     const [state, setState] = useState<'idle' | 'busy'>('idle')
@@ -184,7 +302,11 @@ function App() {
                 if (data.type === 'tool_end') {
                     setProgressTool('')
                     setMessages(prev => {
-                        const idx = prev.findLastIndex(m => m.role === 'tool-event' && m.status === 'running' && m.content === data.detail)
+                        let idx = -1
+                        for (let i = prev.length - 1; i >= 0; i--) {
+                            const m = prev[i]
+                            if (m.role === 'tool-event' && m.status === 'running' && m.content === data.detail) { idx = i; break }
+                        }
                         if (idx === -1) return prev
                         const next = prev.slice()
                         next[idx] = {...next[idx], status: 'done'}
@@ -586,81 +708,7 @@ function App() {
                 <div className="messages">
                     {messages.filter(msg => msg.role !== 'tool').map((msg, i) => (
                         <div key={i} className={`message ${msg.role}`}>
-                            {msg.role === 'tool-event' ? (
-                                <div className={`tool-event ${msg.status === 'running' ? 'running' : 'done'}`}>
-                                    <span className="tool-event-icon">{msg.status === 'running' ? '\u25CF' : '\u2713'}</span>
-                                    <span className="tool-event-name">{msg.content}</span>
-                                </div>
-                            ) : msg.role === 'report' ? (
-                                <>
-                                    <div className="report-container">
-                                        <div className="report-header">
-                                            <span className="report-title">{msg.content.split('\n')[0].replace(/^#\s*/, '')}</span>
-                                            <div className="report-actions">
-                                                <button onClick={() => setExpandedReport({title: msg.content.split('\n')[0].replace(/^#\s*/, ''), content: msg.content})}>Expand</button>
-                                                <button onClick={(e) => { navigator.clipboard.writeText(msg.content); const b = e.currentTarget; b.textContent = 'Copied!'; setTimeout(() => b.textContent = 'Copy', 1000) }}>Copy</button>
-                                                <button onClick={() => window.go?.main.Bindings.SaveReport(msg.content, 'report.md')}>Save</button>
-                                            </div>
-                                        </div>
-                                        <div className="report-content" onClick={() => setExpandedReport({title: msg.content.split('\n')[0].replace(/^#\s*/, ''), content: msg.content})}>
-                                            <ReactMarkdown
-                                                remarkPlugins={[remarkGfm, remarkMath]}
-                                                rehypePlugins={[rehypeHighlight, rehypeKatex]}
-                                                urlTransform={urlTransform}
-                                                components={{img: ({src, alt}) => {
-                                                    if (src?.startsWith('object:')) {
-                                                        const id = src.slice(7)
-                                                        return <ObjectImage id={id} alt={alt || ''} onClick={setLightboxImage} />
-                                                    }
-                                                    return <img src={src} alt={alt || ''} className="message-image" onClick={() => src && setLightboxImage(src)} />
-                                                }}}
-                                            >
-                                                {msg.content}
-                                            </ReactMarkdown>
-                                        </div>
-                                    </div>
-                                </>
-                            ) : (
-                                <>
-                                    <div className="message-header">
-                                        <span className="message-role">{msg.role}</span>
-                                        <span className="message-time">{msg.timestamp || ''}</span>
-                                    </div>
-                                    {msg.imageUrls && msg.imageUrls.length > 0 && (
-                                        <div className="message-images">
-                                            {msg.imageUrls.map((url, j) => (
-                                                <img key={j} src={url} alt="" className="message-image" onClick={() => setLightboxImage(url)} />
-                                            ))}
-                                        </div>
-                                    )}
-                                    <div className="message-content">
-                                        <ReactMarkdown
-                                            remarkPlugins={[remarkGfm, remarkMath]}
-                                            rehypePlugins={[rehypeHighlight, rehypeKatex]}
-                                            urlTransform={urlTransform}
-                                            components={{img: ({src, alt}) => {
-                                                if (src?.startsWith('object:')) {
-                                                    const id = src.slice(7)
-                                                    return <ObjectImage id={id} alt={alt || ''} onClick={setLightboxImage} />
-                                                }
-                                                return <img src={src} alt={alt || ''} className="message-image" onClick={() => src && setLightboxImage(src)} />
-                                            }}}
-                                        >
-                                            {msg.content}
-                                        </ReactMarkdown>
-                                    </div>
-                                    <div className="message-footer">
-                                        <button className="message-copy" onClick={(e) => {
-                                            navigator.clipboard.writeText(msg.content)
-                                            const b = e.currentTarget; b.classList.add('copied')
-                                            setTimeout(() => b.classList.remove('copied'), 1000)
-                                        }} title="Copy">
-                                            <span className="copy-icon">{'\u2398'}</span>
-                                            <span className="copy-check">{'\u2713'}</span>
-                                        </button>
-                                    </div>
-                                </>
-                            )}
+                            <MessageItem msg={msg} onLightbox={setLightboxImage} onExpandReport={setExpandedReport} />
                         </div>
                     ))}
                     {streaming && (
@@ -669,7 +717,7 @@ function App() {
                                 <span className="message-role">assistant</span>
                             </div>
                             <div className="message-content">
-                                <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeHighlight, rehypeKatex]} urlTransform={urlTransform}>
+                                <ReactMarkdown remarkPlugins={MD_REMARK_PLUGINS} rehypePlugins={MD_REHYPE_PLUGINS} urlTransform={urlTransform}>
                                     {streaming}
                                 </ReactMarkdown>
                             </div>
@@ -843,6 +891,10 @@ function App() {
                                         <span>Model</span>
                                         <input value={settings.local_model} onChange={e => updateSetting({local_model: e.target.value})} />
                                     </label>
+                                    <BackendBudgetEditor
+                                        budget={settings.local_budget}
+                                        onChange={b => updateSetting({local_budget: b})}
+                                    />
                                 </div>
                                 <div className="settings-section">
                                     <h3>Vertex AI</h3>
@@ -858,6 +910,10 @@ function App() {
                                         <span>Model</span>
                                         <input value={settings.vertex_model} onChange={e => updateSetting({vertex_model: e.target.value})} />
                                     </label>
+                                    <BackendBudgetEditor
+                                        budget={settings.vertex_budget}
+                                        onChange={b => updateSetting({vertex_budget: b})}
+                                    />
                                 </div>
                             </>)}
                             {settingsTab === 'tools' && (<>
