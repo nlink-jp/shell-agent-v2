@@ -21,8 +21,8 @@ func TestShouldAnnotate_GapTriggers(t *testing.T) {
 		mkRec(now.Add(2*time.Minute), "assistant", "hello"),       // tight cluster
 		mkRec(now.Add(45*time.Minute), "user", "are you still there?"), // gap > 30min
 	}
-	if !shouldAnnotate(records, 0) {
-		t.Error("first record always annotated")
+	if shouldAnnotate(records, 0) {
+		t.Error("first user record should NOT be annotated — system block already provides 'now'")
 	}
 	if shouldAnnotate(records, 1) {
 		t.Error("tightly clustered record should not annotate")
@@ -43,12 +43,24 @@ func TestShouldAnnotate_ToolAlways(t *testing.T) {
 	}
 }
 
-func TestRenderRecordContent_PrependsMarker(t *testing.T) {
+func TestRenderRecordContent_PrependsMarker_ToolRecord(t *testing.T) {
+	now := time.Date(2026, 4, 27, 10, 30, 0, 0, utc)
+	records := []memory.Record{mkRec(now, "tool", "result")}
+	out := renderRecordContent(records, 0, BuildOptions{Loc: utc})
+	if !strings.HasPrefix(out, "[2026-04-27 10:30 UTC]\n") {
+		t.Errorf("tool record should always carry a timestamp; got %q", out)
+	}
+	if !strings.Contains(out, "result") {
+		t.Errorf("body missing; got %q", out)
+	}
+}
+
+func TestRenderRecordContent_NoMarkerOnFirstUserRecord(t *testing.T) {
 	now := time.Date(2026, 4, 27, 10, 30, 0, 0, utc)
 	records := []memory.Record{mkRec(now, "user", "hello")}
 	out := renderRecordContent(records, 0, BuildOptions{Loc: utc})
-	if !strings.HasPrefix(out, "[2026-04-27 10:30 UTC]\n") {
-		t.Errorf("marker missing; got %q", out)
+	if strings.Contains(out, "[2026-04-27") {
+		t.Errorf("first user record should be unannotated to keep models calling tools; got %q", out)
 	}
 	if !strings.Contains(out, "hello") {
 		t.Errorf("body missing; got %q", out)

@@ -217,6 +217,12 @@ either of these conditions:
 - The record is a tool result, report, or any role whose timing has
   domain meaning (the model often needs to know *when* a query ran).
 
+The very first record in a session is **not** annotated. The system
+block already injects "now" via the temporal context, and adding a
+leading timestamp on a fresh first user turn caused gemini-2.5-flash
+to read the message as a logged/historical event and stop dispatching
+tool calls.
+
 Format (English; localized variants in JA doc):
 
 ```

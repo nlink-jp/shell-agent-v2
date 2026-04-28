@@ -19,13 +19,21 @@ var rolesAlwaysAnnotated = map[string]bool{
 }
 
 // shouldAnnotate decides whether to prepend a timestamp marker to record i.
+//
+// We deliberately do NOT annotate the first record by default: the
+// system block already injects "now" via temporal context, and adding
+// a leading timestamp on the very first user turn caused gemini-2.5
+// to read the message as a logged/historical event and stop dispatching
+// tool calls. A marker is added only for records where time is itself
+// information: tool/report results, and any record arriving after a
+// >30-minute gap (so the model knows the session was resumed).
 func shouldAnnotate(records []memory.Record, i int) bool {
 	r := records[i]
 	if rolesAlwaysAnnotated[r.Role] {
 		return true
 	}
 	if i == 0 {
-		return true
+		return false
 	}
 	prev := records[i-1]
 	return r.Timestamp.Sub(prev.Timestamp) > recentGap
