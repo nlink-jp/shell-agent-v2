@@ -65,6 +65,29 @@ func TestBuildSystemPrompt_IncludesAllChannels(t *testing.T) {
 	}
 }
 
+func TestBuildSystemPrompt_SandboxGuidanceConditional(t *testing.T) {
+	e := New("base prompt")
+
+	// Off by default: no sandbox section.
+	if got := e.BuildSystemPrompt("", ""); strings.Contains(got, "sandbox-run-shell") {
+		t.Error("sandbox guidance should be absent when SetSandboxEnabled was not called")
+	}
+
+	e.SetSandboxEnabled(true)
+	got := e.BuildSystemPrompt("", "")
+	for _, want := range []string{"sandbox-run-shell", "sandbox-run-python", "sandbox-write-file", "sandbox-copy-object", "sandbox-register-object", "sandbox-info"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("expected sandbox guidance to mention %q", want)
+		}
+	}
+
+	// And turning it back off removes it.
+	e.SetSandboxEnabled(false)
+	if got := e.BuildSystemPrompt("", ""); strings.Contains(got, "sandbox-run-shell") {
+		t.Error("disabling should remove the sandbox guidance")
+	}
+}
+
 func TestWrapUserToolContent_RotatesWithSystemPrompt(t *testing.T) {
 	e := New("base")
 	_ = e.BuildSystemPrompt("", "")

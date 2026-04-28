@@ -15,9 +15,10 @@ import (
 
 // Engine builds LLM messages from session state.
 type Engine struct {
-	systemPrompt string
-	location     string
-	guardTag     guard.Tag
+	systemPrompt    string
+	location        string
+	sandboxEnabled  bool
+	guardTag        guard.Tag
 }
 
 // New creates a new chat Engine.
@@ -34,6 +35,31 @@ func New(systemPrompt string) *Engine {
 func (e *Engine) SetLocation(location string) {
 	e.location = sanitizeSystemContext(location, 200)
 }
+
+// SetSandboxEnabled toggles the sandbox-tool guidance section in
+// BuildSystemPrompt. The agent calls this from maybeStartSandbox and
+// RestartSandbox so the guidance shows up only when the sandbox-*
+// tools are actually available — otherwise the LLM would hallucinate
+// calls to tools that aren't there.
+func (e *Engine) SetSandboxEnabled(enabled bool) {
+	e.sandboxEnabled = enabled
+}
+
+// sandboxGuidance is the system-prompt section that appears when the
+// sandbox is enabled. It tells the model how to chain the six
+// sandbox-* tools so they aren't a black box at the start of a
+// conversation.
+const sandboxGuidance = `
+
+A per-session container sandbox is available. Use it whenever the user asks you to run code, generate files, or do anything that has side effects you don't want on the host:
+- sandbox-run-shell — run a shell command in the container; files in /work persist within this session
+- sandbox-run-python — run Python code in the container
+- sandbox-write-file — write text content to /work/<path> directly (avoids heredoc escaping)
+- sandbox-copy-object — copy an object from the central store into /work so you can analyze it
+- sandbox-register-object — register a /work file (chart, generated CSV, etc.) back into the central object store; the returned ID can be referenced from reports as ![alt](object:ID)
+- sandbox-info — describe the runtime (engine, image, Python version, installed pip packages, /work listing). Call this once early when you need to know what is preinstalled.
+
+Workflow tips: when a tool produces a file under /work, immediately call sandbox-register-object on it in the same response so it's available for reports and downstream tools. Don't only describe what you would do — emit the actual function call.`
 
 // sanitizeSystemContext strips characters that could be used for
 // prompt injection when content is concatenated into the system prompt.
@@ -68,6 +94,9 @@ func (e *Engine) BuildSystemPrompt(pinnedContext, findingsContext string) string
 		timeContext += "\nLocation: " + e.location
 	}
 	full := fmt.Sprintf("%s\n\n%s", e.systemPrompt, timeContext)
+	if e.sandboxEnabled {
+		full += sandboxGuidance
+	}
 	if pinnedContext != "" {
 		full += "\n\nImportant facts you remember about the user:\n" + pinnedContext
 	}
@@ -99,6 +128,9 @@ func (e *Engine) BuildMessages(session *memory.Session, pinnedContext, findingsC
 		timeContext += "\nLocation: " + e.location
 	}
 	fullSystem := fmt.Sprintf("%s\n\n%s", e.systemPrompt, timeContext)
+	if e.sandboxEnabled {
+		fullSystem += sandboxGuidance
+	}
 	if pinnedContext != "" {
 		fullSystem += "\n\nImportant facts you remember about the user:\n" + pinnedContext
 	}

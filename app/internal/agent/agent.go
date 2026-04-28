@@ -123,8 +123,15 @@ func New(cfg *config.Config) *Agent {
 
 // maybeStartSandbox initialises a.sandbox when Sandbox.Enabled is true
 // and a container engine is on PATH. Failure is non-fatal — the
-// sandbox-* tools just stay hidden.
+// sandbox-* tools just stay hidden. The chat engine is told whether
+// the sandbox is up so the system-prompt sandbox guidance only shows
+// when the tools actually exist.
 func (a *Agent) maybeStartSandbox() {
+	defer func() {
+		if a.chat != nil {
+			a.chat.SetSandboxEnabled(a.sandbox != nil)
+		}
+	}()
 	if !a.cfg.Sandbox.Enabled {
 		return
 	}
