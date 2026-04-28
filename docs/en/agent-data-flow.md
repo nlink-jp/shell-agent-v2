@@ -253,38 +253,93 @@ Not the raw tool output — prefixed with tool name for LLM context.
 
 ## 4. Memory Compaction
 
-### 4.1 When to Compact
+There are two compaction implementations: the original v1 *destructive*
+path (Hot → Warm summary record, replacing hot records in place) and
+the v2 *non-destructive* path implemented in `internal/contextbuild`.
+Selection is gated by `Memory.UseV2`. See
+[memory-architecture-v2.md](./memory-architecture-v2.md) for the full
+v2 design.
 
-Called as post-response background task, after every non-empty response:
+### 4.1 When Compaction Runs
+
+Called both synchronously before each LLM call and as a post-response
+async safety net:
 
 ```
+agentLoop iteration
+  → compactIfOverBudget(ctx)         // synchronous, before BuildMessages
+  → backend.Chat(...)
+  ...
 agentLoop returns
   → go generateTitleIfNeeded(ctx)
-  → go compactMemoryIfNeeded(ctx)    // NEW: must be called
+  → go compactMemoryIfNeeded(ctx)    // async post-response
   → go extractPinnedMemories(ctx)
   → session.Save()                   // synchronous final save
 ```
 
-### 4.2 Compaction Flow
+When `Memory.UseV2 == true`, both `compactIfOverBudget` and
+`compactMemoryIfNeeded` short-circuit immediately — the v2
+`ContextBuilder.Build` produces the LLM messages on demand, deriving
+summaries from a content-keyed cache without mutating session records.
+
+### 4.2 v1 Destructive Compaction Flow (UseV2 == false)
 
 ```
-compactMemoryIfNeeded(ctx):
+compactIfOverBudget(ctx) / compactMemoryIfNeeded(ctx):
   1. Calculate total hot tokens: sum(EstimateTokens(r.Content) for hot records)
-  2. If hotTokens <= cfg.Memory.HotTokenLimit: return (no compaction needed)
-  3. Target: reduce to 75% of limit
-  4. Select oldest hot records (keep at least latest 2: user + assistant)
-  5. Build conversation text from selected records
-  6. LLM call: "Summarize this conversation segment" (no tools)
-  7. Create warm summary record:
+  2. If hotTokens <= a.currentHotTokenLimit() (per-backend): return
+  3. Find split point — guarantee at least the most recent record stays
+     in hot, even if it alone exceeds the budget (regression fix from
+     v0.1.1: prevents Vertex 400 "empty contents")
+  4. LLM call: "Summarize this conversation segment" (no tools)
+  5. Create warm summary record:
      - Role: "summary"
      - Tier: TierWarm
      - SummaryRange: {From: first.Timestamp, To: last.Timestamp}
-  8. Replace selected hot records with warm summary
-  9. Save session
-  10. Emit "memory:compacted" event to frontend
+  6. Replace selected hot records with warm summary
+  7. Save session
 ```
 
-### 4.3 Token Estimation
+This path is destructive: original records are removed and replaced by
+the summary. Sessions older than v0.1.3 typically still contain such
+warm-summary records; v2 reads them as opaque pre-summarized blocks
+(see §4.4 below).
+
+### 4.3 v2 Non-Destructive Path (UseV2 == true)
+
+Records remain immutable. `agent.buildMessagesV2` calls
+`contextbuild.Build` on every LLM round. The builder walks newest →
+oldest through `session.Records`, includes raw records up to the
+active backend's `MaxContextTokens` budget, and folds the older tail
+into a summary fetched from (or created in) a per-session cache at
+`sessions/<id>/summaries.json`. Cache keys hash record content +
+summarizer ID so cache reuse is automatic and content edits invalidate
+old entries.
+
+Per-backend budget is resolved through `cfg.ContextBudgetFor(backend)`
+and `cfg.HotTokenLimitFor(backend)`. For the local backend a 16K
+context typically forces a small acc + summary; Vertex's 1M+ window
+usually keeps the entire session raw with the summary branch dormant.
+
+### 4.4 BuildMessages with Tiers
+
+Order is the same in both paths:
+
+```
+1. System prompt (always first; pinned + findings already merged)
+2. Summary block — v1: legacy "summary" tier records; v2: cache summary
+   (rendered with a `[Summary of N earlier turns — from … to …]` time-range
+   header so the LLM knows when the older content occurred)
+3. Raw records in chronological order
+   - Skip role="summary" (handled in step 2)
+   - Skip "[Calling: ...]" assistant placeholders (gemma mimics them otherwise)
+   - Guard-wrap user and tool content (prompt-injection defense)
+   - In v2: record timestamp marker `[YYYY-MM-DD HH:MM TZ]` prepended
+     when there is a >30-min gap from the previous record, or for any
+     tool/report record (see memory-architecture-v2.md §6.5)
+```
+
+### 4.5 Token Estimation
 
 ```go
 func EstimateTokens(s string) int {
@@ -292,19 +347,6 @@ func EstimateTokens(s string) int {
     wordBased := len(s) / 4   // English: ~4 chars per token
     return max(charBased, wordBased)
 }
-```
-
-### 4.4 BuildMessages with Tiers
-
-Message construction order:
-
-```
-1. System prompt (always first)
-2. Warm/Cold summary records (oldest first)
-3. Hot records (chronological order)
-   - Skip role="summary" (already included above)
-   - Skip empty content
-   - Guard-wrap user and tool content
 ```
 
 ## 5. Object Repository

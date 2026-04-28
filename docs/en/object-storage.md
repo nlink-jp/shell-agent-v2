@@ -297,6 +297,54 @@ Frontend maintains an in-memory cache:
 - Subsequent access: return from cache
 - Cache invalidation: on session switch
 
+### 7.4 Objects Sidebar Panel (v0.1.3+)
+
+A dedicated **Objects** sidebar panel exposes the central repository
+for direct inspection.
+
+**Listing:** `bindings.ListObjects()` returns every object's metadata
+(`ID / Type / MimeType / OrigName / CreatedAt / SessionID / Size`)
+sorted newest-first. The panel renders one row per object:
+
+- **Image** — thumbnail via the existing `ObjectImage` component;
+  click opens the lightbox.
+- **Report** — clickable document icon (📄). Click loads the markdown
+  via `bindings.GetObjectText(id)` and opens it in the existing
+  fullscreen report viewer.
+- **Blob** — generic icon, no preview.
+
+**Bulk delete with reference awareness.** The same `BulkActions`
+toolbar used by Findings / Pinned applies. Two-click confirm pattern:
+
+```
+first click  → bindings.ObjectReferences(selectedIds) is called;
+               counts how many sessions still reference each id
+               (Record.ObjectIDs match OR "object:<id>" substring in
+               Record.Content for markdown image refs in reports)
+               confirm-state button shows:
+                 "Confirm delete N"           if no live refs
+                 "K/N still in use — confirm" otherwise
+second click → bindings.DeleteObjects(ids) executes the deletion
+```
+
+Single-row delete (the per-row × button) applies the same logic:
+zero references → delete immediately; non-zero → × flips to `!` and
+arms a 6-second window for the second click.
+
+**Export.** Per-row `⤓` → `bindings.ExportObject(id)` → save dialog.
+For `TypeReport`, the markdown is passed through
+`resolveObjectRefsForExport` so `object:ID` image references are
+inlined as `data:` URLs (saved `.md` is self-contained). For images
+and blobs the raw bytes are written. Default filename is `OrigName`,
+falling back to `<id><ext>` where the extension is derived from
+`MimeType`.
+
+**Cascade behaviour.** Direct user-driven deletion does NOT scan or
+update other sessions; dangling refs may result. `ObjectImage` falls
+back to a `🖼 alt` placeholder on `object not found`, so broken refs
+degrade gracefully. The existing `objstore.DeleteBySession` cascade
+is unchanged.
+
 ## 8. v1 → v2 Differences
 
 | Aspect | v1 | v2 |

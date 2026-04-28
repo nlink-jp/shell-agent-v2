@@ -136,32 +136,84 @@ type Record struct {
 
 ## 4. メモリ圧縮
 
+圧縮実装は2系統あり、`Memory.UseV2` で切り替わる:
+
+- **v1 破壊的圧縮** — Hot レコードを Warm サマリーで上書き置換
+- **v2 非破壊的圧縮** — `internal/contextbuild` がレコード本体は不変のまま、コール毎に LLM コンテキストをビルド
+
+v2 設計の詳細は [memory-architecture-v2.ja.md](./memory-architecture-v2.ja.md) 参照。
+
 ### 4.1 呼び出しタイミング
 
-レスポンス後のバックグラウンドタスクとして毎回実行:
+LLM コール毎の同期実行と、レスポンス後の async セーフティネットの両方:
 
 ```
+agentLoop iteration
+  → compactIfOverBudget(ctx)         // 同期、BuildMessages の前
+  → backend.Chat(...)
+  ...
 agentLoop 完了
   → go generateTitleIfNeeded(ctx)
-  → go compactMemoryIfNeeded(ctx)    // 必須: 呼び出すこと
+  → go compactMemoryIfNeeded(ctx)    // async post-response
   → go extractPinnedMemories(ctx)
   → session.Save()                   // 同期的な最終保存
 ```
 
-### 4.2 圧縮フロー
+`Memory.UseV2 == true` のとき `compactIfOverBudget` と
+`compactMemoryIfNeeded` の両者が即座に no-op で返る。v2 の
+`ContextBuilder.Build` がコール毎に LLM メッセージを生成し、
+content-key 付きキャッシュから要約を取得する（レコード本体は変更しない）。
+
+### 4.2 v1 破壊的圧縮フロー (UseV2 == false)
 
 ```
-compactMemoryIfNeeded(ctx):
+compactIfOverBudget(ctx) / compactMemoryIfNeeded(ctx):
   1. Hot トークン合計計算
-  2. hotTokens <= cfg.Memory.HotTokenLimit なら return
-  3. 目標: リミットの 75% まで削減
-  4. 最も古い Hot レコードを選択 (最新の user+assistant ペアは保持)
-  5. 選択レコードから会話テキスト構築
-  6. LLM 呼び出し: 要約生成 (tools なし)
-  7. Warm サマリーレコード作成 (Role="summary", Tier=TierWarm)
-  8. 選択 Hot レコードを Warm サマリーで置換
-  9. セッション保存
-  10. "memory:compacted" イベント発行
+  2. hotTokens <= a.currentHotTokenLimit() (per-backend) なら return
+  3. split point を決定 — 最新レコードが単独で予算超過の場合でも
+     最低 1 件は hot に残す（v0.1.1 の Vertex 400 退行 fix:
+     contents 空配列でリクエスト拒否される問題を防止）
+  4. LLM 呼び出し: 要約生成 (tools なし)
+  5. Warm サマリーレコード作成 (Role="summary", Tier=TierWarm)
+  6. 選択 Hot レコードを Warm サマリーで置換
+  7. セッション保存
+```
+
+破壊的: 元レコードは削除されサマリーで置換される。v0.1.3 以前のセッション
+には typically Warm サマリーレコードが残存。v2 はこれらを不透明な事前要約
+ブロックとして読む（§4.4 参照）。
+
+### 4.3 v2 非破壊的経路 (UseV2 == true)
+
+レコードは不変。`agent.buildMessagesV2` が毎ラウンド `contextbuild.Build`
+を呼ぶ。Builder は `session.Records` を newest → oldest に walk し、
+アクティブバックエンドの `MaxContextTokens` 予算内まで生レコードを
+include、残りの古い tail はセッション毎キャッシュ
+(`sessions/<id>/summaries.json`) から取得 or 生成した要約に折り畳む。
+キャッシュキーは「レコード content + summarizer ID」のハッシュなので
+キャッシュ再利用は自動、レコード編集で旧エントリは無効化される。
+
+per-backend 予算は `cfg.ContextBudgetFor(backend)` と
+`cfg.HotTokenLimitFor(backend)` で解決。Local の 16K コンテキストでは
+小さい acc + 要約に、Vertex の 1M+ ウィンドウでは要約分岐は休眠したまま
+全レコードが生で残る。
+
+### 4.4 BuildMessages とサマリー扱い
+
+順序は両経路とも同じ:
+
+```
+1. システムプロンプト（pinned + findings をマージ済み）
+2. サマリーブロック — v1: legacy "summary" tier レコード、v2: キャッシュ要約
+   （`【N 件の過去ターンの要約 — … から … まで】` のレンジヘッダ付き、
+   LLM が古いコンテンツの時系列を認識可能）
+3. 生レコード（chronological）
+   - role="summary" はスキップ（step 2 で処理済）
+   - "[Calling: ...]" assistant プレースホルダはスキップ（gemma 模倣防止）
+   - user / tool は guard wrap（プロンプトインジェクション防御）
+   - v2: 直前から 30 分超の間隔がある最初のレコード or tool/report に
+     `【YYYY-MM-DD HH:MM TZ】` タイムスタンプマーカを付加
+     （memory-architecture-v2.ja.md §6.5 参照）
 ```
 
 ## 5. オブジェクトリポジトリ
