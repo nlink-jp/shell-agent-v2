@@ -288,6 +288,8 @@ func (b *Bindings) DeleteSession(sessionID string) error {
 	// Clean up findings originating from this session
 	if b.agent != nil {
 		b.agent.DeleteFindingsBySession(sessionID)
+		// Tear down the session's sandbox container, if any.
+		_ = b.agent.SandboxStop(b.ctx, sessionID)
 	}
 	return memory.DeleteSessionDir(sessionID)
 }
@@ -390,6 +392,17 @@ type BackendBudgetData struct {
 	MaxToolResultTokens int `json:"max_tool_result_tokens"`
 }
 
+// SandboxData mirrors config.SandboxConfig for the frontend.
+type SandboxData struct {
+	Enabled        bool   `json:"enabled"`
+	Engine         string `json:"engine"`
+	Image          string `json:"image"`
+	Network        bool   `json:"network"`
+	CPULimit       string `json:"cpu_limit"`
+	MemoryLimit    string `json:"memory_limit"`
+	TimeoutSeconds int    `json:"timeout_seconds"`
+}
+
 // SettingsData is the JSON-serializable settings for the frontend.
 type SettingsData struct {
 	DefaultBackend string            `json:"default_backend"`
@@ -406,6 +419,7 @@ type SettingsData struct {
 	DisabledTools  []string          `json:"disabled_tools"`
 	MITLOverrides  map[string]bool   `json:"mitl_overrides"`
 	MemoryUseV2    bool              `json:"memory_use_v2"`
+	Sandbox        SandboxData       `json:"sandbox"`
 }
 
 // GetSettings returns current settings.
@@ -437,6 +451,15 @@ func (b *Bindings) GetSettings() SettingsData {
 		DisabledTools:  b.cfg.Tools.DisabledTools,
 		MITLOverrides:  b.cfg.Tools.MITLOverrides,
 		MemoryUseV2:    b.cfg.Memory.UseV2,
+		Sandbox: SandboxData{
+			Enabled:        b.cfg.Sandbox.Enabled,
+			Engine:         b.cfg.Sandbox.Engine,
+			Image:          b.cfg.Sandbox.Image,
+			Network:        b.cfg.Sandbox.Network,
+			CPULimit:       b.cfg.Sandbox.CPULimit,
+			MemoryLimit:    b.cfg.Sandbox.MemoryLimit,
+			TimeoutSeconds: b.cfg.Sandbox.TimeoutSeconds,
+		},
 	}
 }
 
@@ -472,6 +495,16 @@ func (b *Bindings) SaveSettings(s SettingsData) error {
 	b.cfg.Tools.MCPProfiles = profiles
 	b.cfg.Tools.DisabledTools = s.DisabledTools
 	b.cfg.Tools.MITLOverrides = s.MITLOverrides
+
+	b.cfg.Sandbox = config.SandboxConfig{
+		Enabled:        s.Sandbox.Enabled,
+		Engine:         s.Sandbox.Engine,
+		Image:          s.Sandbox.Image,
+		Network:        s.Sandbox.Network,
+		CPULimit:       s.Sandbox.CPULimit,
+		MemoryLimit:    s.Sandbox.MemoryLimit,
+		TimeoutSeconds: s.Sandbox.TimeoutSeconds,
+	}
 
 	return b.cfg.Save()
 }

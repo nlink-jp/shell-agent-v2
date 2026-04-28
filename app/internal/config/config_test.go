@@ -211,6 +211,40 @@ func TestSave_PermissionsRestrictive(t *testing.T) {
 	}
 }
 
+func TestSandboxDefaults(t *testing.T) {
+	cfg := Default()
+	if cfg.Sandbox.Enabled {
+		t.Error("default Sandbox.Enabled should be false")
+	}
+	if cfg.Sandbox.Engine != "auto" {
+		t.Errorf("Engine = %q, want auto", cfg.Sandbox.Engine)
+	}
+	if cfg.Sandbox.Image == "" {
+		t.Error("default Image should be populated")
+	}
+	if cfg.Sandbox.TimeoutSeconds != 60 {
+		t.Errorf("TimeoutSeconds = %d, want 60", cfg.Sandbox.TimeoutSeconds)
+	}
+}
+
+func TestResolvedSandbox_FillsEmptyFields(t *testing.T) {
+	cfg := &Config{}
+	rs := cfg.ResolvedSandbox()
+	if rs.Engine != "auto" || rs.Image == "" || rs.CPULimit == "" || rs.MemoryLimit == "" || rs.TimeoutSeconds == 0 {
+		t.Errorf("ResolvedSandbox missing defaults: %+v", rs)
+	}
+}
+
+func TestResolvedSandbox_PreservesUserValues(t *testing.T) {
+	cfg := &Config{Sandbox: SandboxConfig{
+		Engine: "docker", Image: "myimg", CPULimit: "4", MemoryLimit: "4g", TimeoutSeconds: 120,
+	}}
+	rs := cfg.ResolvedSandbox()
+	if rs.Engine != "docker" || rs.Image != "myimg" || rs.CPULimit != "4" || rs.MemoryLimit != "4g" || rs.TimeoutSeconds != 120 {
+		t.Errorf("user values overwritten: %+v", rs)
+	}
+}
+
 func TestExpandPath(t *testing.T) {
 	t.Setenv("HOME", "/Users/test")
 	for in, want := range map[string]string{

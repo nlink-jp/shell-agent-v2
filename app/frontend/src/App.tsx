@@ -159,6 +159,17 @@ interface Settings {
     disabled_tools: string[];
     mitl_overrides: Record<string, boolean>;
     memory_use_v2: boolean;
+    sandbox: SandboxSettings;
+}
+
+interface SandboxSettings {
+    enabled: boolean;
+    engine: string;
+    image: string;
+    network: boolean;
+    cpu_limit: string;
+    memory_limit: string;
+    timeout_seconds: number;
 }
 
 type SidebarPanel = 'sessions' | 'status' | 'objects';
@@ -1156,6 +1167,46 @@ function App() {
                                         <span>Use v2 context builder (experimental)</span>
                                     </label>
                                     <p className="sidebar-hint">Records stay immutable; older context is summarized on demand and cached. Time-range markers added for LLM temporal awareness. See docs/en/memory-architecture-v2.md.</p>
+                                </div>
+                                <div className="settings-section">
+                                    <h3>Sandbox (experimental)</h3>
+                                    <label>
+                                        <input type="checkbox" checked={!!settings.sandbox?.enabled} onChange={e => updateSetting({sandbox: {...settings.sandbox, enabled: e.target.checked}})} />
+                                        <span>Enable container sandbox (podman/docker required, restart to take effect)</span>
+                                    </label>
+                                    <p className="sidebar-hint">When enabled, exposes six sandbox-* tools that run shell/Python inside a per-session container. /work is mounted from the session's data dir. See docs/en/sandbox-execution.md.</p>
+                                    {settings.sandbox?.enabled && (
+                                        <>
+                                            <label>
+                                                <span>Engine</span>
+                                                <select value={settings.sandbox.engine || 'auto'} onChange={e => updateSetting({sandbox: {...settings.sandbox, engine: e.target.value}})}>
+                                                    <option value="auto">auto (podman → docker)</option>
+                                                    <option value="podman">podman</option>
+                                                    <option value="docker">docker</option>
+                                                </select>
+                                            </label>
+                                            <label>
+                                                <span>Image</span>
+                                                <input value={settings.sandbox.image || ''} placeholder="python:3.12-slim" onChange={e => updateSetting({sandbox: {...settings.sandbox, image: e.target.value}})} />
+                                            </label>
+                                            <label>
+                                                <input type="checkbox" checked={!!settings.sandbox.network} onChange={e => updateSetting({sandbox: {...settings.sandbox, network: e.target.checked}})} />
+                                                <span>Allow network egress (default off)</span>
+                                            </label>
+                                            <label>
+                                                <span>CPU limit</span>
+                                                <input value={settings.sandbox.cpu_limit || ''} placeholder="2" onChange={e => updateSetting({sandbox: {...settings.sandbox, cpu_limit: e.target.value}})} />
+                                            </label>
+                                            <label>
+                                                <span>Memory limit</span>
+                                                <input value={settings.sandbox.memory_limit || ''} placeholder="1g" onChange={e => updateSetting({sandbox: {...settings.sandbox, memory_limit: e.target.value}})} />
+                                            </label>
+                                            <label>
+                                                <span>Per-call timeout (seconds)</span>
+                                                <input type="number" min={5} value={settings.sandbox.timeout_seconds || 60} onChange={e => updateSetting({sandbox: {...settings.sandbox, timeout_seconds: parseInt(e.target.value, 10) || 60}})} />
+                                            </label>
+                                        </>
+                                    )}
                                 </div>
                                 <div className="settings-section">
                                     <h3>Local LLM</h3>

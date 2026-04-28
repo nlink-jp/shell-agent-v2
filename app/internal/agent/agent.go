@@ -21,6 +21,7 @@ import (
 	"github.com/nlink-jp/shell-agent-v2/internal/mcp"
 	"github.com/nlink-jp/shell-agent-v2/internal/memory"
 	"github.com/nlink-jp/shell-agent-v2/internal/objstore"
+	"github.com/nlink-jp/shell-agent-v2/internal/sandbox"
 	"github.com/nlink-jp/shell-agent-v2/internal/toolcall"
 )
 
@@ -84,6 +85,7 @@ type Agent struct {
 	guardians       map[string]*mcp.Guardian
 	guardiansMu     sync.RWMutex
 	mcpStatuses     []MCPStatus
+	sandbox         sandbox.Engine // nil when disabled or no engine on PATH
 	postTasksWg     sync.WaitGroup // ensures post-response tasks finish before next Send
 
 	// Token usage tracking (session-scoped, reset on session switch)
@@ -112,10 +114,37 @@ func New(cfg *config.Config) *Agent {
 		guardians:    make(map[string]*mcp.Guardian),
 	}
 	a.startGuardians()
+	a.maybeStartSandbox()
 	a.setBackend(cfg.LLM.DefaultBackend)
 	_ = a.findings.Load()
 	_ = a.pinned.Load()
 	return a
+}
+
+// maybeStartSandbox initialises a.sandbox when Sandbox.Enabled is true
+// and a container engine is on PATH. Failure is non-fatal — the
+// sandbox-* tools just stay hidden.
+func (a *Agent) maybeStartSandbox() {
+	if !a.cfg.Sandbox.Enabled {
+		return
+	}
+	rs := a.cfg.ResolvedSandbox()
+	eng, err := sandbox.NewCLI(sandbox.Config{
+		Engine:         rs.Engine,
+		Image:          rs.Image,
+		Network:        rs.Network,
+		CPULimit:       rs.CPULimit,
+		MemoryLimit:    rs.MemoryLimit,
+		TimeoutSeconds: rs.TimeoutSeconds,
+		SessionsDir:    filepath.Join(config.DataDir(), "sessions"),
+	})
+	if err != nil {
+		logger.Info("sandbox: %v — sandbox tools will be unavailable", err)
+		return
+	}
+	a.sandbox = eng
+	bin, _ := eng.Detect()
+	logger.Info("sandbox: enabled (engine=%s, image=%s)", bin, rs.Image)
 }
 
 // State returns the current agent state.
@@ -318,6 +347,9 @@ func (a *Agent) Abort() {
 func (a *Agent) Close() {
 	a.Abort()
 	a.stopGuardians()
+	if a.sandbox != nil {
+		_ = a.sandbox.StopAll(context.Background())
+	}
 }
 
 // MCPStatus holds the status of a guardian for UI display.
@@ -511,6 +543,13 @@ func (a *Agent) ListTools() []ToolInfoItem {
 	// Shell script tools
 	for _, t := range a.toolRegistry.All() {
 		items = append(items, ToolInfoItem{Name: t.Name, Description: t.Description, Category: string(t.Category), Source: "shell"})
+	}
+
+	// Sandbox tools (all treated as "execute")
+	if a.sandbox != nil {
+		for _, td := range sandboxToolDefs() {
+			items = append(items, ToolInfoItem{Name: td.Name, Description: td.Description, Category: "execute", Source: "sandbox"})
+		}
 	}
 
 	// MCP guardian tools (all treated as "execute" — external service operations)
@@ -888,6 +927,15 @@ func (a *Agent) executeTool(ctx context.Context, tc llm.ToolCall) string {
 		}
 		return result
 	default:
+		// Sandbox tools (prefixed with "sandbox-")
+		if strings.HasPrefix(tc.Name, "sandbox-") {
+			if a.IsToolMITLRequired(tc.Name) {
+				if rejection := a.requestMITL(tc.Name, tc.Arguments, "execute"); rejection != "" {
+					return rejection
+				}
+			}
+			return a.executeSandboxTool(ctx, tc.Name, tc.Arguments)
+		}
 		// Check MCP guardian tools (prefixed with "mcp__")
 		if strings.HasPrefix(tc.Name, "mcp__") {
 			// MITL for MCP: default on, can be overridden per tool
@@ -960,6 +1008,11 @@ func (a *Agent) buildToolDefs() []llm.ToolDef {
 		})
 	}
 
+	// Add sandbox tools when the engine is running
+	if a.sandbox != nil {
+		tools = append(tools, sandboxToolDefs()...)
+	}
+
 	// Add MCP guardian tools
 	a.guardiansMu.RLock()
 	for name, g := range a.guardians {
@@ -1002,8 +1055,11 @@ func (a *Agent) IsToolMITLRequired(toolName string) bool {
 	if override, ok := a.cfg.Tools.MITLOverrides[toolName]; ok {
 		return override
 	}
-	// Default: MCP tools require MITL
+	// Default: MCP and sandbox tools require MITL.
 	if strings.HasPrefix(toolName, "mcp__") {
+		return true
+	}
+	if strings.HasPrefix(toolName, "sandbox-") {
 		return true
 	}
 	return false

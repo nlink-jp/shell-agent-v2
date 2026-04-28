@@ -87,6 +87,18 @@ type ContextBudgetConfig struct {
 	MaxToolResultTokens int `json:"max_tool_result_tokens"` // per-tool-result truncation
 }
 
+// SandboxConfig controls the per-session container sandbox.
+// Design: docs/en/sandbox-execution.md
+type SandboxConfig struct {
+	Enabled        bool   `json:"enabled"`
+	Engine         string `json:"engine,omitempty"`          // "auto" | "podman" | "docker"
+	Image          string `json:"image,omitempty"`
+	Network        bool   `json:"network,omitempty"`
+	CPULimit       string `json:"cpu_limit,omitempty"`
+	MemoryLimit    string `json:"memory_limit,omitempty"`
+	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
+}
+
 // Config is the root application configuration.
 type Config struct {
 	LLM            LLMConfig           `json:"llm"`
@@ -94,6 +106,7 @@ type Config struct {
 	ContextBudget  ContextBudgetConfig `json:"context_budget"`
 	Tools          ToolsConfig         `json:"tools"`
 	UI             UIConfig            `json:"ui"`
+	Sandbox        SandboxConfig       `json:"sandbox,omitzero"`
 	Location       string              `json:"location,omitempty"`
 	LastSession    string              `json:"last_session,omitempty"`
 }
@@ -144,7 +157,40 @@ func Default() *Config {
 			Theme:       "dark",
 			StartupMode: "last",
 		},
+		Sandbox: SandboxConfig{
+			Enabled:        false,
+			Engine:         "auto",
+			Image:          "python:3.12-slim",
+			Network:        false,
+			CPULimit:       "2",
+			MemoryLimit:    "1g",
+			TimeoutSeconds: 60,
+		},
 	}
+}
+
+// ResolvedSandbox returns the sandbox config with empty fields filled
+// from defaults — for callers (e.g. internal/sandbox.NewCLI) that
+// need every field populated regardless of how the user wrote
+// config.json.
+func (c *Config) ResolvedSandbox() SandboxConfig {
+	s := c.Sandbox
+	if s.Engine == "" {
+		s.Engine = "auto"
+	}
+	if s.Image == "" {
+		s.Image = "python:3.12-slim"
+	}
+	if s.CPULimit == "" {
+		s.CPULimit = "2"
+	}
+	if s.MemoryLimit == "" {
+		s.MemoryLimit = "1g"
+	}
+	if s.TimeoutSeconds == 0 {
+		s.TimeoutSeconds = 60
+	}
+	return s
 }
 
 // ExpandPath expands ~ to the user's home directory.
