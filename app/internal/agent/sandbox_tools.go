@@ -86,6 +86,18 @@ func sandboxToolDefs() []llm.ToolDef {
 				"properties": map[string]any{},
 			},
 		},
+		{
+			Name:        "sandbox-load-into-analysis",
+			Description: "Load a CSV/JSON/JSONL file from /work into the analysis database (DuckDB) as a table, so it can be queried with query-sql, described with describe-data, etc. Use this after generating data with sandbox-run-python to bridge the produced file into the analysis side. The path is relative to /work.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"path":       map[string]any{"type": "string", "description": "Path to the data file under /work (e.g. 'sales.csv')."},
+					"table_name": map[string]any{"type": "string", "description": "Table name to create in the analysis database. Alphanumeric and underscores only."},
+				},
+				"required": []string{"path", "table_name"},
+			},
+		},
 	}
 }
 
@@ -121,6 +133,8 @@ func (a *Agent) executeSandboxTool(ctx context.Context, name, argsJSON string) s
 		return a.toolSandboxRegisterObject(sid, argsJSON)
 	case "sandbox-info":
 		return a.toolSandboxInfo(ctx, sid)
+	case "sandbox-load-into-analysis":
+		return a.toolSandboxLoadIntoAnalysis(sid, argsJSON)
 	default:
 		return fmt.Sprintf("Error: unknown sandbox tool %q", name)
 	}
@@ -282,6 +296,43 @@ func (a *Agent) toolSandboxInfo(ctx context.Context, sid string) string {
 		return "Error: " + err.Error()
 	}
 	return sandbox.FormatInfo(info)
+}
+
+// toolSandboxLoadIntoAnalysis bridges a /work file into the DuckDB
+// analysis engine. The /work directory is on the host filesystem
+// (mounted into the container), so we can read it directly via
+// analysis.LoadFile without going through the container.
+func (a *Agent) toolSandboxLoadIntoAnalysis(sid, argsJSON string) string {
+	if a.analysis == nil {
+		return "Error: analysis engine not available in this session"
+	}
+	var args struct {
+		Path      string `json:"path"`
+		TableName string `json:"table_name"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return "Error: invalid arguments: " + err.Error()
+	}
+	if args.Path == "" || args.TableName == "" {
+		return "Error: 'path' and 'table_name' are required"
+	}
+	src, err := safeWorkPath(a.sandbox.WorkDir(sid), args.Path)
+	if err != nil {
+		return "Error: " + err.Error()
+	}
+	if _, statErr := os.Stat(src); statErr != nil {
+		return "Error: file not found at /work/" + args.Path
+	}
+	if err := a.analysis.LoadFile(args.TableName, src); err != nil {
+		return "Error: load: " + err.Error()
+	}
+	for _, t := range a.analysis.Tables() {
+		if t.Name == args.TableName {
+			return fmt.Sprintf("Loaded /work/%s into table %q: %d rows, columns: %v",
+				args.Path, t.Name, t.RowCount, t.Columns)
+		}
+	}
+	return fmt.Sprintf("Loaded /work/%s into table %q", args.Path, args.TableName)
 }
 
 // RestartSandbox tears down every existing sandbox container and

@@ -75,12 +75,13 @@ func TestBuildToolDefs_IncludesSandboxWhenEngineSet(t *testing.T) {
 	a, _ := newAgentWithSandbox(t)
 	tools := a.buildToolDefs()
 	wantNames := map[string]bool{
-		"sandbox-run-shell":       false,
-		"sandbox-run-python":      false,
-		"sandbox-write-file":      false,
-		"sandbox-copy-object":     false,
-		"sandbox-register-object": false,
-		"sandbox-info":            false,
+		"sandbox-run-shell":          false,
+		"sandbox-run-python":         false,
+		"sandbox-write-file":         false,
+		"sandbox-copy-object":        false,
+		"sandbox-register-object":    false,
+		"sandbox-info":               false,
+		"sandbox-load-into-analysis": false,
 	}
 	for _, td := range tools {
 		if _, ok := wantNames[td.Name]; ok {
@@ -196,6 +197,15 @@ func TestExecuteSandboxTool_RegisterObject(t *testing.T) {
 	}
 	if a.objects.All()[0].MimeType != "image/png" {
 		t.Errorf("MIME = %q, want image/png", a.objects.All()[0].MimeType)
+	}
+}
+
+func TestExecuteSandboxTool_LoadIntoAnalysis_NoEngine(t *testing.T) {
+	a, _ := newAgentWithSandbox(t)
+	a.analysis = nil
+	out := a.executeSandboxTool(context.Background(), "sandbox-load-into-analysis", `{"path":"x.csv","table_name":"t"}`)
+	if !strings.Contains(out, "analysis engine not available") {
+		t.Errorf("expected absent-analysis error: %q", out)
 	}
 }
 
