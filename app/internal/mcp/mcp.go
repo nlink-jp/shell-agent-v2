@@ -44,11 +44,21 @@ type ToolDef struct {
 }
 
 // Guardian manages a single mcp-guardian stdio child process.
+//
+// Concurrency model:
+//
+//   - callMu serializes call() invocations so a write/read pair is atomic
+//     for any one in-flight RPC. Held across stdout.Scan, which can block.
+//   - stateMu guards the shutdown bits (stopped flag, stdin, cmd, tools, id).
+//     It is intentionally NEVER held across blocking I/O so Stop can preempt
+//     a blocked call() — Stop closes stdin and kills the process, which
+//     unblocks the Scan in call() with a read error.
 type Guardian struct {
 	cmd     *exec.Cmd
 	stdin   io.WriteCloser
 	stdout  *bufio.Scanner
-	mu      sync.Mutex
+	callMu  sync.Mutex
+	stateMu sync.Mutex
 	id      int
 	tools   []ToolDef
 	stopped bool
@@ -107,30 +117,34 @@ func (g *Guardian) Start() error {
 	}
 }
 
-// Stop terminates the guardian process.
+// Stop terminates the guardian process. Safe to call from any goroutine
+// concurrently with an in-flight call(): closing stdin and killing the
+// process unblocks the call's stdout.Scan with a read error.
 func (g *Guardian) Stop() error {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-
+	g.stateMu.Lock()
 	if g.stopped {
+		g.stateMu.Unlock()
 		return nil
 	}
 	g.stopped = true
+	stdin := g.stdin
+	g.stdin = nil
+	cmd := g.cmd
+	g.stateMu.Unlock()
 
-	if g.stdin != nil {
-		_ = g.stdin.Close()
-		g.stdin = nil
+	if stdin != nil {
+		_ = stdin.Close()
 	}
-	if g.cmd != nil && g.cmd.Process != nil {
-		return g.cmd.Process.Kill()
+	if cmd != nil && cmd.Process != nil {
+		return cmd.Process.Kill()
 	}
 	return nil
 }
 
 // Tools returns the discovered MCP tools.
 func (g *Guardian) Tools() []ToolDef {
-	g.mu.Lock()
-	defer g.mu.Unlock()
+	g.stateMu.Lock()
+	defer g.stateMu.Unlock()
 	return g.tools
 }
 
@@ -172,22 +186,32 @@ func (g *Guardian) refreshTools() error {
 	if err := json.Unmarshal(resp.Result, &result); err != nil {
 		return fmt.Errorf("parse tools: %w", err)
 	}
+	g.stateMu.Lock()
 	g.tools = result.Tools
+	g.stateMu.Unlock()
 	return nil
 }
 
+// call performs a JSON-RPC round trip. The blocking stdout.Scan runs
+// outside stateMu so Stop can interrupt it by closing stdin and killing
+// the process.
 func (g *Guardian) call(method string, params any) (*Response, error) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
+	g.callMu.Lock()
+	defer g.callMu.Unlock()
 
+	g.stateMu.Lock()
 	if g.stopped || g.stdin == nil {
+		g.stateMu.Unlock()
 		return nil, fmt.Errorf("guardian is stopped")
 	}
-
 	g.id++
+	id := g.id
+	stdin := g.stdin
+	g.stateMu.Unlock()
+
 	req := Request{
 		JSONRPC: "2.0",
-		ID:      g.id,
+		ID:      id,
 		Method:  method,
 		Params:  params,
 	}
@@ -197,7 +221,7 @@ func (g *Guardian) call(method string, params any) (*Response, error) {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
-	if _, err := fmt.Fprintf(g.stdin, "%s\n", data); err != nil {
+	if _, err := fmt.Fprintf(stdin, "%s\n", data); err != nil {
 		return nil, fmt.Errorf("write request: %w", err)
 	}
 

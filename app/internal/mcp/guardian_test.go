@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // makeStub writes a Python script that mimics an MCP guardian on stdio.
@@ -129,11 +130,25 @@ func TestGuardian_StopReleasesResources(t *testing.T) {
 	}
 }
 
-// NOTE: TestGuardian_StartTimesOutOnSilentBinary was attempted and
-// reproducibly hangs Start past its own StartTimeout. Root cause: the
-// internal `call` method holds g.mu across the blocking
-// stdout.Scan, so when the StartTimeout fires and Start invokes
-// g.Stop, Stop deadlocks waiting for that mutex. Filed as a known
-// issue; the timeout test is intentionally omitted until the locking
-// is restructured (Scan should run outside the lock; the response
-// queue should be a per-call channel keyed by request ID).
+// TestGuardian_StartTimesOutOnSilentBinary verifies that a guardian
+// binary which never produces stdout output is reaped within
+// StartTimeout. Regression test for the original locking bug where
+// call() held g.mu across stdout.Scan, deadlocking Stop when the
+// timeout fired.
+func TestGuardian_StartTimesOutOnSilentBinary(t *testing.T) {
+	stub := filepath.Join(t.TempDir(), "silent")
+	if err := os.WriteFile(stub, []byte("#!/usr/bin/env bash\nsleep 60\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	g := NewGuardian(stub)
+	done := make(chan error, 1)
+	go func() { done <- g.Start() }()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Error("Start against silent binary should not succeed")
+		}
+	case <-time.After(StartTimeout + 5*time.Second):
+		t.Fatalf("Start did not return within %s — locking regression", StartTimeout+5*time.Second)
+	}
+}
