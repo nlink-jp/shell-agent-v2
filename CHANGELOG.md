@@ -5,6 +5,48 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.7] - 2026-04-29
+
+### Added
+
+- **Container sandbox** (Settings → Sandbox, opt-in). When enabled
+  the LLM gets six new `sandbox-*` tools that execute inside a
+  per-session container managed via `podman` or `docker`:
+  - `sandbox-run-shell` / `sandbox-run-python` — execute code
+  - `sandbox-write-file` — LLM → sandbox text drop-off
+  - `sandbox-copy-object` — central object store → sandbox
+  - `sandbox-register-object` — sandbox-produced file → object
+    store, returns an ID the LLM can embed in reports as
+    `![alt](object:ID)`
+  - `sandbox-info` — engine, image, Python version, installed pip
+    packages, `/work` listing
+  Files written under `/work` persist within the session and are
+  isolated between sessions. Side effects do not touch the host.
+  MITL-gated, network-off by default, resource-bounded
+  (`--memory`, `--cpus`, per-call timeout).
+  Design: `docs/{en,ja}/sandbox-execution{,.ja}.md` including a
+  macOS setup guide that covers the `podman machine` /
+  `applehv` / `krunkit` pitfalls hit during development.
+- **Settings live reload for the sandbox.** Toggling
+  `Enabled / Engine / Image / Network / cpu_limit / memory_limit /
+  timeout` in Settings tears down existing containers and
+  reconstructs the engine in place — no app restart required.
+- **Automatic image pull.** On the first `sandbox-*` tool call
+  after an image change, the engine runs `podman pull` (or
+  `docker pull`) automatically. The user no longer needs to
+  pre-pull from a separate terminal.
+- **`Bindings.RestartSandbox()`** — exposed to the frontend, used
+  by the Settings save handler.
+
+### Coverage
+
+- New `internal/sandbox` package: 24 unit + 6 integration tests
+  (skipped when no engine is on PATH).
+- New agent dispatch tests: `sandbox_tools_test.go`, 12 cases
+  with a fake engine — covers each tool, MITL default, traversal
+  rejection, lifecycle hooks.
+- `config.SandboxDefaults` / `ResolvedSandbox` cases.
+
 ## [0.1.6] - 2026-04-28
 
 ### Fixed
