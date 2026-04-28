@@ -77,13 +77,14 @@ shell-agent-v2/
 - Tools passed every round (enables tool chaining, e.g. get-location → weather)
 - No streaming — Chat() used for all rounds (tool chaining precludes knowing final round)
 - [Calling:] messages excluded from LLM context (prevents gemma pattern contamination)
-- Synchronous compaction before BuildMessages (HotTokenLimit=4096)
+- Synchronous compaction before BuildMessages (per-backend HotTokenLimit; legacy `Memory.HotTokenLimit` is the fallback only)
 - Post-response tasks (title, compaction, pinned extraction) via async WaitGroup
 
 ### Context Budget Control
-- BuildMessagesWithBudget: newest-first selection, tool result truncation, [Calling:] skip
-- Root cause of tool calling failure: [Calling:] pattern contamination, NOT context length
-- gemma-4 supports 256K tokens; MaxContextTokens defaults to 0 (unlimited)
+- Per-backend `HotTokenLimit` and `ContextBudget` (`Local`, `VertexAI`); resolved by `cfg.HotTokenLimitFor(backend)` / `cfg.ContextBudgetFor(backend)` so the same session adapts to the active model's window.
+- Memory v2 (`Memory.UseV2`, opt-in): records stay immutable, `internal/contextbuild` builds the LLM message list per call, older portions condense via a content-keyed cache stored at `sessions/<id>/summaries.json`. Time-range markers are added to summaries, raw records (after a >30-min gap or for tool/report rows), pinned facts (`(learned …)`), and findings.
+- Legacy v1 path (`UseV2=false`): destructive Hot→Warm summary in place, gated by the per-backend HotTokenLimit. Both paths preserve at least one recent record (Vertex 400 fix).
+- BuildMessagesWithBudget (v1) / contextbuild.Build (v2): newest-first selection, tool result truncation, [Calling:] skip.
 
 ### MITL (Man-In-The-Loop)
 - Shell tools: category-based (read=auto, write/execute=MITL)
@@ -107,19 +108,58 @@ shell-agent-v2/
 - Guardian lifecycle: start on app launch, restart from Settings
 - Path expansion (~/ supported)
 
+### Sandbox (opt-in, v0.1.7+)
+- Per-session container managed via `podman` or `docker`, mounting
+  `sessions/<id>/work/` at `/work`. Engine selected by Settings →
+  Sandbox (auto / podman / docker).
+- Six tools, all prefixed `sandbox-`: `run-shell`, `run-python`,
+  `write-file` (LLM → /work), `copy-object` (objstore → /work),
+  `register-object` (/work → objstore), `info` (engine, image,
+  Python version, pip list, /work listing). All MITL by default.
+- Lifecycle: lazy `EnsureContainer` on first tool use (auto-pulls
+  the image if missing), `Stop(sessionID)` on session delete,
+  `StopAll` on app shutdown. `RestartSandbox` reloads config
+  without an app restart so Settings changes take effect live.
+- `safeWorkPath` rejects absolute paths and `..` traversal for
+  the file-touching tools.
+
+### Bundled Shell Tools
+- Source lives under `app/internal/bundled/tools/` and is
+  embedded via `go:embed`. `bundled.Install` copies any missing
+  file into `cfg.Tools.ScriptDir` on startup so new bundled
+  scripts ship to existing users automatically; user-edited
+  files are never overwritten. `examples/` is intentionally
+  excluded.
+- Defaults: `file-info`, `preview-file`, `list-files`, `weather`,
+  `get-location`, `write-note`.
+
 ### UI
-- Sidebar: v1-style icon navigation (Sessions/Status panels, collapse/expand, resize)
-- Settings: tabbed (General/Tools/MCP) near-fullscreen overlay
-- Tools tab: unified list with Enabled + MITL toggles per tool
-- Commands (/help, /model, /findings): popup panel, not chat messages
-- MITL dialog: SQL preview, analysis plan, feedback input
+- Sidebar: v1-style icon navigation (Sessions / Status / Objects
+  panels, collapse/expand, resize). Objects panel lists every
+  entry in objstore with thumbnail / icon, metadata, per-row
+  Export, reference-aware Delete (warns when an object is still
+  used elsewhere), and bulk-select.
+- Settings: tabbed (General / Tools / MCP) near-fullscreen overlay.
+  General has Memory (UseV2 toggle), Sandbox (Enabled, engine,
+  image, network, limits) and per-backend budget editors.
+- Tools tab: unified list with Enabled + MITL toggles per tool;
+  sandbox-* tools surface here when the engine is up.
+- Tool-call timeline: every tool start/end appears inline in chat
+  as a transient pill, in addition to the status-bar indicator.
+- Bulk select / delete for Findings and Pinned Memory.
+- Commands (/help, /model, /findings): popup panel, not chat
+  messages.
+- MITL dialog: SQL preview, analysis plan, feedback input.
 
 ## Design Documents
 
 All implementation must follow these design documents:
 - **agent-data-flow.md** — agent loop, context budget, MITL, events, tool confirmation
-- **object-storage.md** — central object storage, lifecycle, LLM tools
+- **memory-architecture-v2.md** — non-destructive contextbuild, summary cache, time markers across every channel
+- **object-storage.md** — central object storage, lifecycle, LLM tools, Objects sidebar panel
+- **sandbox-execution.md** — per-session container sandbox, six `sandbox-*` tools, macOS prerequisites
 - **llm-abstraction.md** — backend role mapping, tool format conversion, multimodal
+- **shell-agent-v2-architecture.md** — top-level architecture, per-backend budget tree, bundled tool embed
 
 ## Environment
 
