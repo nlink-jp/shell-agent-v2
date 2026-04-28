@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.4] - 2026-04-28
+
+### Added
+
+- Report objects in the Objects panel can now be previewed in the
+  existing fullscreen report viewer. A clickable document icon
+  replaces the earlier paragraph mark; clicking it loads the
+  markdown via the new `GetObjectText` binding.
+
 ## [0.1.3] - 2026-04-28
 
 ### Added
