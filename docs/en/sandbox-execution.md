@@ -45,6 +45,79 @@ A **container-based sandbox** addresses all four:
 - Network egress beyond a configurable allow/deny knob (default off).
 - Streaming stdout into the chat UI in real time (Phase 2).
 
+## 3a. Prerequisites and Setup
+
+shell-agent-v2 ships as a macOS application (Wails); the sandbox
+needs a working container engine reachable on PATH from the same
+shell environment the app inherits at launch.
+
+### Podman (recommended)
+
+```sh
+brew install podman
+brew install podman-desktop          # optional, GUI
+podman machine init                  # creates the Linux VM (downloads ~2 GB)
+podman machine start
+podman ps                            # sanity check — should print headers, no error
+```
+
+If `podman machine init` fails with **"There is a problem finding the
+'krunkit' binary"** the Homebrew bottle is asking for the krunkit
+provider but the binary isn't on PATH. Two fixes; the first is the
+one used in development:
+
+```sh
+# Option A — use Apple's Hypervisor (recommended on Apple Silicon)
+export CONTAINERS_MACHINE_PROVIDER=applehv     # add to ~/.zshrc to make it stick
+podman machine reset                           # discard a half-initialised machine
+podman machine init
+podman machine start
+
+# Option B — install krunkit explicitly
+brew install krunkit
+```
+
+If a previous attempt left config detritus that keeps forcing
+krunkit:
+
+```sh
+rm -rf ~/.config/containers ~/.local/share/containers
+unset CONTAINERS_MACHINE_PROVIDER
+podman machine init
+```
+
+### Docker Desktop
+
+`brew install --cask docker` followed by launching Docker Desktop is
+sufficient. The agent picks up `docker` automatically when
+`Engine: auto` is selected (preference order is podman → docker).
+
+### After install
+
+When the agent starts with Sandbox enabled it logs
+`sandbox: enabled (engine=…, image=…)`. Tools appear automatically
+under `sandbox-*` and surface in **Settings → Tools**.
+
+The first sandbox tool call may take 30–60 s while the engine
+pulls the image. Subsequent calls are sub-second.
+
+### Switching images
+
+`Settings → Sandbox → Image` accepts any Podman/Docker image
+reference. When changing it:
+
+- Existing containers are reaped automatically (`RestartSandbox`).
+- The new image is pulled lazily on the next sandbox tool call —
+  the user does *not* need to run `podman pull` manually.
+- For data-science workflows that need pandas / matplotlib /
+  numpy out of the box, `jupyter/scipy-notebook` is a known-good
+  choice (~2 GB pull, includes the scipy stack and many common
+  packages).
+
+If the chosen image needs network access to install runtime
+packages (`pip install …`), toggle **Allow network egress** on,
+let the package install run, then toggle it back off.
+
 ## 4. Architecture
 
 ```
@@ -460,14 +533,11 @@ forced to false at runtime regardless of config.
 
 ## 13. Phased Rollout
 
-| Phase | Scope | Default behaviour |
-|------|-------|-------------------|
-| 1 | `internal/sandbox` package + tests, no agent integration | none (dormant) |
-| 2 | Agent / config / Settings UI hooks behind `Enabled` flag | opt-in via Settings |
-| 3 | Auto-image pull check on first use, friendly error if missing | unchanged |
-| 4 | Real-time stdout streaming to the chat (status indicator) | nice-to-have |
-
-Phase 1+2 are the first patch release goal.
+| Phase | Scope | Default behaviour | Status |
+|------|-------|-------------------|--------|
+| 1 | `internal/sandbox` package + tests, no agent integration | none (dormant) | done |
+| 2 | Agent / config / Settings UI hooks behind `Enabled` flag, auto image pull on first use, live `RestartSandbox` so Settings changes apply without an app restart | opt-in via Settings | done |
+| 3 | Real-time stdout streaming to the chat (status indicator), bundled "data-science" image variant | nice-to-have | future |
 
 ## 14. Open Questions
 

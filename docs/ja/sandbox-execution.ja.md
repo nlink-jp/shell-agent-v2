@@ -45,6 +45,76 @@
 - 設定可能 allow/deny ノブを超えるネットワーク egress (デフォルト off)
 - リアルタイム stdout のチャット UI ストリーミング (Phase 4)
 
+## 3a. 事前準備とセットアップ
+
+shell-agent-v2 は macOS アプリ (Wails ビルド) として配布される。
+サンドボックスはアプリが起動時に継承するシェル環境の PATH 上で
+コンテナエンジンを発見できる必要がある。
+
+### Podman (推奨)
+
+```sh
+brew install podman
+brew install podman-desktop          # 任意、GUI
+podman machine init                  # Linux VM 作成 (~2 GB ダウンロード)
+podman machine start
+podman ps                            # 動作確認 — ヘッダのみ表示、エラーなし
+```
+
+`podman machine init` が **"There is a problem finding the 'krunkit'
+binary"** で失敗する場合は、Homebrew bottle が krunkit プロバイダを
+要求しているが binary が PATH 上にない状態。2 つの解決策、開発時に
+使ったのは A の方:
+
+```sh
+# Option A — Apple Hypervisor 使用 (Apple Silicon 推奨)
+export CONTAINERS_MACHINE_PROVIDER=applehv     # ~/.zshrc に追加で永続化
+podman machine reset                           # 中途半端な machine を破棄
+podman machine init
+podman machine start
+
+# Option B — krunkit を明示的にインストール
+brew install krunkit
+```
+
+過去の試行で残った config が krunkit を強制し続ける場合:
+
+```sh
+rm -rf ~/.config/containers ~/.local/share/containers
+unset CONTAINERS_MACHINE_PROVIDER
+podman machine init
+```
+
+### Docker Desktop
+
+`brew install --cask docker` 後に Docker Desktop を起動するだけで OK。
+`Engine: auto` 選択時にエージェントが自動で `docker` を拾う
+(優先順は podman → docker)。
+
+### インストール後
+
+Sandbox 有効でアプリ起動時にログに
+`sandbox: enabled (engine=…, image=…)` が出る。ツールは自動で
+`sandbox-*` として **Settings → Tools** に表示される。
+
+初回サンドボックスツールコールは image pull のため 30〜60 秒
+かかる場合あり。以降は sub-second。
+
+### イメージ切替
+
+`Settings → Sandbox → Image` で任意の Podman/Docker イメージを指定可。
+変更時:
+
+- 既存コンテナは自動で reap (`RestartSandbox` 経由)
+- 新イメージは次回サンドボックスツールコール時に lazy pull —
+  ユーザーが手動で `podman pull` する必要は **ない**
+- データサイエンス用途で pandas / matplotlib / numpy を即時使いたい
+  場合は `jupyter/scipy-notebook` が定番 (~2 GB pull、scipy stack +
+  多くの汎用パッケージ込み)
+
+選択イメージで `pip install …` などでネットワークを必要とする場合は、
+**Allow network egress** を一時 ON → install 実行 → OFF に戻す。
+
 ## 4. アーキテクチャ
 
 ```
@@ -457,14 +527,11 @@ func (c *Config) SandboxConfig() SandboxConfig {
 
 ## 13. 段階導入
 
-| Phase | スコープ | デフォルト挙動 |
-|------|---------|--------------|
-| 1 | `internal/sandbox` パッケージ + テスト、エージェント未統合 | なし (dormant) |
-| 2 | Agent / config / Settings UI フックを `Enabled` flag 経由 | Settings から opt-in |
-| 3 | 初回使用時の自動イメージ pull チェック、欠如時に親切なエラー | 変更なし |
-| 4 | リアルタイム stdout チャットストリーミング (status indicator) | nice-to-have |
-
-最初の patch release ターゲットは Phase 1+2。
+| Phase | スコープ | デフォルト挙動 | ステータス |
+|------|---------|--------------|----------|
+| 1 | `internal/sandbox` パッケージ + テスト、エージェント未統合 | なし (dormant) | 完了 |
+| 2 | Agent / config / Settings UI フックを `Enabled` flag 経由、初回使用時の自動イメージ pull、Settings 変更を再起動なしで反映する `RestartSandbox` | Settings から opt-in | 完了 |
+| 3 | リアルタイム stdout チャットストリーミング、データサイエンス用 bundled イメージ亜種 | nice-to-have | 将来 |
 
 ## 14. Open Questions
 

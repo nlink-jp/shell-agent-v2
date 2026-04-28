@@ -284,6 +284,18 @@ func (a *Agent) toolSandboxInfo(ctx context.Context, sid string) string {
 	return sandbox.FormatInfo(info)
 }
 
+// RestartSandbox tears down every existing sandbox container and
+// re-evaluates cfg.Sandbox, so Settings changes take effect without
+// an app restart. Safe to call when sandbox is disabled (no-op for
+// the engine) or when cfg.Sandbox.Enabled has just flipped.
+func (a *Agent) RestartSandbox() {
+	if a.sandbox != nil {
+		_ = a.sandbox.StopAll(context.Background())
+	}
+	a.sandbox = nil
+	a.maybeStartSandbox()
+}
+
 // SandboxStop tears down the per-session sandbox container, if any.
 // Safe to call when sandbox is disabled (no-op).
 func (a *Agent) SandboxStop(ctx context.Context, sessionID string) error {

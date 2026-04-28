@@ -516,6 +516,15 @@ func (b *Bindings) RestartMCP() {
 	}
 }
 
+// RestartSandbox tears down all sandbox containers and re-reads
+// cfg.Sandbox so Settings changes (Enabled / Engine / Image / Network
+// / limits) take effect without an app restart.
+func (b *Bindings) RestartSandbox() {
+	if b.agent != nil {
+		b.agent.RestartSandbox()
+	}
+}
+
 // GetMCPStatus returns the status of all MCP guardian profiles.
 func (b *Bindings) GetMCPStatus() []agent.MCPStatus {
 	if b.agent == nil {

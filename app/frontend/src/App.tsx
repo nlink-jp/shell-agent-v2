@@ -65,6 +65,7 @@ declare global {
                     GetLLMStatus(): Promise<LLMStatus>;
                     SaveReport(content: string, filename: string): Promise<void>;
                     RestartMCP(): Promise<void>;
+                    RestartSandbox(): Promise<void>;
                     GetMCPStatus(): Promise<{name: string; status: string; tool_count: number; error?: string}[]>;
                 };
             };
@@ -600,6 +601,12 @@ function App() {
         setSettings(updated)
         if (window.go) {
             await window.go.main.Bindings.SaveSettings(updated)
+            // Sandbox config is read at engine construction time; ask the
+            // agent to rebuild the engine when any sandbox field has
+            // changed so the user doesn't have to restart the app.
+            if (patch.sandbox && JSON.stringify(patch.sandbox) !== JSON.stringify(settings.sandbox)) {
+                window.go.main.Bindings.RestartSandbox()
+            }
         }
     }, [settings])
 
@@ -1172,9 +1179,9 @@ function App() {
                                     <h3>Sandbox (experimental)</h3>
                                     <label>
                                         <input type="checkbox" checked={!!settings.sandbox?.enabled} onChange={e => updateSetting({sandbox: {...settings.sandbox, enabled: e.target.checked}})} />
-                                        <span>Enable container sandbox (podman/docker required, restart to take effect)</span>
+                                        <span>Enable container sandbox (podman/docker required)</span>
                                     </label>
-                                    <p className="sidebar-hint">When enabled, exposes six sandbox-* tools that run shell/Python inside a per-session container. /work is mounted from the session's data dir. See docs/en/sandbox-execution.md.</p>
+                                    <p className="sidebar-hint">Exposes six sandbox-* tools that run shell/Python inside a per-session container. Settings changes here take effect immediately — existing sandbox containers are torn down and re-created with the new config on next tool use. Missing images are pulled automatically. See docs/en/sandbox-execution.md.</p>
                                     {settings.sandbox?.enabled && (
                                         <>
                                             <label>

@@ -114,9 +114,31 @@ func (e *cliEngine) EnsureContainer(ctx context.Context, sessionID string) error
 		_ = runCommand(ctx, bin, "rm", "-f", name)
 	}
 
+	if err := e.ensureImage(ctx); err != nil {
+		return err
+	}
+
 	args := buildRunArgs(e.cfg, name, e.WorkDir(sessionID))
 	if err := runCommand(ctx, bin, args...); err != nil {
 		return fmt.Errorf("sandbox: start container: %w", err)
+	}
+	return nil
+}
+
+// ensureImage pulls e.cfg.Image when it's not already present
+// locally. Idempotent and a no-op when the image exists.
+func (e *cliEngine) ensureImage(ctx context.Context) error {
+	bin, _ := e.Detect()
+	out, err := runCommandOutput(ctx, bin, "image", "exists", e.cfg.Image)
+	_ = out
+	if err == nil {
+		return nil
+	}
+	// `image exists` returns non-zero (no stderr) when missing — fall
+	// through to pull. Distinguish other errors by re-running with
+	// stderr surfaced.
+	if pullErr := runCommand(ctx, bin, "pull", e.cfg.Image); pullErr != nil {
+		return fmt.Errorf("sandbox: pull image %s: %w", e.cfg.Image, pullErr)
 	}
 	return nil
 }
