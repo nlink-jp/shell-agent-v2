@@ -5,6 +5,50 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.5] - 2026-04-28
+
+### Fixed
+
+- **mcp.Guardian deadlock when initializing a misbehaved binary.**
+  `call()` previously held `g.mu` across the blocking `stdout.Scan`,
+  so when the StartTimeout fired and `Start` invoked `g.Stop()`,
+  Stop deadlocked waiting for the same mutex and the agent hung
+  indefinitely. Split into two mutexes (`callMu` / `stateMu`); Stop
+  now reliably preempts a blocked call by closing stdin and killing
+  the process. Regression test included.
+
+### Tests
+
+- Coverage audit follow-up. New tests across security validation,
+  memory v2 build path, LM Studio HTTP/SSE behaviour, mcp guardian
+  RPC round-trip, config persistence, bindings object-panel
+  operations, memory/pinned/findings disk I/O, and report
+  rendering. Per-package coverage now:
+
+  | package          | before | after |
+  |------------------|-------:|------:|
+  | bindings (main)  |   0.0% | 19.4% |
+  | internal/agent   |  41.9% | 48.1% |
+  | internal/llm     |   8.1% | 39.4% |
+  | internal/mcp     |  11.7% | 79.3% |
+  | internal/config  |  55.8% | 90.4% |
+  | internal/findings|  66.7% | 94.7% |
+  | internal/memory  |  64.2% | 87.2% |
+
+### Docs
+
+- `agent-data-flow.{md,ja.md}` — §4 rewritten to cover both v1
+  destructive compaction and v2 non-destructive `contextbuild`
+  paths, with the `Memory.UseV2` gate and the v0.1.1 Vertex 400
+  fix.
+- `object-storage.{md,ja.md}` — §7.4 documents the Objects
+  sidebar panel: reference-aware bulk delete, per-row export
+  with TypeReport inline expansion, cascade caveats.
+- `shell-agent-v2-architecture.{md,ja.md}` — config tree showing
+  per-backend `HotTokenLimit` / `ContextBudget` and the
+  `Memory.UseV2` flag; bundled-tools embed + auto-install
+  section.
+
 ## [0.1.4] - 2026-04-28
 
 ### Added
