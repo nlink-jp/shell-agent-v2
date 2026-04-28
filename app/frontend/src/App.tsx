@@ -49,6 +49,7 @@ declare global {
                     DeleteObjects(ids: string[]): Promise<number>;
                     ObjectReferences(ids: string[]): Promise<Record<string, number>>;
                     ExportObject(id: string): Promise<void>;
+                    GetObjectText(id: string): Promise<string>;
                     GetSettings(): Promise<Settings>;
                     SaveSettings(s: Settings): Promise<void>;
                     ApproveMITL(): Promise<void>;
@@ -892,8 +893,20 @@ function App() {
                                                 const url = await window.go.main.Bindings.GetImageDataURL(o.id)
                                                 setLightboxImage(url)
                                             }} />
+                                        ) : o.type === 'report' ? (
+                                            <button
+                                                className="object-icon type-report object-icon-btn"
+                                                title="Open report"
+                                                onClick={async () => {
+                                                    try {
+                                                        const text = await window.go.main.Bindings.GetObjectText(o.id)
+                                                        const title = (text.split('\n')[0] || '').replace(/^#\s*/, '') || o.orig_name || o.id
+                                                        setExpandedReport({title, content: text})
+                                                    } catch {}
+                                                }}
+                                            >&#x1F4C4;</button>
                                         ) : (
-                                            <span className={`object-icon type-${o.type}`}>{o.type === 'report' ? '\u00B6' : '\u25A1'}</span>
+                                            <span className={`object-icon type-${o.type}`}>&#x25A1;</span>
                                         )}
                                     </div>
                                     <div className="object-meta">

@@ -613,6 +613,20 @@ func (b *Bindings) ObjectReferences(ids []string) (map[string]int, error) {
 	return out, nil
 }
 
+// GetObjectText returns the object's stored bytes as a string. Intended
+// for previewing TypeReport (markdown) and other text-like types in the
+// UI; the caller is responsible for size sanity.
+func (b *Bindings) GetObjectText(id string) (string, error) {
+	if _, ok := b.objects.Get(id); !ok {
+		return "", fmt.Errorf("object %s not found", id)
+	}
+	data, err := os.ReadFile(b.objects.DataPath(id))
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
 // ExportObject opens a save dialog and writes the object's bytes to disk.
 // The default filename uses the object's OrigName when set, otherwise
 // the ID with an extension derived from MimeType.
