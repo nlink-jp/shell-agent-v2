@@ -42,15 +42,15 @@ try:
     result['timezone_id'] = tz_id
 
     tz_locations = {
-        'Asia/Tokyo': {'country': 'Japan', 'admin_area': '', 'locality': '', 'lat': 35.68, 'lon': 139.77},
-        'Asia/Shanghai': {'country': 'China', 'admin_area': '', 'locality': '', 'lat': 31.23, 'lon': 121.47},
-        'Asia/Seoul': {'country': 'South Korea', 'admin_area': '', 'locality': '', 'lat': 37.57, 'lon': 126.98},
-        'America/New_York': {'country': 'USA', 'admin_area': 'New York', 'locality': '', 'lat': 40.71, 'lon': -74.01},
-        'America/Los_Angeles': {'country': 'USA', 'admin_area': 'California', 'locality': '', 'lat': 34.05, 'lon': -118.24},
-        'America/Chicago': {'country': 'USA', 'admin_area': 'Illinois', 'locality': '', 'lat': 41.88, 'lon': -87.63},
-        'Europe/London': {'country': 'UK', 'admin_area': '', 'locality': '', 'lat': 51.51, 'lon': -0.13},
-        'Europe/Paris': {'country': 'France', 'admin_area': '', 'locality': '', 'lat': 48.86, 'lon': 2.35},
-        'Europe/Berlin': {'country': 'Germany', 'admin_area': '', 'locality': '', 'lat': 52.52, 'lon': 13.41},
+        'Asia/Tokyo':         {'country': 'Japan',       'admin_area': '',           'locality': 'Tokyo',       'lat': 35.68, 'lon': 139.77},
+        'Asia/Shanghai':      {'country': 'China',       'admin_area': '',           'locality': 'Shanghai',    'lat': 31.23, 'lon': 121.47},
+        'Asia/Seoul':         {'country': 'South Korea', 'admin_area': '',           'locality': 'Seoul',       'lat': 37.57, 'lon': 126.98},
+        'America/New_York':   {'country': 'USA',         'admin_area': 'New York',   'locality': 'New York',    'lat': 40.71, 'lon': -74.01},
+        'America/Los_Angeles':{'country': 'USA',         'admin_area': 'California', 'locality': 'Los Angeles', 'lat': 34.05, 'lon': -118.24},
+        'America/Chicago':    {'country': 'USA',         'admin_area': 'Illinois',   'locality': 'Chicago',     'lat': 41.88, 'lon': -87.63},
+        'Europe/London':      {'country': 'UK',          'admin_area': '',           'locality': 'London',      'lat': 51.51, 'lon': -0.13},
+        'Europe/Paris':       {'country': 'France',      'admin_area': '',           'locality': 'Paris',       'lat': 48.86, 'lon': 2.35},
+        'Europe/Berlin':      {'country': 'Germany',     'admin_area': '',           'locality': 'Berlin',      'lat': 52.52, 'lon': 13.41},
     }
     if tz_id in tz_locations:
         result.update(tz_locations[tz_id])
