@@ -1299,17 +1299,22 @@ function App() {
                                         <p className="sidebar-hint">No MCP profiles configured</p>
                                     ) : (settings.mcp_profiles || []).map((p, i) => {
                                         const status = mcpStatus.find(s => s.name === p.name)
+                                        const updateField = (field: keyof MCPProfile, value: any) => {
+                                            const updated = [...(settings.mcp_profiles || [])]
+                                            updated[i] = {...p, [field]: value}
+                                            updateSetting({mcp_profiles: updated} as any)
+                                        }
                                         return (
                                             <div key={i} className="mcp-profile-item">
                                                 <div className="mcp-profile-header">
-                                                    <span className="mcp-profile-name">{p.name}</span>
+                                                    <input
+                                                        className="mcp-profile-name-input"
+                                                        value={p.name}
+                                                        onChange={e => updateField('name', e.target.value)}
+                                                    />
                                                     {status && <span className={`mcp-status-badge ${status.status}`}>{status.status}{status.status === 'running' ? ` (${status.tool_count} tools)` : ''}</span>}
                                                     <label className="mcp-toggle">
-                                                        <input type="checkbox" checked={p.enabled} onChange={e => {
-                                                            const updated = [...(settings.mcp_profiles || [])]
-                                                            updated[i] = {...p, enabled: e.target.checked}
-                                                            updateSetting({mcp_profiles: updated} as any)
-                                                        }} />
+                                                        <input type="checkbox" checked={p.enabled} onChange={e => updateField('enabled', e.target.checked)} />
                                                         <span>{p.enabled ? 'ON' : 'OFF'}</span>
                                                     </label>
                                                     <button className="mcp-delete" onClick={() => {
@@ -1317,12 +1322,14 @@ function App() {
                                                         updateSetting({mcp_profiles: updated} as any)
                                                     }}>&#x2715;</button>
                                                 </div>
-                                                <div className="mcp-profile-detail">
-                                                    <span className="mcp-label">Binary:</span> {p.binary}
-                                                </div>
-                                                <div className="mcp-profile-detail">
-                                                    <span className="mcp-label">Profile:</span> {p.profile_path}
-                                                </div>
+                                                <label className="mcp-profile-edit">
+                                                    <span className="mcp-label">Binary</span>
+                                                    <input value={p.binary} onChange={e => updateField('binary', e.target.value)} />
+                                                </label>
+                                                <label className="mcp-profile-edit">
+                                                    <span className="mcp-label">Profile</span>
+                                                    <input value={p.profile_path} onChange={e => updateField('profile_path', e.target.value)} />
+                                                </label>
                                                 {status?.error && <div className="mcp-status-error">{status.error}</div>}
                                             </div>
                                         )

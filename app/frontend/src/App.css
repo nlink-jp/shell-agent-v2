@@ -983,6 +983,56 @@ input, textarea {
     flex: 1;
 }
 
+.mcp-profile-name-input {
+    flex: 1;
+    font-weight: 600;
+    font-size: 14px;
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text-primary);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: inherit;
+}
+
+.mcp-profile-name-input:hover,
+.mcp-profile-name-input:focus {
+    background: var(--bg-input-field);
+    border-color: var(--border-input);
+    outline: none;
+}
+
+.mcp-profile-edit {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+    padding-left: 4px;
+}
+
+.mcp-profile-edit > span.mcp-label {
+    flex-shrink: 0;
+    width: 60px;
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.mcp-profile-edit > input {
+    flex: 1;
+    font-size: 12px;
+    font-family: 'SF Mono', 'Menlo', monospace;
+    background: var(--bg-input-field);
+    border: 1px solid var(--border-input);
+    color: var(--text-primary);
+    padding: 3px 6px;
+    border-radius: 4px;
+}
+
+.mcp-profile-edit > input:focus {
+    border-color: var(--border-accent);
+    outline: none;
+}
+
 .mcp-toggle {
     font-size: 12px;
     display: flex;
