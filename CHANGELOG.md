@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.6] - 2026-04-28
+
+### Fixed
+
+- **Vertex AI stopped dispatching tool calls.** Memory v2 prepended
+  a `[YYYY-MM-DD HH:MM TZ]` marker to every record, including the
+  very first user turn. gemini-2.5-flash interpreted that as a
+  logged / historical event and described tool actions in prose
+  instead of emitting `function_call` parts. The system block
+  already injects "now" via temporal context, so the leading marker
+  on the first record was redundant; it is now skipped. Tool /
+  report records and any record after a >30-minute gap are still
+  annotated.
+- **`get-location` returned no city.** Asia/Tokyo, Asia/Shanghai,
+  Asia/Seoul and Europe/* entries had empty `admin_area` and
+  `locality` — the LLM knew the country but had no city to feed
+  into the `weather` tool, so it had to fall back to asking the
+  user. Locality is now populated with the timezone's namesake
+  city; US entries have city in `locality` and state in
+  `admin_area`.
+
+  Note: `bundled.Install` only writes files that don't already
+  exist in the user's tool dir, so existing installs keep the old
+  version. A future bundled-tool version / force-update mechanism
+  would let this fix reach all users automatically; for now,
+  delete `~/Library/Application Support/shell-agent-v2/tools/
+  get-location.sh` to pick up the new version on next launch.
+
 ## [0.1.5] - 2026-04-28
 
 ### Fixed
