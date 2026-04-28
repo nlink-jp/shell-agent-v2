@@ -5,6 +5,49 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.3] - 2026-04-28
+
+### Added
+
+- **Memory architecture v2** (opt-in, Settings → General → Memory).
+  Records become immutable and full-fidelity; LLM context is built
+  per-call from a new `contextbuild` package, sized to the active
+  backend's budget, with older portions condensed via cached
+  summaries that are content-keyed. Every information channel into
+  the prompt — raw records, summaries, pinned, findings — carries a
+  temporal marker so the model can reason about *when* each piece
+  happened. Existing v1 sessions remain readable; legacy
+  `Role=summary` records are surfaced as a "Summarized earlier
+  turns" block in the chat instead of being silently filtered.
+  Design: `docs/{en,ja}/memory-architecture-v2{.ja,}.md`.
+- **Object repository panel** (sidebar → Objects). Lists every
+  entry in the central object store with thumbnail or icon,
+  metadata, originating session, and per-row Export and Delete.
+  Reference-aware delete: scans all sessions for `Record.ObjectIDs`
+  and `object:ID` markdown refs; objects still in use require a
+  second-click confirmation. Report exports are passed through
+  `resolveObjectRefsForExport` so image refs are inlined as data
+  URLs in the saved markdown.
+- **Bulk select / delete** for Findings and Pinned Memory.
+  Per-item checkboxes appear on hover or while the section has any
+  selection; section toolbar offers Select all / Delete (two-click
+  confirm) / Clear.
+- **`file-info` shell tool** — mime type, kind, size, modified,
+  line count for text files.
+- **`preview-file` shell tool** — head N lines (cap 1000) and bytes
+  (cap 64KB) of a text file with non-text MIME refusal.
+- **Pinned facts include `(learned YYYY-MM-DD)`** so the model can
+  weigh fact recency.
+- **Bundled tools auto-install** — default scripts ship inside the
+  binary via `go:embed` and are copied to the user's tool dir on
+  first launch when missing. User-edited files are never overwritten.
+
+### Changed
+
+- Repository `tools/` directory relocated to
+  `app/internal/bundled/tools/` (Go embed must reach the data from
+  inside the module tree).
+
 ## [0.1.2] - 2026-04-27
 
 ### Added
