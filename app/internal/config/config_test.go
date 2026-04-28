@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"testing"
 )
 
@@ -91,5 +92,135 @@ func TestDataDir(t *testing.T) {
 	dir := DataDir()
 	if dir == "" {
 		t.Error("data dir is empty")
+	}
+}
+
+func TestLoad_MissingFileReturnsDefaults(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.LLM.DefaultBackend != BackendLocal {
+		t.Errorf("default backend = %v, want %v", cfg.LLM.DefaultBackend, BackendLocal)
+	}
+	if cfg.LLM.Local.HotTokenLimit == 0 {
+		t.Error("default per-backend hot limit not populated")
+	}
+}
+
+func TestLoad_MalformedJSON(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	dir := DataDir()
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ConfigPath(), []byte(`{not json`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(); err == nil {
+		t.Fatal("expected error for malformed JSON")
+	}
+}
+
+func TestLoad_PerBackendValuesInJSONWin(t *testing.T) {
+	// Per-backend settings in the loaded JSON take precedence over both
+	// the Default()'s per-backend values and the legacy top-level fields.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	dir := DataDir()
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	custom := `{
+		"memory": {"hot_token_limit": 9999},
+		"llm": {
+			"default_backend": "local",
+			"local": {"hot_token_limit": 5000, "context_budget": {"max_context_tokens": 7777}},
+			"vertex_ai": {}
+		}
+	}`
+	if err := os.WriteFile(ConfigPath(), []byte(custom), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.LLM.Local.HotTokenLimit != 5000 {
+		t.Errorf("local hot: got %d want 5000 (JSON value)", cfg.LLM.Local.HotTokenLimit)
+	}
+	if cfg.LLM.Local.ContextBudget.MaxContextTokens != 7777 {
+		t.Errorf("local MaxContext: got %d want 7777 (JSON value)", cfg.LLM.Local.ContextBudget.MaxContextTokens)
+	}
+	// Vertex was empty in JSON — Default's pre-populated per-backend
+	// values apply (rather than the legacy memory.hot_token_limit).
+	// This is current behaviour; see applyBackendInheritance comment.
+	if cfg.LLM.VertexAI.HotTokenLimit == 0 {
+		t.Error("vertex hot should be filled by Default's per-backend section")
+	}
+}
+
+func TestSave_RoundtripsThroughLoad(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	original := Default()
+	original.LLM.Local.Endpoint = "http://custom:1234"
+	original.LLM.Local.Model = "custom-model"
+	original.LLM.Local.HotTokenLimit = 8192
+	original.Location = "Tokyo"
+	original.Memory.UseV2 = true
+	if err := original.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	loaded, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if loaded.LLM.Local.Endpoint != original.LLM.Local.Endpoint {
+		t.Errorf("Endpoint not roundtripped: %q", loaded.LLM.Local.Endpoint)
+	}
+	if loaded.LLM.Local.Model != original.LLM.Local.Model {
+		t.Errorf("Model not roundtripped: %q", loaded.LLM.Local.Model)
+	}
+	if loaded.LLM.Local.HotTokenLimit != original.LLM.Local.HotTokenLimit {
+		t.Errorf("HotTokenLimit not roundtripped: %d", loaded.LLM.Local.HotTokenLimit)
+	}
+	if loaded.Location != "Tokyo" {
+		t.Errorf("Location not roundtripped: %q", loaded.Location)
+	}
+	if !loaded.Memory.UseV2 {
+		t.Error("Memory.UseV2 not roundtripped")
+	}
+}
+
+func TestSave_PermissionsRestrictive(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cfg := Default()
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	info, err := os.Stat(ConfigPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 0600 — owner only. Config may contain locations / endpoints; keep
+	// it out of group/world.
+	if mode := info.Mode().Perm(); mode != 0600 {
+		t.Errorf("config file mode = %v, want 0600", mode)
+	}
+}
+
+func TestExpandPath(t *testing.T) {
+	t.Setenv("HOME", "/Users/test")
+	for in, want := range map[string]string{
+		"~/foo":    "/Users/test/foo",
+		"/abs":     "/abs",
+		"relative": "relative",
+		"~no-slash": "~no-slash", // only "~/" prefix is expanded
+	} {
+		if got := ExpandPath(in); got != want {
+			t.Errorf("ExpandPath(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
