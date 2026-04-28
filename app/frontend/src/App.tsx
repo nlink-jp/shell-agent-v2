@@ -44,6 +44,11 @@ declare global {
                     GetFindings(): Promise<Finding[]>;
                     DeleteFindings(ids: string[]): Promise<number>;
                     DeletePinnedMemories(keys: string[]): Promise<number>;
+                    ListObjects(): Promise<ObjectInfo[]>;
+                    DeleteObject(id: string): Promise<void>;
+                    DeleteObjects(ids: string[]): Promise<number>;
+                    ObjectReferences(ids: string[]): Promise<Record<string, number>>;
+                    ExportObject(id: string): Promise<void>;
                     GetSettings(): Promise<Settings>;
                     SaveSettings(s: Settings): Promise<void>;
                     ApproveMITL(): Promise<void>;
@@ -155,7 +160,23 @@ interface Settings {
     memory_use_v2: boolean;
 }
 
-type SidebarPanel = 'sessions' | 'status';
+type SidebarPanel = 'sessions' | 'status' | 'objects';
+
+interface ObjectInfo {
+    id: string;
+    type: string;
+    mime_type: string;
+    orig_name: string;
+    created_at: string;
+    session_id: string;
+    size: number;
+}
+
+function formatSize(bytes: number): string {
+    if (bytes < 1024) return bytes + ' B'
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
+}
 
 // MessageItem renders a single message. Memoized so that pushing a new message
 // (e.g. tool-event) does not re-render the entire history — important when the
@@ -253,17 +274,24 @@ const MessageItem = memo(function MessageItem({msg, onLightbox, onExpandReport}:
 // Delete uses a two-click confirm pattern (the Wails webview may not
 // surface native window.confirm dialogs reliably, so we keep the
 // confirmation in-component).
-function BulkActions({total, selectedCount, onSelectAll, onClear, onDelete}: {
+//
+// onPrepareConfirm, if provided, is awaited on the first click and its
+// returned string overrides the confirming-state button text — used by
+// the Objects panel to surface "N still referenced" before the user
+// commits to deletion.
+function BulkActions({total, selectedCount, onSelectAll, onClear, onDelete, onPrepareConfirm}: {
     total: number;
     selectedCount: number;
     onSelectAll: () => void;
     onClear: () => void;
     onDelete: () => void;
+    onPrepareConfirm?: () => Promise<string>;
 }) {
     const [confirming, setConfirming] = useState(false)
+    const [confirmLabel, setConfirmLabel] = useState('Confirm')
     useEffect(() => {
         if (!confirming) return
-        const t = setTimeout(() => setConfirming(false), 4000)
+        const t = setTimeout(() => setConfirming(false), 6000)
         return () => clearTimeout(t)
     }, [confirming])
     useEffect(() => { if (selectedCount === 0) setConfirming(false) }, [selectedCount])
@@ -277,13 +305,19 @@ function BulkActions({total, selectedCount, onSelectAll, onClear, onDelete}: {
                     <span className="bulk-count">{selectedCount} selected</span>
                     <button
                         className={`bulk-btn bulk-btn-danger ${confirming ? 'confirming' : ''}`}
-                        onClick={() => {
-                            if (confirming) { onDelete(); setConfirming(false) }
-                            else setConfirming(true)
+                        onClick={async () => {
+                            if (confirming) { onDelete(); setConfirming(false); return }
+                            if (onPrepareConfirm) {
+                                const label = await onPrepareConfirm()
+                                setConfirmLabel(label || 'Confirm')
+                            } else {
+                                setConfirmLabel('Confirm')
+                            }
+                            setConfirming(true)
                         }}
                         title={confirming ? `Click again to delete ${selectedCount} item(s)` : `Delete ${selectedCount} selected`}
                     >
-                        {confirming ? 'Confirm' : 'Delete'}
+                        {confirming ? confirmLabel : 'Delete'}
                     </button>
                     <button className="bulk-btn" onClick={onClear}>Clear</button>
                 </>
@@ -341,6 +375,9 @@ function App() {
     const [pinnedMemories, setPinnedMemories] = useState<PinnedMemory[]>([])
     const [selectedFindingIds, setSelectedFindingIds] = useState<Set<string>>(new Set())
     const [selectedPinnedKeys, setSelectedPinnedKeys] = useState<Set<string>>(new Set())
+    const [objects, setObjects] = useState<ObjectInfo[]>([])
+    const [selectedObjectIds, setSelectedObjectIds] = useState<Set<string>>(new Set())
+    const [confirmingObjectDelete, setConfirmingObjectDelete] = useState<string | null>(null)
     const [llmStatus, setLLMStatus] = useState<LLMStatus | null>(null)
     const [lightboxImage, setLightboxImage] = useState<string | null>(null)
     const [expandedReport, setExpandedReport] = useState<{title: string; content: string} | null>(null)
@@ -539,6 +576,9 @@ function App() {
             window.go.main.Bindings.GetLLMStatus().then(setLLMStatus)
             window.go.main.Bindings.GetPinnedMemories().then(setPinnedMemories)
         }
+        if (sidebarPanel === 'objects' && window.go) {
+            window.go.main.Bindings.ListObjects().then(setObjects)
+        }
     }, [sidebarPanel, refreshFindings])
 
     // Auto-save settings on change
@@ -638,6 +678,9 @@ function App() {
                         <div className="sidebar-nav-divider" />
                         <button className="sidebar-nav-btn" onClick={() => { setSidebarCollapsed(false); setSidebarPanel('status') }} title="Status">
                             <span className="sidebar-nav-ic">&#x2261;</span>
+                        </button>
+                        <button className="sidebar-nav-btn" onClick={() => { setSidebarCollapsed(false); setSidebarPanel('objects') }} title="Objects">
+                            <span className="sidebar-nav-ic">&#x25A3;</span>
                         </button>
                         <button className="sidebar-nav-btn" onClick={() => { setSidebarCollapsed(false); openSettings() }} title="Settings">
                             <span className="sidebar-nav-ic">&#x2699;</span>
@@ -802,6 +845,97 @@ function App() {
                             </div>
                         )}
                     </>)}
+                    {sidebarPanel === 'objects' && (
+                        <div className={`status-section ${selectedObjectIds.size > 0 ? 'bulk-active' : ''}`}>
+                            <div className="bulk-section-header">
+                                <h3>Objects ({objects.length})</h3>
+                                <BulkActions
+                                    total={objects.length}
+                                    selectedCount={selectedObjectIds.size}
+                                    onSelectAll={() => setSelectedObjectIds(new Set(objects.map(o => o.id)))}
+                                    onClear={() => setSelectedObjectIds(new Set())}
+                                    onPrepareConfirm={async () => {
+                                        const ids = Array.from(selectedObjectIds)
+                                        const refs = await window.go.main.Bindings.ObjectReferences(ids)
+                                        const referenced = ids.filter(id => (refs[id] || 0) > 0)
+                                        if (referenced.length === 0) return `Confirm delete ${ids.length}`
+                                        return `${referenced.length}/${ids.length} still in use — confirm`
+                                    }}
+                                    onDelete={async () => {
+                                        const ids = Array.from(selectedObjectIds)
+                                        if (ids.length === 0) return
+                                        await window.go.main.Bindings.DeleteObjects(ids)
+                                        setSelectedObjectIds(new Set())
+                                        const updated = await window.go.main.Bindings.ListObjects()
+                                        setObjects(updated)
+                                        clearObjectCache()
+                                    }}
+                                />
+                            </div>
+                            {objects.length === 0 ? (
+                                <p className="sidebar-hint">No objects stored yet</p>
+                            ) : objects.map(o => (
+                                <div key={o.id} className={`object-item ${selectedObjectIds.has(o.id) ? 'selected' : ''}`}>
+                                    <input
+                                        type="checkbox"
+                                        className="bulk-check"
+                                        checked={selectedObjectIds.has(o.id)}
+                                        onChange={e => {
+                                            const next = new Set(selectedObjectIds)
+                                            if (e.target.checked) next.add(o.id); else next.delete(o.id)
+                                            setSelectedObjectIds(next)
+                                        }}
+                                    />
+                                    <div className="object-thumb">
+                                        {o.type === 'image' ? (
+                                            <ObjectImage id={o.id} alt={o.orig_name || o.id} onClick={async () => {
+                                                const url = await window.go.main.Bindings.GetImageDataURL(o.id)
+                                                setLightboxImage(url)
+                                            }} />
+                                        ) : (
+                                            <span className={`object-icon type-${o.type}`}>{o.type === 'report' ? '\u00B6' : '\u25A1'}</span>
+                                        )}
+                                    </div>
+                                    <div className="object-meta">
+                                        <div className="object-id">{o.id}</div>
+                                        <div className="object-line"><span className={`object-type type-${o.type}`}>{o.type}</span> · <span>{formatSize(o.size)}</span> · <span>{o.created_at}</span></div>
+                                        {o.session_id && <div className="object-line object-session">session: {o.session_id}</div>}
+                                        {o.orig_name && <div className="object-line object-orig">{o.orig_name}</div>}
+                                    </div>
+                                    <div className="object-actions">
+                                        <button className="object-action" title="Export to file" onClick={async () => {
+                                            try { await window.go.main.Bindings.ExportObject(o.id) } catch {}
+                                        }}>&#x2913;</button>
+                                        <button
+                                            className={`object-action object-delete ${confirmingObjectDelete === o.id ? 'confirming' : ''}`}
+                                            title={confirmingObjectDelete === o.id ? 'Click again to delete' : 'Delete object'}
+                                            onClick={async () => {
+                                                if (confirmingObjectDelete === o.id) {
+                                                    await window.go.main.Bindings.DeleteObject(o.id)
+                                                    setConfirmingObjectDelete(null)
+                                                    const updated = await window.go.main.Bindings.ListObjects()
+                                                    setObjects(updated)
+                                                    clearObjectCache()
+                                                    return
+                                                }
+                                                const refs = await window.go.main.Bindings.ObjectReferences([o.id])
+                                                const used = refs[o.id] || 0
+                                                if (used === 0) {
+                                                    await window.go.main.Bindings.DeleteObject(o.id)
+                                                    const updated = await window.go.main.Bindings.ListObjects()
+                                                    setObjects(updated)
+                                                    clearObjectCache()
+                                                } else {
+                                                    setConfirmingObjectDelete(o.id)
+                                                    setTimeout(() => setConfirmingObjectDelete(prev => prev === o.id ? null : prev), 6000)
+                                                }
+                                            }}
+                                        >{confirmingObjectDelete === o.id ? '!' : '\u2715'}</button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
 
                 <div className="sidebar-bottom">
@@ -811,6 +945,9 @@ function App() {
                     <div className="sidebar-nav-divider" />
                     <button className={`sidebar-nav-btn ${sidebarPanel === 'status' ? 'active' : ''}`} onClick={() => setSidebarPanel(sidebarPanel === 'status' ? 'sessions' : 'status')}>
                         <span className="sidebar-nav-ic">&#x2261;</span> Status
+                    </button>
+                    <button className={`sidebar-nav-btn ${sidebarPanel === 'objects' ? 'active' : ''}`} onClick={() => setSidebarPanel(sidebarPanel === 'objects' ? 'sessions' : 'objects')}>
+                        <span className="sidebar-nav-ic">&#x25A3;</span> Objects
                     </button>
                     <button className="sidebar-nav-btn" onClick={openSettings}>
                         <span className="sidebar-nav-ic">&#x2699;</span> Settings

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -504,6 +505,165 @@ func (b *Bindings) SaveImage(dataURL string) (string, error) {
 // GetImageDataURL loads an image by ID and returns a data URL.
 func (b *Bindings) GetImageDataURL(id string) (string, error) {
 	return b.objects.LoadAsDataURL(id)
+}
+
+// --- Object repository bindings ---
+
+// ObjectInfo is the JSON-serializable view of an object's metadata.
+type ObjectInfo struct {
+	ID        string `json:"id"`
+	Type      string `json:"type"`
+	MimeType  string `json:"mime_type"`
+	OrigName  string `json:"orig_name"`
+	CreatedAt string `json:"created_at"`
+	SessionID string `json:"session_id"`
+	Size      int64  `json:"size"`
+}
+
+// ListObjects returns metadata for every object in the central repository,
+// newest-first.
+func (b *Bindings) ListObjects() []ObjectInfo {
+	all := b.objects.All()
+	result := make([]ObjectInfo, 0, len(all))
+	for _, m := range all {
+		result = append(result, ObjectInfo{
+			ID:        m.ID,
+			Type:      string(m.Type),
+			MimeType:  m.MimeType,
+			OrigName:  m.OrigName,
+			CreatedAt: m.CreatedAt.Format("2006-01-02 15:04:05"),
+			SessionID: m.SessionID,
+			Size:      m.Size,
+		})
+	}
+	// Newest first.
+	sort.SliceStable(result, func(i, j int) bool {
+		return result[i].CreatedAt > result[j].CreatedAt
+	})
+	return result
+}
+
+// DeleteObject removes an object by ID. Returns nil if the ID didn't exist.
+func (b *Bindings) DeleteObject(id string) error {
+	return b.objects.Delete(id)
+}
+
+// DeleteObjects bulk-removes objects. Returns the count actually deleted
+// (entries that didn't exist are not counted as deletions).
+func (b *Bindings) DeleteObjects(ids []string) (int, error) {
+	deleted := 0
+	for _, id := range ids {
+		if _, ok := b.objects.Get(id); !ok {
+			continue
+		}
+		if err := b.objects.Delete(id); err != nil {
+			return deleted, err
+		}
+		deleted++
+	}
+	return deleted, nil
+}
+
+// ObjectReferences scans all sessions and returns, for each given ID, the
+// number of distinct sessions that still reference it. A reference is a
+// record in the session whose ObjectIDs list contains the ID, or whose
+// Content contains the textual marker "object:<ID>" (markdown image refs
+// in reports).
+//
+// Used to warn the user before deleting an object that is still in use.
+func (b *Bindings) ObjectReferences(ids []string) (map[string]int, error) {
+	out := make(map[string]int, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	wanted := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		out[id] = 0
+		wanted[id] = struct{}{}
+	}
+
+	sessions, err := memory.ListSessions()
+	if err != nil {
+		return out, err
+	}
+	for _, si := range sessions {
+		s, err := memory.LoadSession(si.ID)
+		if err != nil {
+			continue
+		}
+		seen := make(map[string]bool)
+		for _, r := range s.Records {
+			for _, oid := range r.ObjectIDs {
+				if _, ok := wanted[oid]; ok {
+					seen[oid] = true
+				}
+			}
+			if r.Content != "" {
+				for id := range wanted {
+					if strings.Contains(r.Content, "object:"+id) {
+						seen[id] = true
+					}
+				}
+			}
+		}
+		for id := range seen {
+			out[id]++
+		}
+	}
+	return out, nil
+}
+
+// ExportObject opens a save dialog and writes the object's bytes to disk.
+// The default filename uses the object's OrigName when set, otherwise
+// the ID with an extension derived from MimeType.
+//
+// For TypeReport objects, object:ID image references in the markdown
+// are inlined as data URLs so the exported file is self-contained —
+// matches SaveReport's behaviour.
+func (b *Bindings) ExportObject(id string) error {
+	meta, ok := b.objects.Get(id)
+	if !ok {
+		return fmt.Errorf("object %s not found", id)
+	}
+	defaultName := meta.OrigName
+	if defaultName == "" {
+		defaultName = id + extensionForMime(meta.MimeType)
+	}
+	path, err := wailsRuntime.SaveFileDialog(b.ctx, wailsRuntime.SaveDialogOptions{
+		DefaultFilename: defaultName,
+	})
+	if err != nil || path == "" {
+		return err
+	}
+	src := b.objects.DataPath(id)
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	if meta.Type == objstore.TypeReport {
+		data = []byte(b.resolveObjectRefsForExport(string(data)))
+	}
+	return os.WriteFile(path, data, 0644)
+}
+
+func extensionForMime(mime string) string {
+	switch mime {
+	case "image/png":
+		return ".png"
+	case "image/jpeg", "image/jpg":
+		return ".jpg"
+	case "image/gif":
+		return ".gif"
+	case "image/webp":
+		return ".webp"
+	case "text/markdown":
+		return ".md"
+	case "application/json":
+		return ".json"
+	case "text/plain":
+		return ".txt"
+	}
+	return ""
 }
 
 // --- Report bindings ---
