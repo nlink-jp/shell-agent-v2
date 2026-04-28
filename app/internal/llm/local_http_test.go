@@ -197,6 +197,91 @@ func TestLocal_doRequest_NoAuthorizationWhenKeyEmpty(t *testing.T) {
 	}
 }
 
+func TestLocal_ChatStream_AccumulatesDeltas(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, _ := w.(http.Flusher)
+		writeChunk := func(s string) {
+			_, _ = w.Write([]byte("data: " + s + "\n\n"))
+			if flusher != nil {
+				flusher.Flush()
+			}
+		}
+		writeChunk(`{"choices":[{"delta":{"content":"Hel"}}]}`)
+		writeChunk(`{"choices":[{"delta":{"content":"lo"}}]}`)
+		writeChunk(`{"choices":[{"delta":{"content":"!"}}]}`)
+		writeChunk("[DONE]")
+	}))
+	defer srv.Close()
+
+	var streamed strings.Builder
+	doneSeen := false
+	cb := func(token string, calls []ToolCall, done bool) {
+		streamed.WriteString(token)
+		if done {
+			doneSeen = true
+		}
+	}
+	l := newLocalAgainst(srv)
+	resp, err := l.ChatStream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, cb)
+	if err != nil {
+		t.Fatalf("ChatStream: %v", err)
+	}
+	if streamed.String() != "Hello!" {
+		t.Errorf("streamed tokens = %q, want 'Hello!'", streamed.String())
+	}
+	if !doneSeen {
+		t.Error("done callback not invoked")
+	}
+	if resp.Content != "Hello!" {
+		t.Errorf("Response.Content = %q, want 'Hello!'", resp.Content)
+	}
+}
+
+func TestLocal_ChatStream_ToolCallReassembly(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, _ := w.(http.Flusher)
+		writeChunk := func(s string) {
+			_, _ = w.Write([]byte("data: " + s + "\n\n"))
+			if flusher != nil {
+				flusher.Flush()
+			}
+		}
+		// Tool call streamed across multiple chunks (id+name first, args split).
+		writeChunk(`{"choices":[{"delta":{"tool_calls":[{"id":"tc1","type":"function","function":{"name":"list-files","arguments":"{\"pa"}}]}}]}`)
+		writeChunk(`{"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"th\":\"/tmp\"}"}}]}}]}`)
+		writeChunk("[DONE]")
+	}))
+	defer srv.Close()
+
+	l := newLocalAgainst(srv)
+	resp, err := l.ChatStream(context.Background(), []Message{{Role: RoleUser, Content: "list"}}, nil, nil)
+	if err != nil {
+		t.Fatalf("ChatStream: %v", err)
+	}
+	if len(resp.ToolCalls) != 1 {
+		t.Fatalf("tool calls = %d, want 1", len(resp.ToolCalls))
+	}
+	tc := resp.ToolCalls[0]
+	if tc.Name != "list-files" || !strings.Contains(tc.Arguments, "/tmp") {
+		t.Errorf("tool call mis-assembled: %+v", tc)
+	}
+}
+
+func TestLocal_ChatStream_HTTP500(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "boom", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	l := newLocalAgainst(srv)
+	_, err := l.ChatStream(context.Background(), []Message{{Role: RoleUser, Content: "x"}}, nil, nil)
+	if err == nil {
+		t.Fatal("expected error for HTTP 500")
+	}
+}
+
 func TestLocal_doRequest_RespectsContext(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Don't reply; rely on context cancellation.

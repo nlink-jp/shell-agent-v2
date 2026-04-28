@@ -76,3 +76,53 @@ func TestDeleteByIDs_Empty(t *testing.T) {
 		t.Error("store should be unchanged")
 	}
 }
+
+func TestNewStore_LoadSaveRoundtrip(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	// Fresh store loads empty (file doesn't exist).
+	s := NewStore()
+	if err := s.Load(); err != nil {
+		t.Fatalf("Load on missing file: %v", err)
+	}
+	if len(s.All()) != 0 {
+		t.Errorf("expected empty store, got %d", len(s.All()))
+	}
+
+	s.Add("first", "sess-1", "Title 1", []string{"info"})
+	s.Add("second", "sess-2", "Title 2", []string{"warning"})
+	if err := s.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	s2 := NewStore()
+	if err := s2.Load(); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(s2.All()) != 2 {
+		t.Fatalf("after reload: %d findings, want 2", len(s2.All()))
+	}
+	if s2.All()[0].Content != "first" || s2.All()[1].Content != "second" {
+		t.Errorf("content not preserved: %+v", s2.All())
+	}
+}
+
+func TestDeleteBySession(t *testing.T) {
+	s := &Store{path: "/tmp/test-findings-session.json", findings: []Finding{}}
+	s.Add("a", "keep", "K", nil)
+	s.Add("b", "remove", "R", nil)
+	s.Add("c", "remove", "R", nil)
+	s.Add("d", "keep", "K", nil)
+
+	s.DeleteBySession("remove")
+
+	remaining := s.All()
+	if len(remaining) != 2 {
+		t.Fatalf("remaining = %d, want 2", len(remaining))
+	}
+	for _, f := range remaining {
+		if f.OriginSessionID != "keep" {
+			t.Errorf("unexpected origin: %+v", f)
+		}
+	}
+}
