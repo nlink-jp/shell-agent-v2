@@ -112,10 +112,12 @@ shell-agent-v2/
 - Per-session container managed via `podman` or `docker`, mounting
   `sessions/<id>/work/` at `/work`. Engine selected by Settings →
   Sandbox (auto / podman / docker).
-- Six tools, all prefixed `sandbox-`: `run-shell`, `run-python`,
+- Eight tools, all prefixed `sandbox-`: `run-shell`, `run-python`,
   `write-file` (LLM → /work), `copy-object` (objstore → /work),
   `register-object` (/work → objstore), `info` (engine, image,
-  Python version, pip list, /work listing). All MITL by default.
+  Python version, pip list, /work listing), `load-into-analysis`
+  (/work CSV/JSON → DuckDB), `export-sql` (analysis SELECT → /work
+  CSV). All MITL by default.
 - Lifecycle: lazy `EnsureContainer` on first tool use (auto-pulls
   the image if missing), `Stop(sessionID)` on session delete,
   `StopAll` on app shutdown. `RestartSandbox` reloads config
@@ -157,7 +159,7 @@ All implementation must follow these design documents:
 - **agent-data-flow.md** — agent loop, context budget, MITL, events, tool confirmation
 - **memory-architecture-v2.md** — non-destructive contextbuild, summary cache, time markers across every channel
 - **object-storage.md** — central object storage, lifecycle, LLM tools, Objects sidebar panel
-- **sandbox-execution.md** — per-session container sandbox, six `sandbox-*` tools, macOS prerequisites
+- **sandbox-execution.md** — per-session container sandbox, eight `sandbox-*` tools, macOS prerequisites
 - **llm-abstraction.md** — backend role mapping, tool format conversion, multimodal
 - **shell-agent-v2-architecture.md** — top-level architecture, per-backend budget tree, bundled tool embed
 

@@ -238,8 +238,11 @@ restart but go away with session deletion.
 
 All sandbox tools share the `sandbox-` prefix so the model sees them
 as a coherent suite that share state through the session's `/work`
-directory. Five tools total: two execute, three move data across the
-sandbox boundary.
+directory. Eight tools total: two execute (`run-shell`,
+`run-python`), three move data across the sandbox boundary
+(`write-file`, `copy-object`, `register-object`), two bridge with
+the analysis engine (`load-into-analysis`, `export-sql`), and one
+introspects (`info`).
 
 ### `sandbox-run-shell`
 
@@ -373,6 +376,40 @@ container hop needed.
   }
 }
 ```
+
+### `sandbox-export-sql`
+
+The inverse direction of `load-into-analysis`: run a SELECT against
+the DuckDB analysis engine and write the result as CSV directly to
+`/work`. The motivation is that pasting a query result into chat as
+text — to then have the LLM hand it to `sandbox-run-python` — is
+both wasteful (eats the model's tool budget) and lossy (numbers get
+re-formatted, large results get truncated). This bypasses the chat
+channel entirely: the analysis engine streams CSV through
+`QuerySQLToCSV` straight into the host-side mount of `/work`.
+
+```json
+{
+  "name": "sandbox-export-sql",
+  "description": "Run a SELECT query against the analysis database and write the result as CSV to /work/<file_path>. Use this when you want sandbox-run-python (pandas etc.) to operate on a query result — pasting the result text into Python is wasteful and lossy; this hands the data over as a precise CSV file. The file appears under /work and can also be loaded back with sandbox-load-into-analysis.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "sql":       {"type": "string", "description": "SELECT query to run."},
+      "file_path": {"type": "string", "description": "Destination path under /work (e.g. 'tokyo_sales.csv'). Parent directories are created if missing."}
+    },
+    "required": ["sql", "file_path"]
+  }
+}
+```
+
+Implementation: `analysis.QuerySQLToCSV(query, writer)` runs the
+read-only SQL guard, walks rows once, formats values with
+`csvFormat`, and writes UTF-8 CSV. The handler honours the same
+`safeWorkPath` `/work/` normalisation as the other file-writing
+tools, and returns `wrote N rows (cols=...) to /work/<rel>` so the
+LLM can immediately reference the file in a follow-up
+`sandbox-run-python` call.
 
 ### `sandbox-info`
 

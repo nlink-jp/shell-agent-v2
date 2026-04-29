@@ -14,7 +14,7 @@ import (
 	"github.com/nlink-jp/shell-agent-v2/internal/sandbox"
 )
 
-// sandboxToolDefs returns the LLM-facing definitions for the six
+// sandboxToolDefs returns the LLM-facing definitions for the eight
 // sandbox-* tools. Returned only when a.sandbox is non-nil; the
 // caller in buildToolDefs gates on that.
 func sandboxToolDefs() []llm.ToolDef {
