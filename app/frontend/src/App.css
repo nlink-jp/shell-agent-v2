@@ -717,7 +717,8 @@ input, textarea {
     margin-bottom: 10px;
 }
 
-.mitl-sql {
+.mitl-sql,
+.mitl-code {
     background: var(--bg-primary, #0d1520);
     border: 1px solid var(--border-primary, #2a3a4a);
     border-radius: 6px;
@@ -726,10 +727,19 @@ input, textarea {
     font-family: 'SF Mono', 'Menlo', monospace;
     color: var(--text-primary, #e0e0e0);
     overflow-x: auto;
-    max-height: 200px;
+    overflow-y: auto;
+    max-height: 320px;
     margin-top: 6px;
+    white-space: pre;
+    tab-size: 4;
+    line-height: 1.45;
+}
+
+.mitl-sql {
+    /* SQL is usually narrower; wrap is ok */
     white-space: pre-wrap;
     word-break: break-word;
+    max-height: 200px;
 }
 
 .mitl-perspective {

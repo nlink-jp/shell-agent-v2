@@ -58,6 +58,7 @@ A per-session container sandbox is available. Use it whenever the user asks you 
 - sandbox-copy-object — copy an object from the central store into /work so you can analyze it
 - sandbox-register-object — register a /work file (chart, generated CSV, etc.) back into the central object store; the returned ID can be referenced from reports as ![alt](object:ID)
 - sandbox-load-into-analysis — load a CSV/JSON/JSONL file from /work into the analysis database (DuckDB) as a queryable table. Use this after generating data with sandbox-run-python to make it available to query-sql / describe-data / suggest-analysis.
+- sandbox-export-sql — run a SELECT query and write the result as CSV to /work/<file_path>. Use this whenever you want sandbox-run-python to operate on a query result; do NOT paste query-sql output text into Python code (lossy, wasteful, and the LLM will mistype large numbers).
 - sandbox-info — describe the runtime (engine, image, Python version, installed pip packages, /work listing). Call this once early when you need to know what is preinstalled.
 
 Workflow tips: when a tool produces a file under /work, immediately call sandbox-register-object on it in the same response so it's available for reports and downstream tools. Don't only describe what you would do — emit the actual function call.`

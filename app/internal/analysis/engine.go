@@ -3,11 +3,14 @@ package analysis
 
 import (
 	"database/sql"
+	"encoding/csv"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	_ "github.com/marcboeker/go-duckdb"
 
@@ -261,6 +264,85 @@ func (e *Engine) Schema() string {
 // MaxQueryRows caps QuerySQL results to prevent memory exhaustion
 // from unbounded SELECT queries.
 const MaxQueryRows = 10000
+
+// QuerySQLToCSV runs a SELECT query and writes the result rows as CSV
+// to w. Returns the column order, row count written, and any error.
+// Uses the same MaxQueryRows guard and read-only enforcement as
+// QuerySQL. Column order is preserved from rows.Columns() so the
+// output matches what the user wrote in their SELECT list.
+func (e *Engine) QuerySQLToCSV(query string, w io.Writer) (columns []string, rowCount int, err error) {
+	if err := e.Open(); err != nil {
+		return nil, 0, err
+	}
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if !isReadOnlySQL(query) {
+		return nil, 0, fmt.Errorf("only SELECT queries are allowed")
+	}
+
+	rows, err := e.db.Query(query)
+	if err != nil {
+		return nil, 0, fmt.Errorf("query: %w", err)
+	}
+	defer rows.Close()
+
+	columns, err = rows.Columns()
+	if err != nil {
+		return nil, 0, err
+	}
+
+	cw := csv.NewWriter(w)
+	if err := cw.Write(columns); err != nil {
+		return columns, 0, err
+	}
+
+	values := make([]any, len(columns))
+	valuePtrs := make([]any, len(columns))
+	for i := range values {
+		valuePtrs[i] = &values[i]
+	}
+	for rows.Next() {
+		if rowCount >= MaxQueryRows {
+			return columns, rowCount, fmt.Errorf("query result exceeds %d rows; refine query (e.g. add LIMIT or WHERE)", MaxQueryRows)
+		}
+		if err := rows.Scan(valuePtrs...); err != nil {
+			return columns, rowCount, err
+		}
+		row := make([]string, len(columns))
+		for i := range columns {
+			row[i] = csvFormat(values[i])
+		}
+		if err := cw.Write(row); err != nil {
+			return columns, rowCount, err
+		}
+		rowCount++
+	}
+	cw.Flush()
+	if err := cw.Error(); err != nil {
+		return columns, rowCount, err
+	}
+	return columns, rowCount, nil
+}
+
+// csvFormat renders a single SQL value as a CSV cell. Bytes treated
+// as UTF-8 strings; nil becomes empty.
+func csvFormat(v any) string {
+	if v == nil {
+		return ""
+	}
+	switch x := v.(type) {
+	case []byte:
+		return string(x)
+	case string:
+		return x
+	case time.Time:
+		return x.Format(time.RFC3339)
+	default:
+		return fmt.Sprintf("%v", x)
+	}
+}
 
 func (e *Engine) QuerySQL(query string) ([]map[string]any, error) {
 	if err := e.Open(); err != nil {

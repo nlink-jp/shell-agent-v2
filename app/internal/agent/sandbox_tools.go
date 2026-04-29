@@ -87,15 +87,27 @@ func sandboxToolDefs() []llm.ToolDef {
 			},
 		},
 		{
-			Name:        "sandbox-load-into-analysis",
-			Description: "Load a CSV/JSON/JSONL file from /work into the analysis database (DuckDB) as a table, so it can be queried with query-sql, described with describe-data, etc. Use this after generating data with sandbox-run-python to bridge the produced file into the analysis side. The path is relative to /work.",
+			Name:        "sandbox-export-sql",
+			Description: "Run a SELECT query against the analysis database and write the result as CSV to /work/<file_path>. Use this when you want sandbox-run-python (pandas etc.) to operate on a query result — pasting the result text into Python is wasteful and lossy; this hands the data over as a precise CSV file. The file appears under /work and can also be loaded back with sandbox-load-into-analysis.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"path":       map[string]any{"type": "string", "description": "Path to the data file under /work (e.g. 'sales.csv')."},
+					"sql":       map[string]any{"type": "string", "description": "SELECT query to run."},
+					"file_path": map[string]any{"type": "string", "description": "Destination path under /work (e.g. 'tokyo_sales.csv'). Parent directories are created if missing."},
+				},
+				"required": []string{"sql", "file_path"},
+			},
+		},
+		{
+			Name:        "sandbox-load-into-analysis",
+			Description: "Load a CSV/JSON/JSONL file from /work into the analysis database (DuckDB) as a table, so it can be queried with query-sql, described with describe-data, etc. Use this after generating data with sandbox-run-python to bridge the produced file into the analysis side. file_path is relative to /work (do not include the '/work/' prefix).",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"file_path":  map[string]any{"type": "string", "description": "Path to the data file under /work (e.g. 'sales.csv'). Same parameter name as load-data."},
 					"table_name": map[string]any{"type": "string", "description": "Table name to create in the analysis database. Alphanumeric and underscores only."},
 				},
-				"required": []string{"path", "table_name"},
+				"required": []string{"file_path", "table_name"},
 			},
 		},
 	}
@@ -135,6 +147,8 @@ func (a *Agent) executeSandboxTool(ctx context.Context, name, argsJSON string) s
 		return a.toolSandboxInfo(ctx, sid)
 	case "sandbox-load-into-analysis":
 		return a.toolSandboxLoadIntoAnalysis(sid, argsJSON)
+	case "sandbox-export-sql":
+		return a.toolSandboxExportSQL(sid, argsJSON)
 	default:
 		return fmt.Sprintf("Error: unknown sandbox tool %q", name)
 	}
@@ -302,26 +316,36 @@ func (a *Agent) toolSandboxInfo(ctx context.Context, sid string) string {
 // analysis engine. The /work directory is on the host filesystem
 // (mounted into the container), so we can read it directly via
 // analysis.LoadFile without going through the container.
+//
+// Accepts both `file_path` (matching load-data) and `path` so that
+// either spelling the LLM picks up works. We trim a leading "/work/"
+// because the LLM tends to write the in-container path verbatim.
 func (a *Agent) toolSandboxLoadIntoAnalysis(sid, argsJSON string) string {
 	if a.analysis == nil {
 		return "Error: analysis engine not available in this session"
 	}
 	var args struct {
+		FilePath  string `json:"file_path"`
 		Path      string `json:"path"`
 		TableName string `json:"table_name"`
 	}
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
 		return "Error: invalid arguments: " + err.Error()
 	}
-	if args.Path == "" || args.TableName == "" {
-		return "Error: 'path' and 'table_name' are required"
+	rel := args.FilePath
+	if rel == "" {
+		rel = args.Path
 	}
-	src, err := safeWorkPath(a.sandbox.WorkDir(sid), args.Path)
+	rel = strings.TrimPrefix(rel, "/work/")
+	if rel == "" || args.TableName == "" {
+		return "Error: 'file_path' and 'table_name' are required"
+	}
+	src, err := safeWorkPath(a.sandbox.WorkDir(sid), rel)
 	if err != nil {
 		return "Error: " + err.Error()
 	}
 	if _, statErr := os.Stat(src); statErr != nil {
-		return "Error: file not found at /work/" + args.Path
+		return "Error: file not found at /work/" + rel
 	}
 	if err := a.analysis.LoadFile(args.TableName, src); err != nil {
 		return "Error: load: " + err.Error()
@@ -329,10 +353,10 @@ func (a *Agent) toolSandboxLoadIntoAnalysis(sid, argsJSON string) string {
 	for _, t := range a.analysis.Tables() {
 		if t.Name == args.TableName {
 			return fmt.Sprintf("Loaded /work/%s into table %q: %d rows, columns: %v",
-				args.Path, t.Name, t.RowCount, t.Columns)
+				rel, t.Name, t.RowCount, t.Columns)
 		}
 	}
-	return fmt.Sprintf("Loaded /work/%s into table %q", args.Path, args.TableName)
+	return fmt.Sprintf("Loaded /work/%s into table %q", rel, args.TableName)
 }
 
 // RestartSandbox tears down every existing sandbox container and
@@ -345,6 +369,52 @@ func (a *Agent) RestartSandbox() {
 	}
 	a.sandbox = nil
 	a.maybeStartSandbox()
+}
+
+// toolSandboxExportSQL runs a SELECT query and writes the result as
+// CSV into /work, so the LLM can hand a precise dataset to
+// sandbox-run-python (pandas, scikit-learn, …) without
+// reconstructing it from text.
+func (a *Agent) toolSandboxExportSQL(sid, argsJSON string) string {
+	if a.analysis == nil {
+		return "Error: analysis engine not available in this session"
+	}
+	var args struct {
+		SQL      string `json:"sql"`
+		FilePath string `json:"file_path"`
+		Path     string `json:"path"` // accept either spelling, like load-into-analysis
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return "Error: invalid arguments: " + err.Error()
+	}
+	rel := args.FilePath
+	if rel == "" {
+		rel = args.Path
+	}
+	rel = strings.TrimPrefix(rel, "/work/")
+	if args.SQL == "" || rel == "" {
+		return "Error: 'sql' and 'file_path' are required"
+	}
+	dest, err := safeWorkPath(a.sandbox.WorkDir(sid), rel)
+	if err != nil {
+		return "Error: " + err.Error()
+	}
+	if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
+		return "Error: mkdir: " + err.Error()
+	}
+	f, err := os.Create(dest)
+	if err != nil {
+		return "Error: create: " + err.Error()
+	}
+	cols, n, err := a.analysis.QuerySQLToCSV(args.SQL, f)
+	if cerr := f.Close(); cerr != nil && err == nil {
+		err = cerr
+	}
+	if err != nil {
+		_ = os.Remove(dest)
+		return "Error: " + err.Error()
+	}
+	return fmt.Sprintf("wrote %d rows × %d columns to /work/%s (columns: %v)", n, len(cols), rel, cols)
 }
 
 // SandboxStop tears down the per-session sandbox container, if any.
@@ -368,8 +438,26 @@ func (a *Agent) SandboxStopAll(ctx context.Context) error {
 // safeWorkPath joins workDir + relative under the sandbox's /work,
 // rejecting absolute paths and "../" traversal that would escape the
 // mount.
+//
+// LLMs often write the in-container path verbatim ("/work/foo.png")
+// because that's what they see inside sandbox-run-python. We strip
+// the "/work/" or leading "/" prefix as a courtesy so the join
+// doesn't end up with a doubled "/work/work/" segment.
 func safeWorkPath(workDir, rel string) (string, error) {
-	rel = strings.TrimPrefix(rel, "/")
+	// Normalise the LLM's path back into a /work-relative form.
+	for {
+		trimmed := strings.TrimPrefix(rel, "/work/")
+		trimmed = strings.TrimPrefix(trimmed, "/")
+		if trimmed == rel {
+			break
+		}
+		rel = trimmed
+	}
+	rel = strings.TrimPrefix(rel, "work/")
+
+	if rel == "" {
+		return "", fmt.Errorf("path is empty after normalising the /work prefix")
+	}
 	if filepath.IsAbs(rel) {
 		return "", fmt.Errorf("path must be relative to /work")
 	}

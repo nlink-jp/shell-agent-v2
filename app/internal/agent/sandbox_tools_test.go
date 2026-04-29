@@ -82,6 +82,7 @@ func TestBuildToolDefs_IncludesSandboxWhenEngineSet(t *testing.T) {
 		"sandbox-register-object":    false,
 		"sandbox-info":               false,
 		"sandbox-load-into-analysis": false,
+		"sandbox-export-sql":         false,
 	}
 	for _, td := range tools {
 		if _, ok := wantNames[td.Name]; ok {
@@ -156,6 +157,25 @@ func TestExecuteSandboxTool_WriteFileRejectsTraversal(t *testing.T) {
 	out := a.executeSandboxTool(context.Background(), "sandbox-write-file", `{"path":"../escape.txt","content":"x"}`)
 	if !strings.Contains(out, "Error") || !strings.Contains(out, "escapes") {
 		t.Errorf("expected traversal rejection, got %q", out)
+	}
+}
+
+func TestExecuteSandboxTool_WriteFileNormalisesWorkPrefix(t *testing.T) {
+	// LLMs frequently pass the in-container absolute path '/work/foo'
+	// because that's what they see inside sandbox-run-python. We must
+	// not interpret that as workDir/work/foo (the dreaded /work/work/
+	// regression). Same for "work/foo" without leading slash.
+	for _, in := range []string{"/work/data.csv", "work/data.csv", "data.csv"} {
+		a, fe := newAgentWithSandbox(t)
+		out := a.executeSandboxTool(context.Background(), "sandbox-write-file", `{"path":"`+in+`","content":"x"}`)
+		if !strings.Contains(out, "wrote") {
+			t.Errorf("input %q: expected success, got %q", in, out)
+			continue
+		}
+		expected := filepath.Join(fe.WorkDir(a.session.ID), "data.csv")
+		if _, err := os.Stat(expected); err != nil {
+			t.Errorf("input %q: expected file at %s, got %v", in, expected, err)
+		}
 	}
 }
 

@@ -1077,6 +1077,42 @@ function App() {
                                         )}
                                     </>)
                                 }
+                                // Sandbox code-bearing tools: render the code/SQL/content
+                                // field as raw multi-line text so the user can actually
+                                // read what they're approving. JSON.stringify keeps the
+                                // entire body on one logical line which is unusable for
+                                // anything beyond a few words of Python.
+                                const codeFieldByTool: Record<string, string> = {
+                                    'sandbox-run-shell': 'command',
+                                    'sandbox-run-python': 'code',
+                                    'sandbox-write-file': 'content',
+                                    'sandbox-export-sql': 'sql',
+                                }
+                                const codeField = codeFieldByTool[mitlRequest.tool_name]
+                                if (codeField && typeof args[codeField] === 'string') {
+                                    const codeBody: string = args[codeField]
+                                    const otherArgs: Record<string, any> = {}
+                                    for (const k of Object.keys(args)) {
+                                        if (k !== codeField) otherArgs[k] = args[k]
+                                    }
+                                    return (<>
+                                        <div className="mitl-tool-name">
+                                            <span className="mitl-label">Tool:</span>
+                                            <code>{mitlRequest.tool_name}</code>
+                                            <span className={`tool-category ${mitlRequest.category}`}>{mitlRequest.category}</span>
+                                        </div>
+                                        {Object.keys(otherArgs).length > 0 && (
+                                            <div className="mitl-section">
+                                                <span className="mitl-label">Arguments:</span>
+                                                <pre>{JSON.stringify(otherArgs, null, 2)}</pre>
+                                            </div>
+                                        )}
+                                        <div className="mitl-section">
+                                            <span className="mitl-label">{codeField}:</span>
+                                            <pre className="mitl-code">{codeBody}</pre>
+                                        </div>
+                                    </>)
+                                }
                                 // Default: shell tools etc.
                                 return (<>
                                     <div className="mitl-tool-name">
