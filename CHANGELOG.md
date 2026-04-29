@@ -5,6 +5,61 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.8] - 2026-04-29
+
+### Added
+
+- **`sandbox-load-into-analysis` tool.** Bridges a CSV/JSON/JSONL
+  file under `/work` into the DuckDB analysis engine as a table,
+  so a file produced by `sandbox-run-python` can be queried with
+  `query-sql` without an explicit `load-data` round-trip. Reads
+  through the host-side mount; no container hop. Accepts both
+  `path` and `file_path` because both showed up in real LLM output.
+- **`sandbox-export-sql` tool.** The inverse direction: runs a
+  SELECT against the analysis engine and writes the result CSV
+  straight to `/work/<file_path>`. Closes a wasteful round-trip
+  where query results were pasted into chat as text and then
+  handed to `sandbox-run-python`. Backed by a new
+  `analysis.QuerySQLToCSV(query, writer)` that streams rows.
+- **Sandbox guidance in the system prompt.** When sandbox is
+  enabled, `chat.BuildSystemPrompt` / `BuildMessages` append a
+  guidance block that tells the model when to reach for which
+  `sandbox-*` tool, and explicitly to *emit* a function call
+  rather than describe what it would do — gemma in particular
+  tended to narrate the next step instead of taking it.
+- **MITL dialog renders code-bearing tool args as multi-line
+  blocks.** `sandbox-run-shell` (`command`), `sandbox-run-python`
+  (`code`), `sandbox-write-file` (`content`), and
+  `sandbox-export-sql` (`sql`) are shown in a pre-formatted
+  block, mirroring the existing SQL display. A 50-line single-line
+  `print(...)` block is now actually readable.
+
+### Fixed
+
+- **MCP profile fields are now editable.** Settings → MCP profile
+  inputs were rendered as text, not `<input>` elements, so edits
+  appeared to take but never round-tripped to the config.
+- **`safeWorkPath` no longer doubles `/work/` segments.** When the
+  LLM passes the in-container absolute path it sees inside
+  `sandbox-run-python` (`/work/foo.png`), the helper now strips
+  repeated `/work/` and leading `/` prefixes before joining with
+  the host work dir, so it doesn't produce
+  `<sessions>/<sid>/work/work/foo.png` and fail at file-write or
+  register-object time.
+- **`sandbox-load-into-analysis` accepts both `path` and
+  `file_path`.** LLMs split on which key name to use; the handler
+  now takes either.
+
+### Coverage
+
+- New unit test
+  `TestExecuteSandboxTool_WriteFileNormalisesWorkPrefix` — covers
+  `/work/foo`, `work/foo`, and bare `foo` resolving to the same
+  host path.
+- `analysis.QuerySQLToCSV` covered by the existing analysis test
+  suite; sandbox tool dispatch tests extended to include
+  `sandbox-export-sql` in the expected tool name set.
+
 ## [0.1.7] - 2026-04-29
 
 ### Added
