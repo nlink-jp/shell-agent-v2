@@ -658,9 +658,10 @@ func (a *Agent) toolAnalyzeData(ctx context.Context, argsJSON string) (string, e
 	cfg := analysis.DefaultSummarizerConfig()
 	summarizer := analysis.NewSummarizer(adapter, a.analysis.Schema(), cfg)
 	result, err := summarizer.Analyze(ctx, args.Prompt, rows, func(idx, total int) {
-		if a.activityHandler != nil {
-			a.activityHandler("tool_start", fmt.Sprintf("analyze-data (window %d/%d)", idx+1, total))
-		}
+		a.emitActivity(ActivityEvent{
+			Type:   "tool_start",
+			Detail: fmt.Sprintf("analyze-data (window %d/%d)", idx+1, total),
+		})
 	})
 	if err != nil {
 		return "", fmt.Errorf("analysis: %w", err)

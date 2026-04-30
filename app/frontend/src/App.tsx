@@ -87,7 +87,12 @@ interface ChatMessage {
     content: string;
     timestamp: string;
     imageUrls?: string[];
-    status?: 'running' | 'done';
+    // 'running' while a tool is in flight; on completion the
+    // backend now reports 'success' or 'error' (Phase A — wired
+    // up but every tool currently reports 'success' until Phase
+    // B classification per tool family lands). 'done' is kept as
+    // a backward-compat fallback for older event payloads.
+    status?: 'running' | 'success' | 'error' | 'done';
 }
 
 interface SessionInfo {
@@ -220,9 +225,15 @@ const MessageItem = memo(function MessageItem({msg, onLightbox, onExpandReport}:
     }), [onLightbox])
 
     if (msg.role === 'tool-event') {
+        const cls = msg.status === 'running' ? 'running'
+            : msg.status === 'error' ? 'error'
+            : 'success'
+        const icon = msg.status === 'running' ? '\u25CF'
+            : msg.status === 'error' ? '\u2715'
+            : '\u2713'
         return (
-            <div className={`tool-event ${msg.status === 'running' ? 'running' : 'done'}`}>
-                <span className="tool-event-icon">{msg.status === 'running' ? '\u25CF' : '\u2713'}</span>
+            <div className={`tool-event ${cls}`}>
+                <span className="tool-event-icon">{icon}</span>
                 <span className="tool-event-name">{msg.content}</span>
             </div>
         )
@@ -424,6 +435,10 @@ function App() {
             const cleanupActivity = window.runtime.EventsOn('agent:activity', (data: any) => {
                 if (data.type === 'tool_end') {
                     setProgressTool('')
+                    // Phase A: backend reports 'success' or 'error'.
+                    // Old event payloads without status fall back to
+                    // success so older runs still render.
+                    const endStatus: 'success' | 'error' = data.status === 'error' ? 'error' : 'success'
                     setMessages(prev => {
                         let idx = -1
                         for (let i = prev.length - 1; i >= 0; i--) {
@@ -432,7 +447,7 @@ function App() {
                         }
                         if (idx === -1) return prev
                         const next = prev.slice()
-                        next[idx] = {...next[idx], status: 'done'}
+                        next[idx] = {...next[idx], status: endStatus}
                         return next
                     })
                 } else if (data.type === 'tool_start') {
@@ -668,8 +683,12 @@ function App() {
             setState('idle')
             setStreaming('')
             setProgressTool('')
-            // Mark any leftover running tool-events as done (e.g. on error or abort)
-            setMessages(prev => prev.map(m => m.role === 'tool-event' && m.status === 'running' ? {...m, status: 'done'} : m))
+            // Mark any leftover running tool-events as completed
+            // (e.g. on agent error or abort). We can't know whether
+            // they actually succeeded, but leaving them in 'running'
+            // forever is worse — fall back to 'success' so the
+            // bubble at least stops pulsing.
+            setMessages(prev => prev.map(m => m.role === 'tool-event' && m.status === 'running' ? {...m, status: 'success'} : m))
             if (window.go) {
                 window.go.main.Bindings.GetBackend().then(setBackend)
                 window.go.main.Bindings.GetLLMStatus().then(setLLMStatus)

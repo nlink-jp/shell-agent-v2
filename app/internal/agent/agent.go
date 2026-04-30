@@ -82,7 +82,7 @@ type Agent struct {
 	mitlHandler     MITLHandler
 	reportHandler   func(title, content string)
 	pinnedHandler   func()
-	activityHandler func(actType, detail string)
+	activityHandler func(ActivityEvent)
 	toolRegistry    *toolcall.Registry
 	guardians       map[string]*mcp.Guardian
 	guardiansMu     sync.RWMutex
@@ -198,12 +198,45 @@ func (a *Agent) SetPinnedHandler(h func()) {
 	a.pinnedHandler = h
 }
 
+// ActivityEventStatus is a coarse outcome label attached to
+// tool_end events so the chat UI can render success / failure
+// distinctly. running events leave this empty; tool_start uses
+// it as a "best guess" placeholder (callers may overwrite at
+// tool_end time).
+type ActivityEventStatus string
+
+const (
+	ActivityStatusSuccess ActivityEventStatus = "success"
+	ActivityStatusError   ActivityEventStatus = "error"
+)
+
+// ActivityEvent describes a transient agent activity surfaced
+// to the UI. Type is one of "tool_start" / "tool_end" /
+// "thinking"; Detail is the tool name (or thinking content);
+// Status is "" for tool_start / thinking and "success" /
+// "error" for tool_end.
+type ActivityEvent struct {
+	Type   string
+	Detail string
+	Status ActivityEventStatus
+}
+
 // SetActivityHandler sets the callback for agent activity events.
-// actType: "tool_start", "tool_end", "thinking"
-func (a *Agent) SetActivityHandler(h func(actType, detail string)) {
+// Replaces the previous func(actType, detail string) signature
+// so a tool_end event can carry success / failure status without
+// the bindings layer having to guess.
+func (a *Agent) SetActivityHandler(h func(ActivityEvent)) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.activityHandler = h
+}
+
+// emitActivity is a small helper so we don't repeat the
+// nil-check at every call site.
+func (a *Agent) emitActivity(ev ActivityEvent) {
+	if a.activityHandler != nil {
+		a.activityHandler(ev)
+	}
 }
 
 // CurrentBackend returns the name of the active LLM backend.
@@ -784,24 +817,24 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 		a.session.AddAssistantMessage(assistantContent)
 
 		// Emit thinking activity for LLM explanation text (transient, not a chat message)
-		if resp.Content != "" && a.activityHandler != nil {
-			a.activityHandler("thinking", resp.Content)
+		if resp.Content != "" {
+			a.emitActivity(ActivityEvent{Type: "thinking", Detail: resp.Content})
 		}
 
 		// Execute each tool call
 		for _, tc := range resp.ToolCalls {
-			if a.activityHandler != nil {
-				a.activityHandler("tool_start", tc.Name)
-			}
+			a.emitActivity(ActivityEvent{Type: "tool_start", Detail: tc.Name})
 			// Avoid logging full tool arguments at Info level (may contain credentials, paths, etc.)
 			logger.Info("agentLoop: tool_call name=%s args_len=%d", tc.Name, len(tc.Arguments))
 			logger.Debug("agentLoop: tool_call args=%s", logger.Truncate(tc.Arguments, 200))
 			result := a.executeTool(ctx, tc)
 			logger.Debug("agentLoop: tool_result name=%s result=%s", tc.Name, logger.Truncate(result, 200))
 			a.session.AddToolResult(tc.ID, tc.Name, result)
-			if a.activityHandler != nil {
-				a.activityHandler("tool_end", tc.Name)
-			}
+			// Phase A: classification not wired in yet — every
+			// tool_end reports "success". Phase B will switch
+			// per-tool-family detection on (sandbox exit codes,
+			// MCP error.code, etc.).
+			a.emitActivity(ActivityEvent{Type: "tool_end", Detail: tc.Name, Status: ActivityStatusSuccess})
 		}
 		_ = a.session.Save() // auto-save after tool execution
 	}

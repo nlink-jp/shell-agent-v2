@@ -83,11 +83,15 @@ func (b *Bindings) startup(ctx context.Context) {
 			"content": content,
 		})
 	})
-	b.agent.SetActivityHandler(func(actType, detail string) {
-		wailsRuntime.EventsEmit(b.ctx, "agent:activity", map[string]any{
-			"type":   actType,
-			"detail": detail,
-		})
+	b.agent.SetActivityHandler(func(ev agent.ActivityEvent) {
+		payload := map[string]any{
+			"type":   ev.Type,
+			"detail": ev.Detail,
+		}
+		if ev.Status != "" {
+			payload["status"] = string(ev.Status)
+		}
+		wailsRuntime.EventsEmit(b.ctx, "agent:activity", payload)
 	})
 	b.mitlChan = make(chan agent.MITLResponse, 1)
 	b.agent.SetMITLHandler(func(req agent.MITLRequest) agent.MITLResponse {

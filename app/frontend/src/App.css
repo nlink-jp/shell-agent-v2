@@ -1526,6 +1526,17 @@ input, textarea {
     animation: pulse 1.2s ease-in-out infinite;
 }
 
+/* .success keeps the existing tool-tinted bubble (the default
+   .tool-event styles already paint it green). .error overrides
+   to error-tinted so a failed tool call is visible at a glance.
+   Phase A wires up the structure; Phase B starts emitting
+   'error' for actual failures. */
+.tool-event.error {
+    background: var(--bg-msg-error);
+    border-color: var(--border-msg-error);
+    color: var(--text-error);
+}
+
 .tool-event-icon {
     font-size: 9px;
     line-height: 1;
