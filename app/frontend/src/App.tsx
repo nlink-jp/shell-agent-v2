@@ -8,7 +8,7 @@ import ChatInput from './ChatInput'
 import ObjectImage, {clearObjectCache} from './ObjectImage'
 import DataDisclosure from './DataDisclosure'
 import MessageItem from './components/MessageItem'
-import BulkActions from './components/BulkActions'
+import Sidebar from './sidebar/Sidebar'
 import SettingsDialog from './dialogs/SettingsDialog'
 import MITLDialog from './dialogs/MITLDialog'
 import Lightbox from './dialogs/Lightbox'
@@ -80,16 +80,15 @@ function App() {
     const [dataRefreshTick, setDataRefreshTick] = useState(0)
     const [findings, setFindings] = useState<Finding[]>([])
     const [showSettings, setShowSettings] = useState(false)
-    const [editingSession, setEditingSession] = useState<string | null>(null)
-    const [editTitle, setEditTitle] = useState('')
+    // editingSession / editTitle state moved into Sidebar (rename
+    // is a sidebar-local concern). Same for the bulk-select sets
+    // for findings and pinned memory.
     const [mitlRequest, setMitlRequest] = useState<MITLRequest | null>(null)
     // mitlFeedback state moved into MITLDialog (local concern).
     const [cmdResult, setCmdResult] = useState<string | null>(null)
     const [tools, setTools] = useState<ToolInfo[]>([])
     const [mcpStatus, setMcpStatus] = useState<MCPStatus[]>([])
     const [pinnedMemories, setPinnedMemories] = useState<PinnedMemory[]>([])
-    const [selectedFindingIds, setSelectedFindingIds] = useState<Set<string>>(new Set())
-    const [selectedPinnedKeys, setSelectedPinnedKeys] = useState<Set<string>>(new Set())
     // Objects panel state was removed in info-display redesign Phase 3 —
     // bulk selection, confirmation, and the global object list now live
     // inside the per-session DataDisclosure component.
@@ -101,7 +100,6 @@ function App() {
     // frontend-decomposition: it's a local-only concern).
     const [progressTool, setProgressTool] = useState('')
     const messagesEndRef = useRef<HTMLDivElement>(null)
-    const composingRef = useRef(false)
 
     useEffect(() => {
         if (window.runtime) {
@@ -264,22 +262,9 @@ function App() {
         }
     }, [state, currentSessionId])
 
-    const startRename = useCallback((id: string, currentTitle: string) => {
-        setEditingSession(id)
-        setEditTitle(currentTitle)
-    }, [])
-
-    const commitRename = useCallback(async () => {
-        if (!editingSession || !editTitle.trim()) {
-            setEditingSession(null)
-            return
-        }
-        if (window.go) {
-            await window.go.main.Bindings.RenameSession(editingSession, editTitle.trim())
-            await refreshSessions()
-        }
-        setEditingSession(null)
-    }, [editingSession, editTitle, refreshSessions])
+    // startRename / commitRename moved into Sidebar (rename is a
+    // sidebar-local concern; the rename binding call is plumbed
+    // back via the onRenameSession prop).
 
     // On startup: load sessions, auto-create if none exist
     useEffect(() => {
@@ -429,209 +414,43 @@ function App() {
     return (
         <div className="app">
             <div className="titlebar-drag" />
-            {/* Single sidebar DOM for both states: collapsed only
-               adds an `is-collapsed` class that hides labels and
-               content panels via CSS. The icon Y-positions and
-               section dividers stay identical between modes. */}
-            <div
-                className={`sidebar ${sidebarCollapsed ? 'is-collapsed' : ''}`}
-                style={sidebarCollapsed ? undefined : {width: sidebarWidth}}
-            >
-                {/* Two-way accordion: Sessions and Memory each
-                   have a clickable header always visible. The
-                   active section's content fills the available
-                   vertical space; the inactive section is just
-                   a header. */}
-                <div className="sidebar-accordion">
-                    <section className={`acc-section ${sidebarPanel === 'sessions' ? 'expanded' : 'collapsed'}`}>
-                        <button
-                            className={`sidebar-nav-btn ${sidebarPanel === 'sessions' ? 'active' : ''}`}
-                            onClick={() => { if (sidebarCollapsed) setSidebarCollapsed(false); setSidebarPanel('sessions') }}
-                            title="Sessions"
-                        >
-                            <span className="sidebar-nav-ic">&#x2630;</span>
-                            <span className="sidebar-nav-label">Sessions</span>
-                        </button>
-                        {sidebarPanel === 'sessions' && (
-                        <div className="acc-content"><>
-                        {sessions.length === 0 ? (
-                            <p className="sidebar-hint">No sessions yet</p>
-                        ) : sessions.map(s => (
-                            <div key={s.id} className={`session-item ${s.id === currentSessionId ? 'active' : ''}`} onClick={() => handleLoadSession(s.id)}>
-                                {editingSession === s.id ? (
-                                    <input
-                                        className="session-title-edit"
-                                        value={editTitle}
-                                        onChange={e => setEditTitle(e.target.value)}
-                                        onBlur={commitRename}
-                                        onKeyDown={e => {
-                                            if (e.key === 'Enter' && !composingRef.current) commitRename()
-                                            if (e.key === 'Escape') setEditingSession(null)
-                                        }}
-                                        onCompositionStart={() => { composingRef.current = true }}
-                                        onCompositionEnd={() => { setTimeout(() => { composingRef.current = false }, 50) }}
-                                        autoFocus
-                                        onClick={e => e.stopPropagation()}
-                                    />
-                                ) : (
-                                    <div className="session-title" onDoubleClick={(e) => { e.stopPropagation(); startRename(s.id, s.title) }}>{s.title}</div>
-                                )}
-                                <div className="session-meta">
-                                    <span className="session-date">{s.updated_at}</span>
-                                    <div className="session-actions">
-                                        <button onClick={(e) => { e.stopPropagation(); startRename(s.id, s.title) }} title="Rename">&#x270E;</button>
-                                        <button onClick={(e) => { e.stopPropagation(); handleDeleteSession(s.id) }} title="Delete">&#x2715;</button>
-                                    </div>
-                                </div>
-                            </div>
-                        ))}
-                    </></div>
-                        )}
-                    </section>
-                    <section className={`acc-section ${sidebarPanel === 'memory' ? 'expanded' : 'collapsed'}`}>
-                        <button
-                            className={`sidebar-nav-btn ${sidebarPanel === 'memory' ? 'active' : ''}`}
-                            onClick={() => { if (sidebarCollapsed) setSidebarCollapsed(false); setSidebarPanel('memory') }}
-                            title="Memory"
-                        >
-                            <span className="sidebar-nav-ic">&#x2605;</span>
-                            <span className="sidebar-nav-label">Memory</span>
-                        </button>
-                        {sidebarPanel === 'memory' && (
-                        <div className="acc-content"><>
-                        {findings.length > 0 && (
-                            <div className={`status-section ${selectedFindingIds.size > 0 ? 'bulk-active' : ''}`}>
-                                <div className="bulk-section-header">
-                                    <h3>Findings</h3>
-                                    <BulkActions
-                                        total={findings.length}
-                                        selectedCount={selectedFindingIds.size}
-                                        onSelectAll={() => setSelectedFindingIds(new Set(findings.map(f => f.id)))}
-                                        onClear={() => setSelectedFindingIds(new Set())}
-                                        onDelete={async () => {
-                                            const ids = Array.from(selectedFindingIds)
-                                            if (ids.length === 0) return
-                                            await window.go.main.Bindings.DeleteFindings(ids)
-                                            setSelectedFindingIds(new Set())
-                                            const updated = await window.go.main.Bindings.GetFindings()
-                                            setFindings(updated)
-                                        }}
-                                    />
-                                </div>
-                                {findings.map(f => (
-                                    <div key={f.id} className={`finding-card ${selectedFindingIds.has(f.id) ? 'selected' : ''}`}>
-                                        <input
-                                            type="checkbox"
-                                            className="bulk-check"
-                                            checked={selectedFindingIds.has(f.id)}
-                                            onChange={e => {
-                                                const next = new Set(selectedFindingIds)
-                                                if (e.target.checked) next.add(f.id); else next.delete(f.id)
-                                                setSelectedFindingIds(next)
-                                            }}
-                                        />
-                                        <div className="finding-body">
-                                            <div className="finding-content">{f.content}</div>
-                                            <div className="finding-meta">
-                                                <span className="finding-date">{f.created_label}</span>
-                                                {f.session_title && (
-                                                    <span className="finding-origin" title={`Session: ${f.session_id}`}>{f.session_title}</span>
-                                                )}
-                                            </div>
-                                            {f.tags && f.tags.length > 0 && (
-                                                <div className="finding-tags">
-                                                    {f.tags.map(tag => {
-                                                        const sevClass = ['critical','high','medium','low','info'].includes(tag) ? ` severity-${tag}` : ''
-                                                        return <span key={tag} className={`tag${sevClass}`}>{tag}</span>
-                                                    })}
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                        <div className={`status-section ${selectedPinnedKeys.size > 0 ? 'bulk-active' : ''}`}>
-                            <div className="bulk-section-header">
-                                <h3>Pinned Memory</h3>
-                                {pinnedMemories.length > 0 && (
-                                    <BulkActions
-                                        total={pinnedMemories.length}
-                                        selectedCount={selectedPinnedKeys.size}
-                                        onSelectAll={() => setSelectedPinnedKeys(new Set(pinnedMemories.map(p => p.fact)))}
-                                        onClear={() => setSelectedPinnedKeys(new Set())}
-                                        onDelete={async () => {
-                                            const keys = Array.from(selectedPinnedKeys)
-                                            if (keys.length === 0) return
-                                            await window.go.main.Bindings.DeletePinnedMemories(keys)
-                                            setSelectedPinnedKeys(new Set())
-                                            const updated = await window.go.main.Bindings.GetPinnedMemories()
-                                            setPinnedMemories(updated)
-                                        }}
-                                    />
-                                )}
-                            </div>
-                            {pinnedMemories.length === 0 ? (
-                                <p className="sidebar-hint">No pinned facts</p>
-                            ) : pinnedMemories.map((p, i) => (
-                                <div key={i} className={`pinned-item ${selectedPinnedKeys.has(p.fact) ? 'selected' : ''}`}>
-                                    <input
-                                        type="checkbox"
-                                        className="bulk-check"
-                                        checked={selectedPinnedKeys.has(p.fact)}
-                                        onChange={e => {
-                                            const next = new Set(selectedPinnedKeys)
-                                            if (e.target.checked) next.add(p.fact); else next.delete(p.fact)
-                                            setSelectedPinnedKeys(next)
-                                        }}
-                                    />
-                                    <span className={`pinned-category ${p.category}`}>{p.category}</span>
-                                    <div className="pinned-content">
-                                        <span className="pinned-fact">{p.native_fact || p.fact}</span>
-                                        {p.native_fact && p.native_fact !== p.fact && (
-                                            <span className="pinned-fact-en">{p.fact}</span>
-                                        )}
-                                    </div>
-                                    <button className="pinned-delete" onClick={async () => {
-                                        await window.go.main.Bindings.DeletePinnedMemory(p.fact)
-                                        const updated = await window.go.main.Bindings.GetPinnedMemories()
-                                        setPinnedMemories(updated)
-                                    }}>&#x2715;</button>
-                                </div>
-                            ))}
-                        </div>
-                        {/* Tokens section moved to chat-pane footer in
-                           info-display redesign Phase 4 — telemetry isn't
-                           navigable content. */}
-                    </></div>
-                        )}
-                    </section>
-                    {/* Sidebar Objects panel removed in info-display redesign Phase 3.
-                       Object management now lives in the per-session Data
-                       disclosure (DataDisclosure component). */}
-                </div>
-
-                <div className="sidebar-bottom">
-                    <button className="sidebar-nav-btn" onClick={handleNewSession} disabled={state === 'busy'} title="New Chat">
-                        <span className="sidebar-nav-ic">+</span>
-                        <span className="sidebar-nav-label">New Chat</span>
-                    </button>
-                    <div className="sidebar-nav-divider" />
-                    <button className="sidebar-nav-btn" onClick={openSettings} title="Settings">
-                        <span className="sidebar-nav-ic">&#x2699;</span>
-                        <span className="sidebar-nav-label">Settings</span>
-                    </button>
-                    <div className="sidebar-nav-divider" />
-                    <button
-                        className="sidebar-nav-btn"
-                        onClick={() => setSidebarCollapsed(c => !c)}
-                        title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-                    >
-                        <span className="sidebar-nav-ic">{sidebarCollapsed ? '\u25B6' : '\u25C0'}</span>
-                    </button>
-                </div>
-            </div>
-            {!sidebarCollapsed && <div className="sidebar-resize" onMouseDown={startResize} />}
+            <Sidebar
+                sidebarPanel={sidebarPanel}
+                setSidebarPanel={setSidebarPanel}
+                sidebarCollapsed={sidebarCollapsed}
+                setSidebarCollapsed={setSidebarCollapsed}
+                sidebarWidth={sidebarWidth}
+                onStartResize={startResize}
+                sessions={sessions}
+                currentSessionId={currentSessionId}
+                busy={state === 'busy'}
+                onLoadSession={handleLoadSession}
+                onNewSession={handleNewSession}
+                onDeleteSession={handleDeleteSession}
+                onRenameSession={async (id, title) => {
+                    if (!window.go) return
+                    await window.go.main.Bindings.RenameSession(id, title)
+                    await refreshSessions()
+                }}
+                findings={findings}
+                onFindingsDelete={async ids => {
+                    await window.go.main.Bindings.DeleteFindings(ids)
+                    const updated = await window.go.main.Bindings.GetFindings()
+                    setFindings(updated)
+                }}
+                pinnedMemories={pinnedMemories}
+                onPinnedDelete={async keys => {
+                    await window.go.main.Bindings.DeletePinnedMemories(keys)
+                    const updated = await window.go.main.Bindings.GetPinnedMemories()
+                    setPinnedMemories(updated)
+                }}
+                onPinnedDeleteOne={async fact => {
+                    await window.go.main.Bindings.DeletePinnedMemory(fact)
+                    const updated = await window.go.main.Bindings.GetPinnedMemories()
+                    setPinnedMemories(updated)
+                }}
+                onOpenSettings={openSettings}
+            />
             <div className="main">
                 {currentSessionId && (
                     <DataDisclosure
