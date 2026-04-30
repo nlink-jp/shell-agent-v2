@@ -222,9 +222,13 @@ func (a *Agent) executeAnalysisTool(ctx context.Context, name string, argsJSON s
 	case "describe-data":
 		return a.toolDescribeData(argsJSON)
 	case "query-sql":
-		// MITL: show SQL before execution
+		// MITL: show SQL before execution. Carry the rejection
+		// sentinel back so the agentLoop colours the tool-event
+		// bubble red. The result text remains the user-facing
+		// rejection message so the LLM understands why nothing
+		// ran.
 		if rejection := a.requestMITL("query-sql", argsJSON, "sql_preview"); rejection != "" {
-			return rejection, nil
+			return rejection, ErrMITLRejected
 		}
 		return a.toolQuerySQL(argsJSON)
 	case "list-tables":
@@ -242,9 +246,10 @@ func (a *Agent) executeAnalysisTool(ctx context.Context, name string, argsJSON s
 	case "promote-finding":
 		return a.toolPromoteFinding(argsJSON)
 	case "analyze-data":
-		// MITL: show analysis perspective before execution
+		// MITL: show analysis perspective before execution.
+		// Same sentinel-on-rejection pattern as query-sql above.
 		if rejection := a.requestMITL("analyze-data", argsJSON, "analysis_plan"); rejection != "" {
-			return rejection, nil
+			return rejection, ErrMITLRejected
 		}
 		return a.toolAnalyzeData(ctx, argsJSON)
 	default:

@@ -1505,39 +1505,54 @@ input, textarea {
     margin-bottom: 0;
 }
 
-.tool-event {
+/* The chat bubble for a tool-event row. Class is distinct from
+   the outer `.message.tool-event` wrapper so the bubble styles
+   only apply once. running is muted (still pulsing); success
+   and error tint the whole bubble (background + border + icon)
+   so the outcome is readable from across the chat at a glance. */
+.tool-bubble {
     display: inline-flex;
     align-items: center;
     gap: 6px;
     padding: 2px 10px;
     border-radius: 10px;
-    background: var(--bg-msg-tool, rgba(40, 80, 40, 0.2));
-    border: 1px solid var(--border-msg-tool, rgba(80, 180, 80, 0.2));
-    color: var(--text-tool, #80c080);
+    background: var(--bg-hover);
+    border: 1px solid var(--border-primary);
+    color: var(--text-secondary);
     font-size: 11px;
     font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
 }
 
-.tool-event.running {
+.tool-bubble.running {
     opacity: 0.85;
 }
 
-.tool-event.running .tool-event-icon {
+.tool-bubble.running .tool-bubble-icon {
     animation: pulse 1.2s ease-in-out infinite;
+    color: var(--text-secondary);
 }
 
-/* .success keeps the existing tool-tinted bubble (the default
-   .tool-event styles already paint it green). .error overrides
-   to error-tinted so a failed tool call is visible at a glance.
-   Phase A wires up the structure; Phase B starts emitting
-   'error' for actual failures. */
-.tool-event.error {
+.tool-bubble.success {
+    background: var(--bg-msg-tool);
+    border-color: var(--border-msg-tool);
+    color: var(--text-tool);
+}
+
+.tool-bubble.success .tool-bubble-icon {
+    color: var(--text-tool);
+}
+
+.tool-bubble.error {
     background: var(--bg-msg-error);
     border-color: var(--border-msg-error);
     color: var(--text-error);
 }
 
-.tool-event-icon {
+.tool-bubble.error .tool-bubble-icon {
+    color: var(--text-error);
+}
+
+.tool-bubble-icon {
     font-size: 9px;
     line-height: 1;
 }

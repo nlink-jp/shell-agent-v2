@@ -40,6 +40,14 @@ const maxToolRounds = 10
 // ErrBusy is returned when a message is sent while the agent is busy.
 var ErrBusy = errors.New("agent is busy")
 
+// ErrMITLRejected is returned by tool dispatchers when the user
+// rejected the MITL prompt. The user-facing rejection string
+// (carried alongside as the result text) is what the LLM sees in
+// the tool_result; the sentinel error lets the agentLoop tag the
+// activity as ActivityStatusError so the chat bubble shows red
+// instead of a misleading green check.
+var ErrMITLRejected = errors.New("agent: MITL rejected")
+
 // StreamHandler receives streaming tokens from the agent.
 type StreamHandler func(token string, done bool)
 
@@ -944,18 +952,23 @@ func (a *Agent) requestMITL(toolName, arguments, category string) string {
 }
 
 // normalizeToolArgs runs jsonfix.Extract over the LLM-supplied
-// arguments before any handler tries to json.Unmarshal them.
-// Local models (gemma in particular) sometimes wrap their tool
-// arguments in a ```json fence or include trailing prose; the
-// agent used to fail on those because each handler did a raw
-// Unmarshal. jsonfix repairs the common cases — fences, single
-// quotes, trailing commas — and we fall back to the original
-// string if Extract can't recover anything (so well-formed JSON
-// is unaffected).
+// arguments only when a vanilla json.Unmarshal would fail. This
+// is the lazy path RFP §3 calls for: well-formed JSON (which
+// Vertex always produces and gemma usually does) passes through
+// completely untouched, and only malformed wrappers — markdown
+// fences, single quotes, trailing commas, surrounding prose —
+// invoke the repair pass.
 //
-// RFP §3 calls for nlk/jsonfix at this seam.
+// An earlier (eager) version of this helper sent every payload
+// through jsonfix; that re-serialised whitespace inside complex
+// string values, which read as a content change to anyone
+// staring at the log. Lazy is safer and easier to audit.
 func normalizeToolArgs(raw string) string {
 	if raw == "" {
+		return raw
+	}
+	var probe any
+	if err := json.Unmarshal([]byte(raw), &probe); err == nil {
 		return raw
 	}
 	fixed, err := jsonfix.Extract(raw)
@@ -991,6 +1004,14 @@ func (a *Agent) executeTool(ctx context.Context, tc llm.ToolCall) (string, Activ
 			return "Error: no analysis engine available", ActivityStatusError
 		}
 		result, err := a.executeAnalysisTool(ctx, tc.Name, tc.Arguments)
+		if errors.Is(err, ErrMITLRejected) {
+			// MITL rejection: keep the dispatcher's
+			// user-facing rejection text as the result so the
+			// LLM sees why nothing ran, but mark the activity
+			// as error so the bubble doesn't show a green
+			// check next to "Tool execution rejected by user."
+			return result, ActivityStatusError
+		}
 		if err != nil {
 			return fmt.Sprintf("Error: %v", err), ActivityStatusError
 		}

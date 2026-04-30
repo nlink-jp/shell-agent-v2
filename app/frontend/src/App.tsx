@@ -231,10 +231,14 @@ const MessageItem = memo(function MessageItem({msg, onLightbox, onExpandReport}:
         const icon = msg.status === 'running' ? '\u25CF'
             : msg.status === 'error' ? '\u2715'
             : '\u2713'
+        // Use a distinct class name from the outer
+        // .message.tool-event wrapper — otherwise both elements
+        // pick up the bubble styling and we get a frame inside a
+        // frame.
         return (
-            <div className={`tool-event ${cls}`}>
-                <span className="tool-event-icon">{icon}</span>
-                <span className="tool-event-name">{msg.content}</span>
+            <div className={`tool-bubble ${cls}`}>
+                <span className="tool-bubble-icon">{icon}</span>
+                <span className="tool-bubble-name">{msg.content}</span>
             </div>
         )
     }
