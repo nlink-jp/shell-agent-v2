@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"embed"
+	"os"
 
+	"github.com/nlink-jp/shell-agent-v2/internal/pathfix"
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
@@ -18,6 +20,12 @@ var version = "dev"
 var assets embed.FS
 
 func main() {
+	// Finder/launchd-launched .app bundles inherit a minimal PATH
+	// that excludes Homebrew and ~/bin, so anything we exec
+	// (podman, docker, gh, user MCP servers) silently goes missing.
+	// Augment PATH before any subprocess work begins.
+	os.Setenv("PATH", pathfix.Augment(os.Getenv("PATH"), pathfix.Candidates(os.Getenv("HOME")), nil))
+
 	bindings := NewBindings()
 
 	err := wails.Run(&options.App{
