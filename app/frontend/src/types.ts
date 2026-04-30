@@ -76,6 +76,17 @@ export interface MCPStatus {
     error?: string;
 }
 
+export interface MITLRequest {
+    tool_name: string;
+    arguments: string;
+    category: string;
+}
+
+export interface ExpandedReport {
+    title: string;
+    content: string;
+}
+
 export interface BackendBudget {
     hot_token_limit: number;
     max_context_tokens: number;

@@ -10,6 +10,9 @@ import DataDisclosure from './DataDisclosure'
 import MessageItem from './components/MessageItem'
 import BulkActions from './components/BulkActions'
 import SettingsDialog from './dialogs/SettingsDialog'
+import MITLDialog from './dialogs/MITLDialog'
+import Lightbox from './dialogs/Lightbox'
+import ReportViewer from './dialogs/ReportViewer'
 import 'highlight.js/styles/github-dark.css'
 import 'katex/dist/katex.min.css'
 import './themes.css'
@@ -17,10 +20,12 @@ import './App.css'
 import './bindings'
 import type {
     ChatMessage,
+    ExpandedReport,
     Finding,
     LLMStatus,
     MCPStatus,
     MessageData,
+    MITLRequest,
     ObjectInfo,
     PinnedMemory,
     SessionInfo,
@@ -77,8 +82,8 @@ function App() {
     const [showSettings, setShowSettings] = useState(false)
     const [editingSession, setEditingSession] = useState<string | null>(null)
     const [editTitle, setEditTitle] = useState('')
-    const [mitlRequest, setMitlRequest] = useState<{tool_name: string; arguments: string; category: string} | null>(null)
-    const [mitlFeedback, setMitlFeedback] = useState('')
+    const [mitlRequest, setMitlRequest] = useState<MITLRequest | null>(null)
+    // mitlFeedback state moved into MITLDialog (local concern).
     const [cmdResult, setCmdResult] = useState<string | null>(null)
     const [tools, setTools] = useState<ToolInfo[]>([])
     const [mcpStatus, setMcpStatus] = useState<MCPStatus[]>([])
@@ -90,7 +95,7 @@ function App() {
     // inside the per-session DataDisclosure component.
     const [llmStatus, setLLMStatus] = useState<LLMStatus | null>(null)
     const [lightboxImage, setLightboxImage] = useState<string | null>(null)
-    const [expandedReport, setExpandedReport] = useState<{title: string; content: string} | null>(null)
+    const [expandedReport, setExpandedReport] = useState<ExpandedReport | null>(null)
     const [settings, setSettings] = useState<Settings | null>(null)
     // settingsTab state moved into SettingsDialog (Phase 3 of
     // frontend-decomposition: it's a local-only concern).
@@ -710,123 +715,21 @@ function App() {
             </div>
 
             {mitlRequest && (
-                <div className="mitl-dialog">
-                    <div className="mitl-header">
-                        <span className="mitl-icon">&#9888;</span>
-                        <span>{mitlRequest.category === 'sql_preview' ? 'SQL Execution Preview'
-                            : mitlRequest.category === 'analysis_plan' ? 'Analysis Plan Confirmation'
-                            : 'Tool Approval Required'}</span>
-                    </div>
-                    <div className="mitl-body">
-                        {(() => {
-                            try {
-                                const args = JSON.parse(mitlRequest.arguments)
-                                if (mitlRequest.category === 'sql_preview') {
-                                    return (<>
-                                        <div className="mitl-section">
-                                            <span className="mitl-label">SQL:</span>
-                                            <pre className="mitl-sql">{args.sql || mitlRequest.arguments}</pre>
-                                        </div>
-                                    </>)
-                                }
-                                if (mitlRequest.category === 'analysis_plan') {
-                                    return (<>
-                                        <div className="mitl-section">
-                                            <span className="mitl-label">Analysis Perspective:</span>
-                                            <div className="mitl-perspective">{args.prompt}</div>
-                                        </div>
-                                        {args.table && (
-                                            <div className="mitl-section">
-                                                <span className="mitl-label">Target Table:</span>
-                                                <code>{args.table}</code>
-                                            </div>
-                                        )}
-                                    </>)
-                                }
-                                // Sandbox code-bearing tools: render the code/SQL/content
-                                // field as raw multi-line text so the user can actually
-                                // read what they're approving. JSON.stringify keeps the
-                                // entire body on one logical line which is unusable for
-                                // anything beyond a few words of Python.
-                                const codeFieldByTool: Record<string, string> = {
-                                    'sandbox-run-shell': 'command',
-                                    'sandbox-run-python': 'code',
-                                    'sandbox-write-file': 'content',
-                                    'sandbox-export-sql': 'sql',
-                                }
-                                const codeField = codeFieldByTool[mitlRequest.tool_name]
-                                if (codeField && typeof args[codeField] === 'string') {
-                                    const codeBody: string = args[codeField]
-                                    const otherArgs: Record<string, any> = {}
-                                    for (const k of Object.keys(args)) {
-                                        if (k !== codeField) otherArgs[k] = args[k]
-                                    }
-                                    return (<>
-                                        <div className="mitl-tool-name">
-                                            <span className="mitl-label">Tool:</span>
-                                            <code>{mitlRequest.tool_name}</code>
-                                            <span className={`tool-category ${mitlRequest.category}`}>{mitlRequest.category}</span>
-                                        </div>
-                                        {Object.keys(otherArgs).length > 0 && (
-                                            <div className="mitl-section">
-                                                <span className="mitl-label">Arguments:</span>
-                                                <pre>{JSON.stringify(otherArgs, null, 2)}</pre>
-                                            </div>
-                                        )}
-                                        <div className="mitl-section">
-                                            <span className="mitl-label">{codeField}:</span>
-                                            <pre className="mitl-code">{codeBody}</pre>
-                                        </div>
-                                    </>)
-                                }
-                                // Default: shell tools etc.
-                                return (<>
-                                    <div className="mitl-tool-name">
-                                        <span className="mitl-label">Tool:</span>
-                                        <code>{mitlRequest.tool_name}</code>
-                                        <span className={`tool-category ${mitlRequest.category}`}>{mitlRequest.category}</span>
-                                    </div>
-                                    <div className="mitl-section">
-                                        <span className="mitl-label">Arguments:</span>
-                                        <pre>{JSON.stringify(args, null, 2)}</pre>
-                                    </div>
-                                </>)
-                            } catch {
-                                return (<div className="mitl-section">
-                                    <span className="mitl-label">Details:</span>
-                                    <pre>{mitlRequest.arguments}</pre>
-                                </div>)
-                            }
-                        })()}
-                        <div className="mitl-feedback">
-                            <input
-                                type="text"
-                                placeholder="Rejection reason / revision suggestion (optional)"
-                                value={mitlFeedback}
-                                onChange={e => setMitlFeedback(e.target.value)}
-                                onKeyDown={e => {
-                                    if (e.key === 'Enter' && mitlFeedback.trim()) {
-                                        setMitlRequest(null)
-                                        window.go.main.Bindings.RejectMITLWithFeedback(mitlFeedback.trim())
-                                        setMitlFeedback('')
-                                    }
-                                }}
-                            />
-                        </div>
-                    </div>
-                    <div className="mitl-actions">
-                        <button className="mitl-approve" onClick={() => { setMitlRequest(null); setMitlFeedback(''); window.go.main.Bindings.ApproveMITL() }}>Approve</button>
-                        <button className="mitl-reject" onClick={() => {
-                            setMitlRequest(null)
-                            if (mitlFeedback.trim()) {
-                                window.go.main.Bindings.RejectMITLWithFeedback(mitlFeedback.trim())
-                            } else {
-                                window.go.main.Bindings.RejectMITL()
-                            }
-                            setMitlFeedback('')
-                        }}>Reject</button>
-                    </div>
-                </div>
+                <MITLDialog
+                    request={mitlRequest}
+                    onApprove={() => {
+                        setMitlRequest(null)
+                        window.go.main.Bindings.ApproveMITL()
+                    }}
+                    onReject={() => {
+                        setMitlRequest(null)
+                        window.go.main.Bindings.RejectMITL()
+                    }}
+                    onRejectWithFeedback={fb => {
+                        setMitlRequest(null)
+                        window.go.main.Bindings.RejectMITLWithFeedback(fb)
+                    }}
+                />
             )}
 
             {showSettings && settings && (
@@ -847,41 +750,16 @@ function App() {
             )}
 
             {lightboxImage && (
-                <div className="lightbox-overlay" onClick={() => setLightboxImage(null)}>
-                    <img src={lightboxImage} alt="" className="lightbox-image" onClick={e => e.stopPropagation()} />
-                    <button className="lightbox-close" onClick={() => setLightboxImage(null)}>&#x2715;</button>
-                </div>
+                <Lightbox src={lightboxImage} onClose={() => setLightboxImage(null)} />
             )}
 
             {expandedReport && (
-                <div className="report-overlay" onClick={() => setExpandedReport(null)}>
-                    <div className="report-fullscreen" onClick={e => e.stopPropagation()}>
-                        <div className="report-fullscreen-header">
-                            <span className="report-title">{expandedReport.title}</span>
-                            <div className="report-actions">
-                                <button onClick={(e) => { navigator.clipboard.writeText(expandedReport.content); const b = e.currentTarget; b.textContent = 'Copied!'; setTimeout(() => b.textContent = 'Copy', 1000) }}>Copy</button>
-                                <button onClick={() => window.go?.main.Bindings.SaveReport(expandedReport.content, 'report.md')}>Save</button>
-                                <button onClick={() => setExpandedReport(null)}>Close</button>
-                            </div>
-                        </div>
-                        <div className="report-fullscreen-content">
-                            <ReactMarkdown
-                                remarkPlugins={[remarkGfm, remarkMath]}
-                                rehypePlugins={[rehypeHighlight, rehypeKatex]}
-                                urlTransform={urlTransform}
-                                components={{img: ({src, alt}) => {
-                                    if (src?.startsWith('object:')) {
-                                        const id = src.slice(7)
-                                        return <ObjectImage id={id} alt={alt || ''} onClick={setLightboxImage} />
-                                    }
-                                    return <img src={src} alt={alt || ''} className="message-image" onClick={() => src && setLightboxImage(src)} />
-                                }}}
-                            >
-                                {expandedReport.content}
-                            </ReactMarkdown>
-                        </div>
-                    </div>
-                </div>
+                <ReportViewer
+                    report={expandedReport}
+                    onClose={() => setExpandedReport(null)}
+                    onLightbox={setLightboxImage}
+                    onSaveReport={(content, filename) => window.go?.main.Bindings.SaveReport(content, filename)}
+                />
             )}
         </div>
     )
