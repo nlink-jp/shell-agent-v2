@@ -12,6 +12,21 @@ import 'highlight.js/styles/github-dark.css'
 import 'katex/dist/katex.min.css'
 import './themes.css'
 import './App.css'
+import './bindings'
+import type {
+    BackendBudget,
+    ChatMessage,
+    Finding,
+    LLMStatus,
+    MCPProfile,
+    MessageData,
+    ObjectInfo,
+    PinnedMemory,
+    SessionInfo,
+    Settings,
+    SidebarPanel,
+    ToolInfo,
+} from './types'
 
 // Allow object: protocol through ReactMarkdown URL sanitization.
 // ReactMarkdown v10 defaultUrlTransform strips non-http/https/mailto protocols.
@@ -26,178 +41,8 @@ function urlTransform(url: string): string {
 const MD_REMARK_PLUGINS = [remarkGfm, remarkMath]
 const MD_REHYPE_PLUGINS = [rehypeHighlight, rehypeKatex]
 
-declare global {
-    interface Window {
-        go: {
-            main: {
-                Bindings: {
-                    Send(message: string): Promise<string>;
-                    Abort(): Promise<void>;
-                    GetState(): Promise<string>;
-                    GetBackend(): Promise<string>;
-                    Version(): Promise<string>;
-                    NewSession(): Promise<string>;
-                    LoadSession(id: string): Promise<MessageData[]>;
-                    ListSessions(): Promise<SessionInfo[]>;
-                    RenameSession(id: string, title: string): Promise<void>;
-                    DeleteSession(id: string): Promise<void>;
-                    HasData(): Promise<boolean>;
-                    GetFindings(): Promise<Finding[]>;
-                    DeleteFindings(ids: string[]): Promise<number>;
-                    DeletePinnedMemories(keys: string[]): Promise<number>;
-                    ListObjects(): Promise<ObjectInfo[]>;
-                    DeleteObject(id: string): Promise<void>;
-                    DeleteObjects(ids: string[]): Promise<number>;
-                    ObjectReferences(ids: string[]): Promise<Record<string, number>>;
-                    ExportObject(id: string): Promise<void>;
-                    GetObjectText(id: string): Promise<string>;
-                    GetSettings(): Promise<Settings>;
-                    SaveSettings(s: Settings): Promise<void>;
-                    ApproveMITL(): Promise<void>;
-                    RejectMITL(): Promise<void>;
-                    RejectMITLWithFeedback(feedback: string): Promise<void>;
-                    SendWithImages(message: string, imageDataURLs: string[]): Promise<string>;
-                    SaveImage(dataURL: string): Promise<string>;
-                    GetImageDataURL(id: string): Promise<string>;
-                    GetTools(): Promise<ToolInfo[]>;
-                    GetPinnedMemories(): Promise<PinnedMemory[]>;
-                    UpdatePinnedMemory(key: string, content: string): Promise<void>;
-                    DeletePinnedMemory(key: string): Promise<void>;
-                    GetLLMStatus(): Promise<LLMStatus>;
-                    SaveReport(content: string, filename: string): Promise<void>;
-                    RestartMCP(): Promise<void>;
-                    RestartSandbox(): Promise<void>;
-                    RestartLLMBackend(): Promise<void>;
-                    GetMCPStatus(): Promise<{name: string; status: string; tool_count: number; error?: string}[]>;
-                    GetSessionObjects(sessionID: string): Promise<ObjectInfo[]>;
-                    GetSessionTables(sessionID: string): Promise<{name: string; row_count: number; columns: string[]; description?: string}[]>;
-                    PreviewTable(name: string, limit: number): Promise<{columns: string[]; rows: any[][]; total: number; truncated: boolean}>;
-                    GetWorkFiles(sessionID: string): Promise<{path: string; size: number; mtime: number}[]>;
-                    GetSidebarPrefs(): Promise<{width: number; collapsed: boolean}>;
-                    SaveSidebarPrefs(width: number, collapsed: boolean): Promise<void>;
-                };
-            };
-        };
-        runtime: {
-            EventsOn(event: string, callback: (...args: any[]) => void): () => void;
-        };
-    }
-}
-
-interface ChatMessage {
-    role: 'user' | 'assistant' | 'system' | 'tool' | 'report' | 'tool-event' | 'summary';
-    content: string;
-    timestamp: string;
-    imageUrls?: string[];
-    // 'running' while a tool is in flight; on completion the
-    // backend now reports 'success' or 'error' (Phase A — wired
-    // up but every tool currently reports 'success' until Phase
-    // B classification per tool family lands). 'done' is kept as
-    // a backward-compat fallback for older event payloads.
-    status?: 'running' | 'success' | 'error' | 'done';
-}
-
-interface SessionInfo {
-    id: string;
-    title: string;
-    updated_at: string;
-}
-
-interface MessageData {
-    role: string;
-    content: string;
-    timestamp: string;
-}
-
 function nowTime(): string {
     return new Date().toLocaleTimeString('en-GB', {hour: '2-digit', minute: '2-digit', second: '2-digit'})
-}
-
-interface Finding {
-    id: string;
-    content: string;
-    session_id: string;
-    session_title: string;
-    tags: string[];
-    created_label: string;
-}
-
-interface ToolInfo {
-    name: string;
-    description: string;
-    category: string;
-    source: string;
-}
-
-interface PinnedMemory {
-    fact: string;
-    native_fact: string;
-    category: string;
-}
-
-interface LLMStatus {
-    backend: string;
-    hot_messages: number;
-    warm_summaries: number;
-    session_id: string;
-    prompt_tokens: number;
-    output_tokens: number;
-}
-
-interface MCPProfile {
-    name: string;
-    binary: string;
-    profile_path: string;
-    enabled: boolean;
-}
-
-interface BackendBudget {
-    hot_token_limit: number;
-    max_context_tokens: number;
-    max_warm_tokens: number;
-    max_tool_result_tokens: number;
-}
-
-interface Settings {
-    default_backend: string;
-    local_endpoint: string;
-    local_model: string;
-    local_budget: BackendBudget;
-    local_timeout_seconds: number;
-    vertex_project: string;
-    vertex_region: string;
-    vertex_model: string;
-    vertex_budget: BackendBudget;
-    vertex_timeout_seconds: number;
-    theme: string;
-    location: string;
-    mcp_profiles: MCPProfile[];
-    disabled_tools: string[];
-    mitl_overrides: Record<string, boolean>;
-    memory_use_v2: boolean;
-    sandbox: SandboxSettings;
-}
-
-interface SandboxSettings {
-    enabled: boolean;
-    engine: string;
-    image: string;
-    network: boolean;
-    cpu_limit: string;
-    memory_limit: string;
-    timeout_seconds: number;
-}
-
-type SidebarPanel = 'sessions' | 'memory';
-
-interface ObjectInfo {
-    id: string;
-    type: string;
-    mime_type: string;
-    orig_name: string;
-    created_at: string;
-    session_id: string;
-    size: number;
 }
 
 function formatSize(bytes: number): string {
