@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/nlink-jp/shell-agent-v2/internal/analysis"
 	"github.com/nlink-jp/shell-agent-v2/internal/chat"
@@ -1159,13 +1160,33 @@ func (a *Agent) handleFindingsCommand() (string, error) {
 	return sb.String(), nil
 }
 
+// RestartLLMBackend rebuilds a.backend from the current cfg so
+// changes to LLM.{Local,VertexAI}.RequestTimeoutSeconds (or other
+// per-backend settings the wrapper consults) take effect without
+// an app restart. Keeps the currently-selected backend.
+func (a *Agent) RestartLLMBackend() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	current := config.BackendLocal
+	if a.backend != nil && a.backend.Name() == "vertex_ai" {
+		current = config.BackendVertexAI
+	}
+	a.setBackend(current)
+}
+
 func (a *Agent) setBackend(backend config.LLMBackend) {
+	var inner llm.Backend
+	var timeoutSec int
 	switch backend {
 	case config.BackendVertexAI:
-		a.backend = llm.NewVertex(a.cfg.LLM.VertexAI)
+		inner = llm.NewVertex(a.cfg.LLM.VertexAI)
+		timeoutSec = a.cfg.LLM.VertexAI.VertexRequestTimeout()
 	default:
-		a.backend = llm.NewLocal(a.cfg.LLM.Local)
+		inner = llm.NewLocal(a.cfg.LLM.Local)
+		timeoutSec = a.cfg.LLM.Local.LocalRequestTimeout()
 	}
+	policy := llm.DefaultRetryPolicy(time.Duration(timeoutSec) * time.Second)
+	a.backend = llm.WithRetry(inner, policy)
 }
 
 // generateTitleIfNeeded generates a session title from the first user message.

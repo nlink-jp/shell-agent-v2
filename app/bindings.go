@@ -405,14 +405,16 @@ type SandboxData struct {
 
 // SettingsData is the JSON-serializable settings for the frontend.
 type SettingsData struct {
-	DefaultBackend string            `json:"default_backend"`
-	LocalEndpoint  string            `json:"local_endpoint"`
-	LocalModel     string            `json:"local_model"`
-	LocalBudget    BackendBudgetData `json:"local_budget"`
-	VertexProject  string            `json:"vertex_project"`
-	VertexRegion   string            `json:"vertex_region"`
-	VertexModel    string            `json:"vertex_model"`
-	VertexBudget   BackendBudgetData `json:"vertex_budget"`
+	DefaultBackend       string            `json:"default_backend"`
+	LocalEndpoint        string            `json:"local_endpoint"`
+	LocalModel           string            `json:"local_model"`
+	LocalBudget          BackendBudgetData `json:"local_budget"`
+	LocalTimeoutSeconds  int               `json:"local_timeout_seconds"`
+	VertexProject        string            `json:"vertex_project"`
+	VertexRegion         string            `json:"vertex_region"`
+	VertexModel          string            `json:"vertex_model"`
+	VertexBudget         BackendBudgetData `json:"vertex_budget"`
+	VertexTimeoutSeconds int               `json:"vertex_timeout_seconds"`
 	Theme          string            `json:"theme"`
 	Location       string            `json:"location"`
 	MCPProfiles    []MCPProfileData  `json:"mcp_profiles"`
@@ -437,14 +439,16 @@ func (b *Bindings) GetSettings() SettingsData {
 		}
 	}
 	return SettingsData{
-		DefaultBackend: string(b.cfg.LLM.DefaultBackend),
-		LocalEndpoint:  b.cfg.LLM.Local.Endpoint,
-		LocalModel:     b.cfg.LLM.Local.Model,
-		LocalBudget:    toBudget(b.cfg.LLM.Local.HotTokenLimit, b.cfg.LLM.Local.ContextBudget),
-		VertexProject:  b.cfg.LLM.VertexAI.ProjectID,
-		VertexRegion:   b.cfg.LLM.VertexAI.Region,
-		VertexModel:    b.cfg.LLM.VertexAI.Model,
-		VertexBudget:   toBudget(b.cfg.LLM.VertexAI.HotTokenLimit, b.cfg.LLM.VertexAI.ContextBudget),
+		DefaultBackend:       string(b.cfg.LLM.DefaultBackend),
+		LocalEndpoint:        b.cfg.LLM.Local.Endpoint,
+		LocalModel:           b.cfg.LLM.Local.Model,
+		LocalBudget:          toBudget(b.cfg.LLM.Local.HotTokenLimit, b.cfg.LLM.Local.ContextBudget),
+		LocalTimeoutSeconds:  b.cfg.LLM.Local.LocalRequestTimeout(),
+		VertexProject:        b.cfg.LLM.VertexAI.ProjectID,
+		VertexRegion:         b.cfg.LLM.VertexAI.Region,
+		VertexModel:          b.cfg.LLM.VertexAI.Model,
+		VertexBudget:         toBudget(b.cfg.LLM.VertexAI.HotTokenLimit, b.cfg.LLM.VertexAI.ContextBudget),
+		VertexTimeoutSeconds: b.cfg.LLM.VertexAI.VertexRequestTimeout(),
 		Theme:          b.cfg.UI.Theme,
 		Location:       b.cfg.Location,
 		MCPProfiles:    profiles,
@@ -474,6 +478,7 @@ func (b *Bindings) SaveSettings(s SettingsData) error {
 		MaxWarmTokens:       s.LocalBudget.MaxWarmTokens,
 		MaxToolResultTokens: s.LocalBudget.MaxToolResultTokens,
 	}
+	b.cfg.LLM.Local.RequestTimeoutSeconds = s.LocalTimeoutSeconds
 	b.cfg.LLM.VertexAI.ProjectID = s.VertexProject
 	b.cfg.LLM.VertexAI.Region = s.VertexRegion
 	b.cfg.LLM.VertexAI.Model = s.VertexModel
@@ -483,6 +488,7 @@ func (b *Bindings) SaveSettings(s SettingsData) error {
 		MaxWarmTokens:       s.VertexBudget.MaxWarmTokens,
 		MaxToolResultTokens: s.VertexBudget.MaxToolResultTokens,
 	}
+	b.cfg.LLM.VertexAI.RequestTimeoutSeconds = s.VertexTimeoutSeconds
 	b.cfg.UI.Theme = s.Theme
 	b.cfg.Location = s.Location
 	b.cfg.Memory.UseV2 = s.MemoryUseV2
@@ -513,6 +519,15 @@ func (b *Bindings) SaveSettings(s SettingsData) error {
 func (b *Bindings) RestartMCP() {
 	if b.agent != nil {
 		b.agent.RestartGuardians()
+	}
+}
+
+// RestartLLMBackend rebuilds the agent's LLM backend so timeout
+// and other per-backend settings take effect live, without an
+// app restart.
+func (b *Bindings) RestartLLMBackend() {
+	if b.agent != nil {
+		b.agent.RestartLLMBackend()
 	}
 }
 

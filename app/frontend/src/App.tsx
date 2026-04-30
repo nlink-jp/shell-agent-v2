@@ -66,6 +66,7 @@ declare global {
                     SaveReport(content: string, filename: string): Promise<void>;
                     RestartMCP(): Promise<void>;
                     RestartSandbox(): Promise<void>;
+                    RestartLLMBackend(): Promise<void>;
                     GetMCPStatus(): Promise<{name: string; status: string; tool_count: number; error?: string}[]>;
                 };
             };
@@ -150,10 +151,12 @@ interface Settings {
     local_endpoint: string;
     local_model: string;
     local_budget: BackendBudget;
+    local_timeout_seconds: number;
     vertex_project: string;
     vertex_region: string;
     vertex_model: string;
     vertex_budget: BackendBudget;
+    vertex_timeout_seconds: number;
     theme: string;
     location: string;
     mcp_profiles: MCPProfile[];
@@ -606,6 +609,11 @@ function App() {
             // changed so the user doesn't have to restart the app.
             if (patch.sandbox && JSON.stringify(patch.sandbox) !== JSON.stringify(settings.sandbox)) {
                 window.go.main.Bindings.RestartSandbox()
+            }
+            // Per-request timeout / per-attempt retry policy is captured
+            // when the LLM backend wrapper is built. Rebuild on change.
+            if (patch.local_timeout_seconds !== undefined || patch.vertex_timeout_seconds !== undefined) {
+                window.go.main.Bindings.RestartLLMBackend()
             }
         }
     }, [settings])
@@ -1265,6 +1273,10 @@ function App() {
                                         budget={settings.local_budget}
                                         onChange={b => updateSetting({local_budget: b})}
                                     />
+                                    <label>
+                                        <span>Per-request timeout (seconds)</span>
+                                        <input type="number" min={5} value={settings.local_timeout_seconds || 300} onChange={e => updateSetting({local_timeout_seconds: parseInt(e.target.value, 10) || 300})} />
+                                    </label>
                                 </div>
                                 <div className="settings-section">
                                     <h3>Vertex AI</h3>
@@ -1284,6 +1296,10 @@ function App() {
                                         budget={settings.vertex_budget}
                                         onChange={b => updateSetting({vertex_budget: b})}
                                     />
+                                    <label>
+                                        <span>Per-request timeout (seconds)</span>
+                                        <input type="number" min={5} value={settings.vertex_timeout_seconds || 180} onChange={e => updateSetting({vertex_timeout_seconds: parseInt(e.target.value, 10) || 180})} />
+                                    </label>
                                 </div>
                             </>)}
                             {settingsTab === 'tools' && (<>

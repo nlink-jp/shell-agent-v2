@@ -21,6 +21,30 @@ func TestDefault(t *testing.T) {
 	}
 }
 
+func TestDefault_RequestTimeoutSeconds(t *testing.T) {
+	cfg := Default()
+	if cfg.LLM.Local.RequestTimeoutSeconds != LocalRequestTimeoutDefault {
+		t.Errorf("Local.RequestTimeoutSeconds = %d, want %d",
+			cfg.LLM.Local.RequestTimeoutSeconds, LocalRequestTimeoutDefault)
+	}
+	if cfg.LLM.VertexAI.RequestTimeoutSeconds != VertexRequestTimeoutDefault {
+		t.Errorf("VertexAI.RequestTimeoutSeconds = %d, want %d",
+			cfg.LLM.VertexAI.RequestTimeoutSeconds, VertexRequestTimeoutDefault)
+	}
+}
+
+func TestRequestTimeout_FallbackWhenZero(t *testing.T) {
+	if got := (LocalConfig{}).LocalRequestTimeout(); got != LocalRequestTimeoutDefault {
+		t.Errorf("LocalConfig{}.LocalRequestTimeout() = %d, want %d", got, LocalRequestTimeoutDefault)
+	}
+	if got := (VertexAIConfig{}).VertexRequestTimeout(); got != VertexRequestTimeoutDefault {
+		t.Errorf("VertexAIConfig{}.VertexRequestTimeout() = %d, want %d", got, VertexRequestTimeoutDefault)
+	}
+	if got := (LocalConfig{RequestTimeoutSeconds: 7}).LocalRequestTimeout(); got != 7 {
+		t.Errorf("explicit value should be honoured, got %d", got)
+	}
+}
+
 func TestDefault_PerBackendBudgets(t *testing.T) {
 	cfg := Default()
 	if cfg.LLM.Local.HotTokenLimit == 0 {

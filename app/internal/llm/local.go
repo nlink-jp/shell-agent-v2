@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/nlink-jp/shell-agent-v2/internal/config"
 )
@@ -22,12 +21,16 @@ type Local struct {
 }
 
 // NewLocal creates a new local LLM backend.
+//
+// No http.Client.Timeout is set: per-request timeout is owned by
+// the retry/timeout wrapper (internal/llm/retry.go), which uses
+// context.WithTimeout against the caller-supplied ctx and
+// honours cfg.RequestTimeoutSeconds at the policy level. Setting
+// both here and there would just race.
 func NewLocal(cfg config.LocalConfig) *Local {
 	return &Local{
-		cfg: cfg,
-		client: &http.Client{
-			Timeout: 5 * time.Minute,
-		},
+		cfg:    cfg,
+		client: &http.Client{},
 	}
 }
 

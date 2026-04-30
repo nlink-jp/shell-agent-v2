@@ -18,20 +18,54 @@ const (
 
 // LocalConfig holds local LLM settings.
 type LocalConfig struct {
-	Endpoint      string              `json:"endpoint"`
-	Model         string              `json:"model"`
-	APIKeyEnv     string              `json:"api_key_env"`
-	HotTokenLimit int                 `json:"hot_token_limit,omitempty"` // 0 = inherit from Memory.HotTokenLimit
-	ContextBudget ContextBudgetConfig `json:"context_budget,omitzero"`   // zero fields inherit from top-level ContextBudget
+	Endpoint              string              `json:"endpoint"`
+	Model                 string              `json:"model"`
+	APIKeyEnv             string              `json:"api_key_env"`
+	HotTokenLimit         int                 `json:"hot_token_limit,omitempty"`     // 0 = inherit from Memory.HotTokenLimit
+	ContextBudget         ContextBudgetConfig `json:"context_budget,omitzero"`       // zero fields inherit from top-level ContextBudget
+	RequestTimeoutSeconds int                 `json:"request_timeout_seconds,omitempty"` // 0 = use default (300)
 }
 
 // VertexAIConfig holds Vertex AI settings.
 type VertexAIConfig struct {
-	ProjectID     string              `json:"project_id"`
-	Region        string              `json:"region"`
-	Model         string              `json:"model"`
-	HotTokenLimit int                 `json:"hot_token_limit,omitempty"`
-	ContextBudget ContextBudgetConfig `json:"context_budget,omitzero"`
+	ProjectID             string              `json:"project_id"`
+	Region                string              `json:"region"`
+	Model                 string              `json:"model"`
+	HotTokenLimit         int                 `json:"hot_token_limit,omitempty"`
+	ContextBudget         ContextBudgetConfig `json:"context_budget,omitzero"`
+	RequestTimeoutSeconds int                 `json:"request_timeout_seconds,omitempty"` // 0 = use default (180)
+}
+
+// LocalRequestTimeoutDefault is the fallback per-request timeout
+// (in seconds) for the local LLM backend when LocalConfig.
+// RequestTimeoutSeconds is 0. LM Studio is local so 5 minutes is
+// generous but bounded.
+const LocalRequestTimeoutDefault = 300
+
+// VertexRequestTimeoutDefault is the fallback per-request timeout
+// (in seconds) for the Vertex AI backend when
+// VertexAIConfig.RequestTimeoutSeconds is 0. gemini-2.5-flash with
+// thinking mode regularly takes 30-60s on complex prompts; 180s
+// gives headroom while still bounding silent hangs.
+const VertexRequestTimeoutDefault = 180
+
+// LocalRequestTimeout returns the configured timeout for the local
+// backend, falling back to LocalRequestTimeoutDefault when unset.
+func (c LocalConfig) LocalRequestTimeout() int {
+	if c.RequestTimeoutSeconds > 0 {
+		return c.RequestTimeoutSeconds
+	}
+	return LocalRequestTimeoutDefault
+}
+
+// VertexRequestTimeout returns the configured timeout for the
+// Vertex AI backend, falling back to VertexRequestTimeoutDefault
+// when unset.
+func (c VertexAIConfig) VertexRequestTimeout() int {
+	if c.RequestTimeoutSeconds > 0 {
+		return c.RequestTimeoutSeconds
+	}
+	return VertexRequestTimeoutDefault
 }
 
 // LLMConfig holds all LLM backend settings.
@@ -117,10 +151,11 @@ func Default() *Config {
 		LLM: LLMConfig{
 			DefaultBackend: BackendLocal,
 			Local: LocalConfig{
-				Endpoint:      "http://localhost:1234/v1",
-				Model:         "google/gemma-4-26b-a4b",
-				APIKeyEnv:     "SHELL_AGENT_API_KEY",
-				HotTokenLimit: 4096,
+				Endpoint:              "http://localhost:1234/v1",
+				Model:                 "google/gemma-4-26b-a4b",
+				APIKeyEnv:             "SHELL_AGENT_API_KEY",
+				HotTokenLimit:         4096,
+				RequestTimeoutSeconds: LocalRequestTimeoutDefault,
 				ContextBudget: ContextBudgetConfig{
 					MaxContextTokens:    16384,
 					MaxWarmTokens:       1024,
@@ -128,10 +163,11 @@ func Default() *Config {
 				},
 			},
 			VertexAI: VertexAIConfig{
-				ProjectID:     "",
-				Region:        "us-central1",
-				Model:         "gemini-2.5-flash",
-				HotTokenLimit: 65536,
+				ProjectID:             "",
+				Region:                "us-central1",
+				Model:                 "gemini-2.5-flash",
+				HotTokenLimit:         65536,
+				RequestTimeoutSeconds: VertexRequestTimeoutDefault,
 				ContextBudget: ContextBudgetConfig{
 					MaxContextTokens:    524288,
 					MaxWarmTokens:       16384,
