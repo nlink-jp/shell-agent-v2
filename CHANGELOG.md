@@ -5,6 +5,48 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.12] - 2026-04-30
+
+### Added
+
+- **Tool-event success / failure indicator in the chat.** The
+  inline tool-event bubble now renders red ✗ when a tool failed
+  and green ✓ when it succeeded; running stays muted with the
+  existing pulse. Classification sources:
+  - `sandbox-run-shell` / `sandbox-run-python`: container
+    `ExitCode != 0` or `TimedOut` → error.
+  - Other sandbox tools, analysis tools, MCP, shell-script:
+    Go-side `error` from the dispatcher → error.
+  - MITL rejections → error (no more green check next to "Tool
+    execution rejected by user.").
+  Plumbed through a new `ActivityEvent{Type, Detail, Status}`
+  struct on the agent ↔ bindings boundary; the `'done'` event
+  status is kept as a soft-fallback for older message records.
+
+- **`nlk/jsonfix` at the tool-call boundary** (RFP §3 reuse
+  target). When a model surrounds JSON tool arguments with
+  ```json fences, surrounding prose, single quotes, or
+  trailing commas, the agent now repairs them transparently
+  before dispatching. Lazy: well-formed JSON is fast-pathed via
+  a direct `json.Unmarshal` probe and never sees jsonfix, so
+  Vertex's pristine output passes through completely untouched.
+
+- **`nlk/jsonfix` in the analysis summarizer.**
+  `parseWindowResponse` was a hand-rolled "try direct →
+  ```json fence → first balanced { ... }" cascade — exactly
+  what `jsonfix.Extract` does, plus jsonfix also repairs single
+  quotes / unquoted keys / unbalanced braces. Replaced with one
+  Extract call.
+
+### Fixed
+
+- **Inner-bubble visual redundancy.** The chat tool-event row
+  was rendering "frame inside a frame" because both the outer
+  `.message.tool-event` wrapper and the inner status bubble
+  shared the `.tool-event` class — every CSS rule landed twice.
+  Renamed the inner element to `.tool-bubble` so the bubble
+  styles only apply once.
+
 ## [0.1.11] - 2026-04-30
 
 ### Added
