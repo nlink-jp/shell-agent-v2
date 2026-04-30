@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.9] - 2026-04-30
+
+### Fixed
+
+- **Sandbox tools invisible when the `.app` was launched from
+  Finder.** The Finder/launchd inherited PATH is the system
+  default (`/usr/bin:/bin:/usr/sbin:/sbin`), which excludes
+  Homebrew (`/opt/homebrew/bin`, `/usr/local/bin`) and
+  `~/bin`. `resolveEngine()` calls `exec.LookPath("podman")`
+  against that PATH, gets nothing, and `maybeStartSandbox()`
+  bails — leaving `a.sandbox == nil`, so `buildToolDefs()`
+  hides every `sandbox-*` tool. Symptom: enable Sandbox in
+  Settings, name an image, but no sandbox tools appear and no
+  image is ever pulled. Launching the binary directly from a
+  shell worked because that PATH was inherited from the user's
+  shell.
+
+  Fix: a new `internal/pathfix` helper prepends the macOS-typical
+  user bin directories at `main()` startup, before any
+  subprocess work begins. Already-present and non-existent
+  entries are skipped. Same fix benefits any other subprocess
+  the app shells out to (MCP servers, future tooling).
+
+### Coverage
+
+- `internal/pathfix/pathfix_test.go` — 7 cases covering
+  candidate ordering, dedup against current PATH, no-existing
+  candidates fallback, and the default `os.Stat`-backed
+  exists hook.
+
 ## [0.1.8] - 2026-04-29
 
 ### Added
