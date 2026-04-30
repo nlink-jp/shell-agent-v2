@@ -6,75 +6,44 @@ is too large to fit into the current release stream.
 
 ## Tool-bubble success/failure indication
 
-**Origin**: 2026-04-30 conversation with the user. Idea:
-distinguish "tool ran and produced a useful result" from "tool
-ran and reported an error" in the chat UI — different colour /
-icon on the `tool-event` bubble.
+**Status as of 2026-04-30**: Phase A (event schema) and Phase B-1
+(sandbox classification) shipped. The agent-side wiring is in
+place: `executeTool` returns `(string, ActivityEventStatus)` and
+each branch sets the status explicitly. The chat tool-event
+bubble now renders red on `error` and green on `success`.
 
-### Why it's not a one-liner
+What's actually classified today:
 
-The naive "treat any result starting with `Error:` as failure"
-heuristic isn't robust enough. Cases that are likely to fool it:
+| Tool family            | Classification source                    |
+|------------------------|------------------------------------------|
+| sandbox-run-shell/-py  | `ExecResult.ExitCode` / `TimedOut`       |
+| sandbox-{write,copy,…} | `"Error:"` prefix in result string       |
+| analysis-*             | `executeAnalysisTool` Go-side `error`    |
+| MCP (`mcp__*`)         | `Guardian.CallTool` Go-side `error`      |
+| shell-script tools     | `toolcall.Execute` Go-side `error`       |
+| list-objects, get-object, resolve-date | per-branch `err`         |
 
-- **Sandbox shell**: `sandbox-run-shell` returns the container's
-  stdout / stderr / exit code as text. A non-zero exit shows
-  `[exit: 1]` somewhere in the body but the result string
-  itself doesn't start with `Error:`. A failed `pip install`
-  looks like normal output to a string-prefix check.
-- **Sandbox python**: same — a `Traceback ... ModuleNotFoundError`
-  is in the body but the wrapper text isn't `Error:`-prefixed.
-  We saw exactly this in v0.1.10 logs (gemma's `pandas` import
-  failure).
-- **Sandbox export-sql / load-into-analysis**: error path returns
-  `Error: ...` from the Go side, but a SQL that runs and produces
-  zero rows is not an error and shouldn't be flagged red.
-- **MCP tools**: result is whatever the upstream MCP server
-  decided, with no contract on prefix.
-- **Shell-script tools**: header-defined exit-code semantics; the
-  body is whatever the script wrote.
+### Outstanding refinement: MCP `result.isError`
 
-So a string-prefix check would underflag sandbox failures (the
-common case) and could overflag false positives elsewhere.
+The MCP spec lets a tool succeed at the RPC layer but fail at the
+tool layer by setting `result.isError: true`. Our `Guardian.
+CallTool` returns `(json.RawMessage, error)`; it surfaces RPC
+errors as Go errors, but ignores `isError` inside a successful
+RPC response. So an MCP tool that explicitly reports a tool-level
+failure currently shows a green check.
 
-### Design questions to resolve
+Fix when this becomes a real problem: parse the MCP response
+inside `CallTool`, look at `isError` on the result, and either
+return a Go error or extend the return tuple with a bool. Then
+the agent branch maps that to `ActivityStatusError`. Low priority
+for now — none of the MCP servers we ship use this pattern.
 
-1. **What does "failure" mean per tool family?** Probably:
-   - `executeTool` returns `(string, error)` — error path is
-     unambiguous failure. Today most builders return `string`
-     only with `"Error: …"` prefixes.
-   - Sandbox shell/python: `ExecResult.ExitCode != 0` *or*
-     `TimedOut == true`. The dispatcher needs to surface that,
-     not just stringify it into the result.
-   - MCP: `JSON-RPC error.code != 0` is unambiguous; the stdio
-     transport already sees this.
-   - Shell-script: `exit_code != 0` from the registry execution.
-2. **Where do we carry the status?** Options:
-   - Plumb a new field through the `tool-event` runtime event
-     (preferred — UI-only concept, no schema break for memory).
-   - Or extend the message record itself with a `status` field
-     and persist it (more work, broader impact).
-3. **Three-state vs two-state?** Running / success / failure is
-   the obvious mapping, but consider a fourth: "ran but warning"
-   (e.g. exit 0 but stderr non-empty, or `pip install` succeeded
-   with deprecation warnings). Keep it to three for now unless a
-   real case appears.
-4. **Visual treatment** (cheap, do last):
-   - success: ✓ in `--text-tool` (existing green token)
-   - error: ✗ in `--text-error`
-   - running: ● unchanged
+### Possible later cleanups
 
-### Suggested staging when picked up
-
-1. Audit every `executeTool` branch and classify failure cleanly.
-   Refactor sandbox dispatchers to expose ExitCode / TimedOut to
-   the event stream instead of swallowing them into the result
-   text.
-2. Extend the runtime event payload with `status: 'success' |
-   'error'`, defaulted to `'success'` for backwards compat.
-3. Frontend: extend `tool-event` status union, swap icon + class.
-4. Update CSS using existing theme tokens.
-5. Ship under the next minor.
-
-Don't implement piecemeal — the value of the indicator depends on
-it being trustworthy, and a half-correct one (sandbox failures
-silently green-checked) is worse than no indicator at all.
+- Drop the soft-fallback `'done'` status in the frontend tool-
+  event union once we're confident no in-flight events still
+  arrive without a `status` field.
+- Drop `wrapErrorPrefix` once `sandbox-write-file` etc. are
+  refactored to return `(string, error)` directly. The string-
+  prefix sniffing is fragile — moving the dispatchers to typed
+  errors makes this disappear.
