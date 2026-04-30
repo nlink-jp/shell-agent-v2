@@ -1,5 +1,5 @@
-import {useState, useEffect, useRef, useCallback, memo, useMemo} from 'react'
-import ReactMarkdown from 'react-markdown'
+import {useState, useEffect, useRef, useCallback} from 'react'
+import ReactMarkdown, {defaultUrlTransform} from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import rehypeHighlight from 'rehype-highlight'
@@ -7,14 +7,15 @@ import rehypeKatex from 'rehype-katex'
 import ChatInput from './ChatInput'
 import ObjectImage, {clearObjectCache} from './ObjectImage'
 import DataDisclosure from './DataDisclosure'
-import {defaultUrlTransform} from 'react-markdown'
+import MessageItem from './components/MessageItem'
+import BulkActions from './components/BulkActions'
+import BackendBudgetEditor from './components/BackendBudgetEditor'
 import 'highlight.js/styles/github-dark.css'
 import 'katex/dist/katex.min.css'
 import './themes.css'
 import './App.css'
 import './bindings'
 import type {
-    BackendBudget,
     ChatMessage,
     Finding,
     LLMStatus,
@@ -28,18 +29,20 @@ import type {
     ToolInfo,
 } from './types'
 
+// Module-scope stable references avoid re-instantiating plugin
+// arrays on every render — used by the report-viewer overlay's
+// ReactMarkdown. MessageItem keeps its own copy.
+const MD_REMARK_PLUGINS = [remarkGfm, remarkMath]
+const MD_REHYPE_PLUGINS = [rehypeHighlight, rehypeKatex]
+
 // Allow object: protocol through ReactMarkdown URL sanitization.
-// ReactMarkdown v10 defaultUrlTransform strips non-http/https/mailto protocols.
-// object: URLs are resolved by ObjectImage component via img component override.
+// MessageItem has its own copy because it lives in a separate
+// module; this one is for App-internal markdown blocks (cmd-popup,
+// report-viewer overlay).
 function urlTransform(url: string): string {
     if (url.startsWith('object:')) return url
     return defaultUrlTransform(url)
 }
-
-// Module-scope stable references avoid re-instantiating plugin arrays on every
-// render — otherwise ReactMarkdown sees new props and re-parses every message.
-const MD_REMARK_PLUGINS = [remarkGfm, remarkMath]
-const MD_REHYPE_PLUGINS = [rehypeHighlight, rehypeKatex]
 
 function nowTime(): string {
     return new Date().toLocaleTimeString('en-GB', {hour: '2-digit', minute: '2-digit', second: '2-digit'})
@@ -49,190 +52,6 @@ function formatSize(bytes: number): string {
     if (bytes < 1024) return bytes + ' B'
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
-}
-
-// MessageItem renders a single message. Memoized so that pushing a new message
-// (e.g. tool-event) does not re-render the entire history — important when the
-// history contains huge ReactMarkdown blocks that are slow to re-parse.
-interface MessageItemProps {
-    msg: ChatMessage;
-    onLightbox: (url: string) => void;
-    onExpandReport: (r: {title: string; content: string}) => void;
-}
-
-const MessageItem = memo(function MessageItem({msg, onLightbox, onExpandReport}: MessageItemProps) {
-    const components = useMemo(() => ({
-        img: ({src, alt}: {src?: string; alt?: string}) => {
-            if (src?.startsWith('object:')) {
-                const id = src.slice(7)
-                return <ObjectImage id={id} alt={alt || ''} onClick={onLightbox} />
-            }
-            return <img src={src} alt={alt || ''} className="message-image" onClick={() => src && onLightbox(src)} />
-        },
-    }), [onLightbox])
-
-    if (msg.role === 'tool-event') {
-        const cls = msg.status === 'running' ? 'running'
-            : msg.status === 'error' ? 'error'
-            : 'success'
-        const icon = msg.status === 'running' ? '\u25CF'
-            : msg.status === 'error' ? '\u2715'
-            : '\u2713'
-        // Use a distinct class name from the outer
-        // .message.tool-event wrapper — otherwise both elements
-        // pick up the bubble styling and we get a frame inside a
-        // frame.
-        return (
-            <div className={`tool-bubble ${cls}`}>
-                <span className="tool-bubble-icon">{icon}</span>
-                <span className="tool-bubble-name">{msg.content}</span>
-            </div>
-        )
-    }
-    if (msg.role === 'summary') {
-        return (
-            <div className="summary-block">
-                <div className="summary-block-header">Summarized earlier turns</div>
-                <div className="summary-block-body">
-                    <ReactMarkdown remarkPlugins={MD_REMARK_PLUGINS} rehypePlugins={MD_REHYPE_PLUGINS} urlTransform={urlTransform} components={components}>
-                        {msg.content}
-                    </ReactMarkdown>
-                </div>
-            </div>
-        )
-    }
-    if (msg.role === 'report') {
-        const title = msg.content.split('\n')[0].replace(/^#\s*/, '')
-        return (
-            <div className="report-container">
-                <div className="report-header">
-                    <span className="report-title">{title}</span>
-                    <div className="report-actions">
-                        <button onClick={() => onExpandReport({title, content: msg.content})}>Expand</button>
-                        <button onClick={(e) => { navigator.clipboard.writeText(msg.content); const b = e.currentTarget; b.textContent = 'Copied!'; setTimeout(() => b.textContent = 'Copy', 1000) }}>Copy</button>
-                        <button onClick={() => window.go?.main.Bindings.SaveReport(msg.content, 'report.md')}>Save</button>
-                    </div>
-                </div>
-                <div className="report-content" onClick={() => onExpandReport({title, content: msg.content})}>
-                    <ReactMarkdown remarkPlugins={MD_REMARK_PLUGINS} rehypePlugins={MD_REHYPE_PLUGINS} urlTransform={urlTransform} components={components}>
-                        {msg.content}
-                    </ReactMarkdown>
-                </div>
-            </div>
-        )
-    }
-    return (
-        <>
-            <div className="message-header">
-                <span className="message-role">{msg.role}</span>
-                <span className="message-time">{msg.timestamp || ''}</span>
-            </div>
-            {msg.imageUrls && msg.imageUrls.length > 0 && (
-                <div className="message-images">
-                    {msg.imageUrls.map((url, j) => (
-                        <img key={j} src={url} alt="" className="message-image" onClick={() => onLightbox(url)} />
-                    ))}
-                </div>
-            )}
-            <div className="message-content">
-                <ReactMarkdown remarkPlugins={MD_REMARK_PLUGINS} rehypePlugins={MD_REHYPE_PLUGINS} urlTransform={urlTransform} components={components}>
-                    {msg.content}
-                </ReactMarkdown>
-            </div>
-            <div className="message-footer">
-                <button className="message-copy" onClick={(e) => {
-                    navigator.clipboard.writeText(msg.content)
-                    const b = e.currentTarget; b.classList.add('copied')
-                    setTimeout(() => b.classList.remove('copied'), 1000)
-                }} title="Copy">
-                    <span className="copy-icon">{'\u2398'}</span>
-                    <span className="copy-check">{'\u2713'}</span>
-                </button>
-            </div>
-        </>
-    )
-})
-
-// BulkActions renders the small toolbar above a selectable list.
-// Delete uses a two-click confirm pattern (the Wails webview may not
-// surface native window.confirm dialogs reliably, so we keep the
-// confirmation in-component).
-//
-// onPrepareConfirm, if provided, is awaited on the first click and its
-// returned string overrides the confirming-state button text — used by
-// the Objects panel to surface "N still referenced" before the user
-// commits to deletion.
-function BulkActions({total, selectedCount, onSelectAll, onClear, onDelete, onPrepareConfirm}: {
-    total: number;
-    selectedCount: number;
-    onSelectAll: () => void;
-    onClear: () => void;
-    onDelete: () => void;
-    onPrepareConfirm?: () => Promise<string>;
-}) {
-    const [confirming, setConfirming] = useState(false)
-    const [confirmLabel, setConfirmLabel] = useState('Confirm')
-    useEffect(() => {
-        if (!confirming) return
-        const t = setTimeout(() => setConfirming(false), 6000)
-        return () => clearTimeout(t)
-    }, [confirming])
-    useEffect(() => { if (selectedCount === 0) setConfirming(false) }, [selectedCount])
-
-    if (total === 0) return null
-    const allSelected = selectedCount === total && total > 0
-    return (
-        <div className="bulk-actions">
-            {selectedCount > 0 ? (
-                <>
-                    <span className="bulk-count">{selectedCount} selected</span>
-                    <button
-                        className={`bulk-btn bulk-btn-danger ${confirming ? 'confirming' : ''}`}
-                        onClick={async () => {
-                            if (confirming) { onDelete(); setConfirming(false); return }
-                            if (onPrepareConfirm) {
-                                const label = await onPrepareConfirm()
-                                setConfirmLabel(label || 'Confirm')
-                            } else {
-                                setConfirmLabel('Confirm')
-                            }
-                            setConfirming(true)
-                        }}
-                        title={confirming ? `Click again to delete ${selectedCount} item(s)` : `Delete ${selectedCount} selected`}
-                    >
-                        {confirming ? confirmLabel : 'Delete'}
-                    </button>
-                    <button className="bulk-btn" onClick={onClear}>Clear</button>
-                </>
-            ) : (
-                <button className="bulk-btn" onClick={onSelectAll} disabled={allSelected}>Select all</button>
-            )}
-        </div>
-    )
-}
-
-function BackendBudgetEditor({budget, onChange}: {budget: BackendBudget; onChange: (b: BackendBudget) => void}) {
-    const num = (v: string) => Math.max(0, parseInt(v, 10) || 0)
-    return (
-        <div className="budget-editor">
-            <label>
-                <span>Hot Token Limit (compaction trigger)</span>
-                <input type="number" min={0} value={budget.hot_token_limit} onChange={e => onChange({...budget, hot_token_limit: num(e.target.value)})} />
-            </label>
-            <label>
-                <span>Max Context Tokens (0 = unlimited)</span>
-                <input type="number" min={0} value={budget.max_context_tokens} onChange={e => onChange({...budget, max_context_tokens: num(e.target.value)})} />
-            </label>
-            <label>
-                <span>Max Warm Summary Tokens</span>
-                <input type="number" min={0} value={budget.max_warm_tokens} onChange={e => onChange({...budget, max_warm_tokens: num(e.target.value)})} />
-            </label>
-            <label>
-                <span>Max Tool-Result Tokens (per call)</span>
-                <input type="number" min={0} value={budget.max_tool_result_tokens} onChange={e => onChange({...budget, max_tool_result_tokens: num(e.target.value)})} />
-            </label>
-        </div>
-    )
 }
 
 function App() {
