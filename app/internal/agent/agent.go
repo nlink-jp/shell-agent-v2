@@ -827,14 +827,10 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 			// Avoid logging full tool arguments at Info level (may contain credentials, paths, etc.)
 			logger.Info("agentLoop: tool_call name=%s args_len=%d", tc.Name, len(tc.Arguments))
 			logger.Debug("agentLoop: tool_call args=%s", logger.Truncate(tc.Arguments, 200))
-			result := a.executeTool(ctx, tc)
-			logger.Debug("agentLoop: tool_result name=%s result=%s", tc.Name, logger.Truncate(result, 200))
+			result, status := a.executeTool(ctx, tc)
+			logger.Debug("agentLoop: tool_result name=%s status=%s result=%s", tc.Name, status, logger.Truncate(result, 200))
 			a.session.AddToolResult(tc.ID, tc.Name, result)
-			// Phase A: classification not wired in yet — every
-			// tool_end reports "success". Phase B will switch
-			// per-tool-family detection on (sandbox exit codes,
-			// MCP error.code, etc.).
-			a.emitActivity(ActivityEvent{Type: "tool_end", Detail: tc.Name, Status: ActivityStatusSuccess})
+			a.emitActivity(ActivityEvent{Type: "tool_end", Detail: tc.Name, Status: status})
 		}
 		_ = a.session.Save() // auto-save after tool execution
 	}
@@ -969,34 +965,42 @@ func normalizeToolArgs(raw string) string {
 	return fixed
 }
 
-func (a *Agent) executeTool(ctx context.Context, tc llm.ToolCall) string {
+// executeTool runs a tool call and returns (resultText, status)
+// where status is the ActivityEvent status to attach to the
+// tool_end event. Phase B classification:
+//   - sandbox-run-shell / sandbox-run-python: status follows the
+//     container's exit code / timeout (handled inside
+//     executeSandboxTool which returns the typed status).
+//   - All other branches: explicit Go-side errors map to
+//     ActivityStatusError; everything else is ActivityStatusSuccess.
+func (a *Agent) executeTool(ctx context.Context, tc llm.ToolCall) (string, ActivityEventStatus) {
 	tc.Arguments = normalizeToolArgs(tc.Arguments)
 	switch tc.Name {
 	case "resolve-date":
 		result, err := chat.ResolveDate(tc.Arguments)
 		if err != nil {
-			return fmt.Sprintf("Error: %v", err)
+			return fmt.Sprintf("Error: %v", err), ActivityStatusError
 		}
-		return result
+		return result, ActivityStatusSuccess
 	case "list-objects":
-		return a.toolListObjects(tc.Arguments)
+		return a.toolListObjects(tc.Arguments), ActivityStatusSuccess
 	case "get-object":
-		return a.toolGetObject(tc.Arguments)
+		return a.toolGetObject(tc.Arguments), ActivityStatusSuccess
 	case "load-data", "describe-data", "query-sql", "query-preview", "suggest-analysis", "quick-summary", "list-tables", "reset-analysis", "create-report", "promote-finding", "analyze-data":
 		if a.analysis == nil {
-			return "Error: no analysis engine available"
+			return "Error: no analysis engine available", ActivityStatusError
 		}
 		result, err := a.executeAnalysisTool(ctx, tc.Name, tc.Arguments)
 		if err != nil {
-			return fmt.Sprintf("Error: %v", err)
+			return fmt.Sprintf("Error: %v", err), ActivityStatusError
 		}
-		return result
+		return result, ActivityStatusSuccess
 	default:
 		// Sandbox tools (prefixed with "sandbox-")
 		if strings.HasPrefix(tc.Name, "sandbox-") {
 			if a.IsToolMITLRequired(tc.Name) {
 				if rejection := a.requestMITL(tc.Name, tc.Arguments, "execute"); rejection != "" {
-					return rejection
+					return rejection, ActivityStatusError
 				}
 			}
 			return a.executeSandboxTool(ctx, tc.Name, tc.Arguments)
@@ -1006,24 +1010,24 @@ func (a *Agent) executeTool(ctx context.Context, tc llm.ToolCall) string {
 			// MITL for MCP: default on, can be overridden per tool
 			if a.IsToolMITLRequired(tc.Name) {
 				if rejection := a.requestMITL(tc.Name, tc.Arguments, "execute"); rejection != "" {
-					return rejection
+					return rejection, ActivityStatusError
 				}
 			}
 			parts := strings.SplitN(strings.TrimPrefix(tc.Name, "mcp__"), "__", 2)
 			if len(parts) != 2 {
-				return "Error: invalid MCP tool name format"
+				return "Error: invalid MCP tool name format", ActivityStatusError
 			}
 			a.guardiansMu.RLock()
 			g, ok := a.guardians[parts[0]]
 			a.guardiansMu.RUnlock()
 			if !ok {
-				return fmt.Sprintf("Error: MCP guardian %q not found", parts[0])
+				return fmt.Sprintf("Error: MCP guardian %q not found", parts[0]), ActivityStatusError
 			}
 			result, err := g.CallTool(parts[1], json.RawMessage(tc.Arguments))
 			if err != nil {
-				return fmt.Sprintf("Error: MCP %s: %v", parts[1], err)
+				return fmt.Sprintf("Error: MCP %s: %v", parts[1], err), ActivityStatusError
 			}
-			return string(result)
+			return string(result), ActivityStatusSuccess
 		}
 
 		// Check shell script tool registry
@@ -1036,16 +1040,16 @@ func (a *Agent) executeTool(ctx context.Context, tc llm.ToolCall) string {
 			if needsMITL {
 				result := a.requestMITL(tc.Name, tc.Arguments, string(tool.Category))
 				if result != "" {
-					return result
+					return result, ActivityStatusError
 				}
 			}
 			result, err := toolcall.Execute(ctx, tool, tc.Arguments)
 			if err != nil {
-				return fmt.Sprintf("Error: %v", err)
+				return fmt.Sprintf("Error: %v", err), ActivityStatusError
 			}
-			return result
+			return result, ActivityStatusSuccess
 		}
-		return fmt.Sprintf("Error: unknown tool %q", tc.Name)
+		return fmt.Sprintf("Error: unknown tool %q", tc.Name), ActivityStatusError
 	}
 }
 

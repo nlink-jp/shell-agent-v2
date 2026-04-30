@@ -113,23 +113,39 @@ func sandboxToolDefs() []llm.ToolDef {
 	}
 }
 
-// executeSandboxTool dispatches sandbox-* tool calls. Returns a
-// human-readable string suitable for the LLM tool_result (or an
-// error to abort the round). Caller must have verified a.sandbox is
-// non-nil.
-func (a *Agent) executeSandboxTool(ctx context.Context, name, argsJSON string) string {
+// executeSandboxTool dispatches sandbox-* tool calls. Returns the
+// LLM-facing text result and an ActivityEventStatus that the
+// agentLoop forwards to the chat as the tool-end bubble colour.
+//
+// Phase B-1: only run-shell / run-python actually classify
+// failure (non-zero exit code or TimedOut → error). Other
+// sandbox tools return success unless the Go-side error path
+// fired.
+func (a *Agent) executeSandboxTool(ctx context.Context, name, argsJSON string) (string, ActivityEventStatus) {
 	if a.sandbox == nil {
-		return "Error: sandbox is not enabled"
+		return "Error: sandbox is not enabled", ActivityStatusError
 	}
 	if a.session == nil {
-		return "Error: no active session"
+		return "Error: no active session", ActivityStatusError
 	}
 	sid := a.session.ID
 
 	// All sandbox tools require the container to exist; EnsureContainer
 	// is idempotent and cheap on subsequent calls.
 	if err := a.sandbox.EnsureContainer(ctx, sid); err != nil {
-		return fmt.Sprintf("Error: ensure container: %v", err)
+		return fmt.Sprintf("Error: ensure container: %v", err), ActivityStatusError
+	}
+
+	// Helper to wrap return-string-only handlers — anything they
+	// surface that starts with "Error:" is a Go-side failure
+	// (validation, file I/O, etc.) and should colour the bubble
+	// red. Container exit codes are NOT classified this way; the
+	// run-shell / run-python branches handle those explicitly.
+	wrapErrorPrefix := func(s string) (string, ActivityEventStatus) {
+		if strings.HasPrefix(s, "Error:") {
+			return s, ActivityStatusError
+		}
+		return s, ActivityStatusSuccess
 	}
 
 	switch name {
@@ -138,54 +154,68 @@ func (a *Agent) executeSandboxTool(ctx context.Context, name, argsJSON string) s
 	case "sandbox-run-python":
 		return a.toolSandboxRunPython(ctx, sid, argsJSON)
 	case "sandbox-write-file":
-		return a.toolSandboxWriteFile(sid, argsJSON)
+		return wrapErrorPrefix(a.toolSandboxWriteFile(sid, argsJSON))
 	case "sandbox-copy-object":
-		return a.toolSandboxCopyObject(sid, argsJSON)
+		return wrapErrorPrefix(a.toolSandboxCopyObject(sid, argsJSON))
 	case "sandbox-register-object":
-		return a.toolSandboxRegisterObject(sid, argsJSON)
+		return wrapErrorPrefix(a.toolSandboxRegisterObject(sid, argsJSON))
 	case "sandbox-info":
-		return a.toolSandboxInfo(ctx, sid)
+		return wrapErrorPrefix(a.toolSandboxInfo(ctx, sid))
 	case "sandbox-load-into-analysis":
-		return a.toolSandboxLoadIntoAnalysis(sid, argsJSON)
+		return wrapErrorPrefix(a.toolSandboxLoadIntoAnalysis(sid, argsJSON))
 	case "sandbox-export-sql":
-		return a.toolSandboxExportSQL(sid, argsJSON)
+		return wrapErrorPrefix(a.toolSandboxExportSQL(sid, argsJSON))
 	default:
-		return fmt.Sprintf("Error: unknown sandbox tool %q", name)
+		return fmt.Sprintf("Error: unknown sandbox tool %q", name), ActivityStatusError
 	}
 }
 
-func (a *Agent) toolSandboxRunShell(ctx context.Context, sid, argsJSON string) string {
+func (a *Agent) toolSandboxRunShell(ctx context.Context, sid, argsJSON string) (string, ActivityEventStatus) {
 	var args struct {
 		Command string `json:"command"`
 	}
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
-		return "Error: invalid arguments: " + err.Error()
+		return "Error: invalid arguments: " + err.Error(), ActivityStatusError
 	}
 	if args.Command == "" {
-		return "Error: 'command' is required"
+		return "Error: 'command' is required", ActivityStatusError
 	}
 	res, err := a.sandbox.Exec(ctx, sid, sandbox.ExecArgs{Language: "shell", Code: args.Command})
 	if err != nil {
-		return "Error: " + err.Error()
+		return "Error: " + err.Error(), ActivityStatusError
 	}
-	return sandbox.FormatExecResult(res)
+	return sandbox.FormatExecResult(res), execResultStatus(res)
 }
 
-func (a *Agent) toolSandboxRunPython(ctx context.Context, sid, argsJSON string) string {
+func (a *Agent) toolSandboxRunPython(ctx context.Context, sid, argsJSON string) (string, ActivityEventStatus) {
 	var args struct {
 		Code string `json:"code"`
 	}
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
-		return "Error: invalid arguments: " + err.Error()
+		return "Error: invalid arguments: " + err.Error(), ActivityStatusError
 	}
 	if args.Code == "" {
-		return "Error: 'code' is required"
+		return "Error: 'code' is required", ActivityStatusError
 	}
 	res, err := a.sandbox.Exec(ctx, sid, sandbox.ExecArgs{Language: "python", Code: args.Code})
 	if err != nil {
-		return "Error: " + err.Error()
+		return "Error: " + err.Error(), ActivityStatusError
 	}
-	return sandbox.FormatExecResult(res)
+	return sandbox.FormatExecResult(res), execResultStatus(res)
+}
+
+// execResultStatus maps a container ExecResult to the activity
+// event status. A failed pip install or a Python traceback both
+// land here as ExitCode != 0; a Vertex-side stall that fires the
+// per-call timeout shows up as TimedOut.
+func execResultStatus(res *sandbox.ExecResult) ActivityEventStatus {
+	if res == nil {
+		return ActivityStatusError
+	}
+	if res.TimedOut || res.ExitCode != 0 {
+		return ActivityStatusError
+	}
+	return ActivityStatusSuccess
 }
 
 func (a *Agent) toolSandboxWriteFile(sid, argsJSON string) string {

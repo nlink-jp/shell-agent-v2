@@ -120,7 +120,7 @@ func TestIsToolMITLRequired_SandboxPrefixDefaultOn(t *testing.T) {
 
 func TestExecuteSandboxTool_RunShellCallsEngineExec(t *testing.T) {
 	a, fe := newAgentWithSandbox(t)
-	out := a.executeSandboxTool(context.Background(), "sandbox-run-shell", `{"command":"echo hi"}`)
+	out, _ := a.executeSandboxTool(context.Background(), "sandbox-run-shell", `{"command":"echo hi"}`)
 	if !strings.Contains(out, "ok") {
 		t.Errorf("unexpected output: %q", out)
 	}
@@ -131,7 +131,7 @@ func TestExecuteSandboxTool_RunShellCallsEngineExec(t *testing.T) {
 
 func TestExecuteSandboxTool_RunPythonCallsEngineExec(t *testing.T) {
 	a, fe := newAgentWithSandbox(t)
-	a.executeSandboxTool(context.Background(), "sandbox-run-python", `{"code":"print(1)"}`)
+	_, _ = a.executeSandboxTool(context.Background(), "sandbox-run-python", `{"code":"print(1)"}`)
 	if len(fe.execCalls) != 1 || fe.execCalls[0].Language != "python" || !strings.Contains(fe.execCalls[0].Code, "print") {
 		t.Errorf("Exec call wrong: %+v", fe.execCalls)
 	}
@@ -139,7 +139,7 @@ func TestExecuteSandboxTool_RunPythonCallsEngineExec(t *testing.T) {
 
 func TestExecuteSandboxTool_WriteFileWritesToWorkDir(t *testing.T) {
 	a, fe := newAgentWithSandbox(t)
-	out := a.executeSandboxTool(context.Background(), "sandbox-write-file", `{"path":"data.csv","content":"a,b\n1,2\n"}`)
+	out, _ := a.executeSandboxTool(context.Background(), "sandbox-write-file", `{"path":"data.csv","content":"a,b\n1,2\n"}`)
 	if !strings.Contains(out, "wrote") {
 		t.Errorf("unexpected output: %q", out)
 	}
@@ -154,7 +154,7 @@ func TestExecuteSandboxTool_WriteFileWritesToWorkDir(t *testing.T) {
 
 func TestExecuteSandboxTool_WriteFileRejectsTraversal(t *testing.T) {
 	a, _ := newAgentWithSandbox(t)
-	out := a.executeSandboxTool(context.Background(), "sandbox-write-file", `{"path":"../escape.txt","content":"x"}`)
+	out, _ := a.executeSandboxTool(context.Background(), "sandbox-write-file", `{"path":"../escape.txt","content":"x"}`)
 	if !strings.Contains(out, "Error") || !strings.Contains(out, "escapes") {
 		t.Errorf("expected traversal rejection, got %q", out)
 	}
@@ -167,7 +167,7 @@ func TestExecuteSandboxTool_WriteFileNormalisesWorkPrefix(t *testing.T) {
 	// regression). Same for "work/foo" without leading slash.
 	for _, in := range []string{"/work/data.csv", "work/data.csv", "data.csv"} {
 		a, fe := newAgentWithSandbox(t)
-		out := a.executeSandboxTool(context.Background(), "sandbox-write-file", `{"path":"`+in+`","content":"x"}`)
+		out, _ := a.executeSandboxTool(context.Background(), "sandbox-write-file", `{"path":"`+in+`","content":"x"}`)
 		if !strings.Contains(out, "wrote") {
 			t.Errorf("input %q: expected success, got %q", in, out)
 			continue
@@ -196,7 +196,7 @@ func TestExecuteSandboxTool_CopyObject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out := a.executeSandboxTool(context.Background(), "sandbox-copy-object", `{"object_id":"`+meta.ID+`"}`)
+	out, _ := a.executeSandboxTool(context.Background(), "sandbox-copy-object", `{"object_id":"`+meta.ID+`"}`)
 	if !strings.Contains(out, "copied object") {
 		t.Errorf("unexpected output: %q", out)
 	}
@@ -218,7 +218,7 @@ func TestExecuteSandboxTool_RegisterObject(t *testing.T) {
 	if err := os.WriteFile(src, []byte("\x89PNG-fake"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	out := a.executeSandboxTool(context.Background(), "sandbox-register-object", `{"path":"chart.png"}`)
+	out, _ := a.executeSandboxTool(context.Background(), "sandbox-register-object", `{"path":"chart.png"}`)
 	if !strings.Contains(out, "registered as object") || !strings.Contains(out, "image") {
 		t.Errorf("unexpected output: %q", out)
 	}
@@ -233,7 +233,7 @@ func TestExecuteSandboxTool_RegisterObject(t *testing.T) {
 func TestExecuteSandboxTool_LoadIntoAnalysis_NoEngine(t *testing.T) {
 	a, _ := newAgentWithSandbox(t)
 	a.analysis = nil
-	out := a.executeSandboxTool(context.Background(), "sandbox-load-into-analysis", `{"path":"x.csv","table_name":"t"}`)
+	out, _ := a.executeSandboxTool(context.Background(), "sandbox-load-into-analysis", `{"path":"x.csv","table_name":"t"}`)
 	if !strings.Contains(out, "analysis engine not available") {
 		t.Errorf("expected absent-analysis error: %q", out)
 	}
@@ -241,7 +241,7 @@ func TestExecuteSandboxTool_LoadIntoAnalysis_NoEngine(t *testing.T) {
 
 func TestExecuteSandboxTool_Info(t *testing.T) {
 	a, _ := newAgentWithSandbox(t)
-	out := a.executeSandboxTool(context.Background(), "sandbox-info", `{}`)
+	out, _ := a.executeSandboxTool(context.Background(), "sandbox-info", `{}`)
 	if !strings.Contains(out, "engine:") || !strings.Contains(out, "fake") {
 		t.Errorf("FormatInfo unexpected output: %q", out)
 	}
@@ -268,3 +268,47 @@ func TestSandboxStop_DelegatesWhenEnabled(t *testing.T) {
 // Suppress "unused" warning if the import list eventually slims.
 var _ = llm.Message{}
 var _ = time.Second
+
+func TestExecResultStatus(t *testing.T) {
+	cases := []struct {
+		name string
+		in   *sandbox.ExecResult
+		want ActivityEventStatus
+	}{
+		{"nil → error", nil, ActivityStatusError},
+		{"clean exit 0", &sandbox.ExecResult{ExitCode: 0}, ActivityStatusSuccess},
+		{"non-zero exit", &sandbox.ExecResult{ExitCode: 1}, ActivityStatusError},
+		{"timed out", &sandbox.ExecResult{TimedOut: true}, ActivityStatusError},
+		{"timeout takes precedence over zero exit", &sandbox.ExecResult{ExitCode: 0, TimedOut: true}, ActivityStatusError},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := execResultStatus(tc.in); got != tc.want {
+				t.Errorf("execResultStatus(%+v) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestExecuteSandboxTool_RunShellExitCodeMaps(t *testing.T) {
+	a, fe := newAgentWithSandbox(t)
+	fe.execResult = &sandbox.ExecResult{Stdout: "no", Stderr: "boom", ExitCode: 1}
+
+	out, status := a.executeSandboxTool(context.Background(), "sandbox-run-shell", `{"command":"false"}`)
+	if status != ActivityStatusError {
+		t.Errorf("status = %q, want error", status)
+	}
+	if !strings.Contains(out, "boom") {
+		t.Errorf("expected stderr in output, got %q", out)
+	}
+}
+
+func TestExecuteSandboxTool_RunPythonTimeoutMaps(t *testing.T) {
+	a, fe := newAgentWithSandbox(t)
+	fe.execResult = &sandbox.ExecResult{TimedOut: true}
+
+	_, status := a.executeSandboxTool(context.Background(), "sandbox-run-python", `{"code":"while True: pass"}`)
+	if status != ActivityStatusError {
+		t.Errorf("status = %q, want error (timeout)", status)
+	}
+}

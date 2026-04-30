@@ -170,7 +170,7 @@ func TestE2E_MITLApprove(t *testing.T) {
 
 	// Simulate a write tool call
 	tc := llm.ToolCall{ID: "tc-1", Name: "nonexistent-write-tool", Arguments: "{}"}
-	result := a.executeTool(context.Background(), tc)
+	result, _ := a.executeTool(context.Background(), tc)
 	// Tool won't be found in registry, so MITL won't be triggered
 	if !strings.Contains(result, "unknown tool") {
 		t.Logf("result = %q", result)
