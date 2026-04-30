@@ -69,6 +69,13 @@ export interface MCPProfile {
     enabled: boolean;
 }
 
+export interface MCPStatus {
+    name: string;
+    status: string;
+    tool_count: number;
+    error?: string;
+}
+
 export interface BackendBudget {
     hot_token_limit: number;
     max_context_tokens: number;
