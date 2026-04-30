@@ -8,13 +8,16 @@ import (
 	"strings"
 	"time"
 
+	"path/filepath"
+
 	"github.com/nlink-jp/shell-agent-v2/internal/agent"
-	"github.com/nlink-jp/shell-agent-v2/internal/bundled"
-	"github.com/nlink-jp/shell-agent-v2/internal/logger"
 	"github.com/nlink-jp/shell-agent-v2/internal/analysis"
+	"github.com/nlink-jp/shell-agent-v2/internal/bundled"
 	"github.com/nlink-jp/shell-agent-v2/internal/config"
+	"github.com/nlink-jp/shell-agent-v2/internal/logger"
 	"github.com/nlink-jp/shell-agent-v2/internal/memory"
 	"github.com/nlink-jp/shell-agent-v2/internal/objstore"
+	"github.com/nlink-jp/shell-agent-v2/internal/sandbox"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -597,6 +600,125 @@ func (b *Bindings) ListObjects() []ObjectInfo {
 	sort.SliceStable(result, func(i, j int) bool {
 		return result[i].CreatedAt > result[j].CreatedAt
 	})
+	return result
+}
+
+// GetSessionObjects returns the objects belonging to the given
+// session, newest-first. Backs the per-session Data → Objects
+// sub-section in the new chat-pane disclosure (information-display
+// redesign Phase 1).
+func (b *Bindings) GetSessionObjects(sessionID string) []ObjectInfo {
+	if b.objects == nil || sessionID == "" {
+		return []ObjectInfo{}
+	}
+	objs := b.objects.ListBySession(sessionID)
+	result := make([]ObjectInfo, 0, len(objs))
+	for _, m := range objs {
+		result = append(result, ObjectInfo{
+			ID:        m.ID,
+			Type:      string(m.Type),
+			MimeType:  m.MimeType,
+			OrigName:  m.OrigName,
+			CreatedAt: m.CreatedAt.Format("2006-01-02 15:04:05"),
+			SessionID: m.SessionID,
+			Size:      m.Size,
+		})
+	}
+	sort.SliceStable(result, func(i, j int) bool {
+		return result[i].CreatedAt > result[j].CreatedAt
+	})
+	return result
+}
+
+// TableInfoData is the JSON-serializable summary of one DuckDB
+// table loaded into a session's analysis engine.
+type TableInfoData struct {
+	Name        string   `json:"name"`
+	RowCount    int64    `json:"row_count"`
+	Columns     []string `json:"columns"`
+	Description string   `json:"description,omitempty"`
+}
+
+// GetSessionTables returns the analysis-engine tables for the
+// given session. Returns an empty slice (not error) when no
+// engine is wired up or the session has never loaded data —
+// callers render "no tables" themselves.
+func (b *Bindings) GetSessionTables(sessionID string) []TableInfoData {
+	if b.analysis == nil || sessionID == "" {
+		return []TableInfoData{}
+	}
+	tables := b.analysis.Tables()
+	result := make([]TableInfoData, 0, len(tables))
+	for _, t := range tables {
+		result = append(result, TableInfoData{
+			Name:        t.Name,
+			RowCount:    t.RowCount,
+			Columns:     t.Columns,
+			Description: t.Description,
+		})
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
+	return result
+}
+
+// TablePreviewData is what the UI receives when the user clicks a
+// table to preview rows.
+type TablePreviewData struct {
+	Columns   []string `json:"columns"`
+	Rows      [][]any  `json:"rows"`
+	Total     int64    `json:"total"`
+	Truncated bool     `json:"truncated"`
+}
+
+// PreviewTable returns the first `limit` rows of the named table
+// for UI display. limit ≤ 0 falls back to the engine default
+// (currently 20). Returns an error string in the wrapper if the
+// engine is missing or the table is unknown.
+func (b *Bindings) PreviewTable(tableName string, limit int) (TablePreviewData, error) {
+	if b.analysis == nil {
+		return TablePreviewData{}, fmt.Errorf("no analysis engine for current session")
+	}
+	p, err := b.analysis.PreviewTable(tableName, limit)
+	if err != nil {
+		return TablePreviewData{}, err
+	}
+	return TablePreviewData{
+		Columns:   p.Columns,
+		Rows:      p.Rows,
+		Total:     p.Total,
+		Truncated: p.Truncated,
+	}, nil
+}
+
+// WorkFileData is one /work entry surfaced to the UI.
+type WorkFileData struct {
+	Path  string `json:"path"`  // relative to /work
+	Size  int64  `json:"size"`
+	MTime int64  `json:"mtime"` // unix milli
+}
+
+// GetWorkFiles lists the contents of the session's sandbox /work
+// directory regardless of whether the engine is currently running.
+// The directory is just a host-side mount, so reading it is
+// always safe and stays consistent with what `sandbox-info` shows
+// the LLM. Caps at 200 entries to avoid sending huge payloads.
+func (b *Bindings) GetWorkFiles(sessionID string) []WorkFileData {
+	if sessionID == "" {
+		return []WorkFileData{}
+	}
+	workDir := filepath.Join(memory.SessionDir(sessionID), "work")
+	if _, err := os.Stat(workDir); err != nil {
+		return []WorkFileData{}
+	}
+	files := sandbox.ListWorkFiles(workDir, 200)
+	result := make([]WorkFileData, 0, len(files))
+	for _, f := range files {
+		result = append(result, WorkFileData{
+			Path:  filepath.ToSlash(f.Path),
+			Size:  f.Size,
+			MTime: f.MTime.UnixMilli(),
+		})
+	}
 	return result
 }
 

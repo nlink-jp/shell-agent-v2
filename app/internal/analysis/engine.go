@@ -358,6 +358,84 @@ func csvFormat(v any) string {
 	}
 }
 
+// TablePreview is the result of PreviewTable: column names plus a
+// row-major slice of values, capped by the caller-supplied limit.
+type TablePreview struct {
+	Columns   []string
+	Rows      [][]any
+	Total     int64 // total row count of the underlying table
+	Truncated bool  // true if Total > limit
+}
+
+// PreviewTable returns the first `limit` rows of the named table
+// for UI display. Read-only; uses sanitizeIdentifier so a malicious
+// or just unusual table name can't smuggle SQL.
+//
+// limit is clamped to the range [1, 1000] as a safety net — the UI
+// is expected to pass something like 20.
+func (e *Engine) PreviewTable(tableName string, limit int) (*TablePreview, error) {
+	if err := e.Open(); err != nil {
+		return nil, err
+	}
+
+	e.mu.Lock()
+	meta, ok := e.tables[tableName]
+	e.mu.Unlock()
+	if !ok {
+		return nil, fmt.Errorf("table %q not found", tableName)
+	}
+
+	if limit < 1 {
+		limit = 20
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	q := fmt.Sprintf("SELECT * FROM %s LIMIT %d", sanitizeIdentifier(tableName), limit)
+	rows, err := e.db.Query(q)
+	if err != nil {
+		return nil, fmt.Errorf("preview: %w", err)
+	}
+	defer rows.Close()
+
+	cols, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
+
+	var data [][]any
+	for rows.Next() {
+		values := make([]any, len(cols))
+		ptrs := make([]any, len(cols))
+		for i := range values {
+			ptrs[i] = &values[i]
+		}
+		if err := rows.Scan(ptrs...); err != nil {
+			return nil, err
+		}
+		// Convert []byte -> string so JSON serialisation produces
+		// readable text instead of base64. DuckDB returns VARCHAR
+		// columns as []byte through database/sql.
+		for i, v := range values {
+			if b, ok := v.([]byte); ok {
+				values[i] = string(b)
+			}
+		}
+		data = append(data, values)
+	}
+
+	return &TablePreview{
+		Columns:   cols,
+		Rows:      data,
+		Total:     meta.RowCount,
+		Truncated: meta.RowCount > int64(limit),
+	}, nil
+}
+
 func (e *Engine) QuerySQL(query string) ([]map[string]any, error) {
 	if err := e.Open(); err != nil {
 		return nil, err

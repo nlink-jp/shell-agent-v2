@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/nlink-jp/shell-agent-v2/internal/agent"
+	"github.com/nlink-jp/shell-agent-v2/internal/analysis"
 	"github.com/nlink-jp/shell-agent-v2/internal/config"
 	"github.com/nlink-jp/shell-agent-v2/internal/memory"
 	"github.com/nlink-jp/shell-agent-v2/internal/objstore"
@@ -34,6 +35,133 @@ func newTestBindings(t *testing.T) (*Bindings, string) {
 		objects: store,
 	}
 	return b, home
+}
+
+func TestGetSessionObjects_FiltersBySession(t *testing.T) {
+	b, _ := newTestBindings(t)
+	idA := saveTestObject(t, b, objstore.TypeBlob, "text/plain", "from sess A", "sessA")
+	saveTestObject(t, b, objstore.TypeBlob, "text/plain", "from sess B", "sessB")
+
+	got := b.GetSessionObjects("sessA")
+	if len(got) != 1 {
+		t.Fatalf("want 1 object for sessA, got %d", len(got))
+	}
+	if got[0].ID != idA {
+		t.Errorf("got id %q, want %q", got[0].ID, idA)
+	}
+
+	if got := b.GetSessionObjects(""); len(got) != 0 {
+		t.Errorf("empty sessionID should return nothing, got %d", len(got))
+	}
+}
+
+func TestGetSessionTables_EmptyWhenNoEngine(t *testing.T) {
+	b, _ := newTestBindings(t)
+	// b.analysis is nil — no engine wired up in test setup.
+	got := b.GetSessionTables("sessA")
+	if len(got) != 0 {
+		t.Errorf("expected empty when no analysis engine, got %d", len(got))
+	}
+}
+
+func TestGetSessionTables_WithEngine(t *testing.T) {
+	b, home := newTestBindings(t)
+
+	// Wire an analysis engine and load a CSV so it has a table.
+	csvPath := filepath.Join(home, "people.csv")
+	if err := os.WriteFile(csvPath, []byte("name,age\nAlice,30\nBob,25\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	e := analysis.NewWithPath("sess-x", filepath.Join(home, "x.duckdb"))
+	defer e.Close()
+	if err := e.LoadCSV("people", csvPath); err != nil {
+		t.Fatal(err)
+	}
+	b.analysis = e
+	b.agent.SetAnalysis(e)
+
+	got := b.GetSessionTables("sess-x")
+	if len(got) != 1 {
+		t.Fatalf("want 1 table, got %d", len(got))
+	}
+	if got[0].Name != "people" {
+		t.Errorf("name = %q", got[0].Name)
+	}
+	if got[0].RowCount != 2 {
+		t.Errorf("RowCount = %d, want 2", got[0].RowCount)
+	}
+}
+
+func TestPreviewTable_Binding(t *testing.T) {
+	b, home := newTestBindings(t)
+	csvPath := filepath.Join(home, "data.csv")
+	if err := os.WriteFile(csvPath, []byte("a,b\n1,x\n2,y\n3,z\n4,w\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	e := analysis.NewWithPath("sess-p", filepath.Join(home, "p.duckdb"))
+	defer e.Close()
+	if err := e.LoadCSV("data", csvPath); err != nil {
+		t.Fatal(err)
+	}
+	b.analysis = e
+
+	res, err := b.PreviewTable("data", 2)
+	if err != nil {
+		t.Fatalf("PreviewTable: %v", err)
+	}
+	if len(res.Rows) != 2 || res.Total != 4 || !res.Truncated {
+		t.Errorf("unexpected preview: rows=%d total=%d truncated=%v", len(res.Rows), res.Total, res.Truncated)
+	}
+}
+
+func TestPreviewTable_NoEngine(t *testing.T) {
+	b, _ := newTestBindings(t)
+	if _, err := b.PreviewTable("anything", 10); err == nil {
+		t.Error("expected error when analysis engine is nil")
+	}
+}
+
+func TestGetWorkFiles_ListsHostMount(t *testing.T) {
+	b, home := newTestBindings(t)
+	// Frame the session's /work dir manually since tests don't
+	// spin up an actual engine. Path layout follows
+	// memory.SessionDir(sid) / "work".
+	sessDir := memory.SessionDir("sess-w")
+	workDir := filepath.Join(sessDir, "work")
+	if err := os.MkdirAll(workDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(filepath.Join(home, "sessions"))
+
+	if err := os.WriteFile(filepath.Join(workDir, "alpha.txt"), []byte("hi"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workDir, "beta.csv"), []byte("a,b\n1,2\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := b.GetWorkFiles("sess-w")
+	if len(got) != 2 {
+		t.Fatalf("want 2 files, got %d (%v)", len(got), got)
+	}
+	// Paths must be relative to /work, slash-form (no platform
+	// backslashes) so the frontend can render them as-is.
+	for _, f := range got {
+		if strings.Contains(f.Path, "\\") {
+			t.Errorf("Path %q must use forward slashes", f.Path)
+		}
+		if filepath.IsAbs(f.Path) {
+			t.Errorf("Path %q must be relative to /work", f.Path)
+		}
+	}
+}
+
+func TestGetWorkFiles_MissingDirReturnsEmpty(t *testing.T) {
+	b, _ := newTestBindings(t)
+	got := b.GetWorkFiles("session-with-no-work")
+	if len(got) != 0 {
+		t.Errorf("expected empty, got %v", got)
+	}
 }
 
 func saveTestObject(t *testing.T, b *Bindings, objType objstore.ObjectType, mime, content, sessionID string) string {

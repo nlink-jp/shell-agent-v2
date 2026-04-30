@@ -85,6 +85,75 @@ func TestOpenIfExists_RestoresMetadataAfterReopen(t *testing.T) {
 	}
 }
 
+func TestPreviewTable(t *testing.T) {
+	tmpDir := t.TempDir()
+	csvPath := filepath.Join(tmpDir, "people.csv")
+	body := "name,age\nAlice,30\nBob,25\nCharlie,35\nDave,40\n"
+	if err := os.WriteFile(csvPath, []byte(body), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	e := &Engine{sessionID: "s", dbPath: filepath.Join(tmpDir, "x.duckdb"), tables: make(map[string]*TableMeta)}
+	if err := e.LoadCSV("people", csvPath); err != nil {
+		t.Fatal(err)
+	}
+	defer e.Close()
+
+	p, err := e.PreviewTable("people", 2)
+	if err != nil {
+		t.Fatalf("PreviewTable: %v", err)
+	}
+	if len(p.Rows) != 2 {
+		t.Errorf("rows = %d, want 2", len(p.Rows))
+	}
+	if p.Total != 4 {
+		t.Errorf("Total = %d, want 4", p.Total)
+	}
+	if !p.Truncated {
+		t.Error("Truncated should be true (4 rows total, limit 2)")
+	}
+	if len(p.Columns) != 2 || p.Columns[0] != "name" || p.Columns[1] != "age" {
+		t.Errorf("Columns = %v", p.Columns)
+	}
+	// Sanity-check the first row's name comes through as a string.
+	if got, ok := p.Rows[0][0].(string); !ok || got != "Alice" {
+		t.Errorf("first row name = %v (%T), want \"Alice\"", p.Rows[0][0], p.Rows[0][0])
+	}
+}
+
+func TestPreviewTable_UnknownTable(t *testing.T) {
+	e := &Engine{sessionID: "s", dbPath: filepath.Join(t.TempDir(), "x.duckdb"), tables: make(map[string]*TableMeta)}
+	defer e.Close()
+	if _, err := e.PreviewTable("nope", 10); err == nil {
+		t.Error("expected error for unknown table")
+	}
+}
+
+func TestPreviewTable_LimitClamp(t *testing.T) {
+	tmpDir := t.TempDir()
+	csvPath := filepath.Join(tmpDir, "x.csv")
+	if err := os.WriteFile(csvPath, []byte("a\n1\n2\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	e := &Engine{sessionID: "s", dbPath: filepath.Join(tmpDir, "x.duckdb"), tables: make(map[string]*TableMeta)}
+	if err := e.LoadCSV("t", csvPath); err != nil {
+		t.Fatal(err)
+	}
+	defer e.Close()
+
+	// limit = 0 should clamp up to default (20)
+	p, err := e.PreviewTable("t", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Rows) != 2 {
+		t.Errorf("rows = %d, want 2 (table has 2 rows, default limit 20)", len(p.Rows))
+	}
+	if p.Truncated {
+		t.Error("Truncated should be false when total <= limit")
+	}
+}
+
 // TestOpenIfExists_NoFileLeavesDBClosed pins the other half: a
 // fresh session with no .duckdb on disk shouldn't trigger
 // directory creation or DB initialisation.

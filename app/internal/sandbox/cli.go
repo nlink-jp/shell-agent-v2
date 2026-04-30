@@ -310,13 +310,19 @@ func (e *cliEngine) Info(ctx context.Context, sessionID string) (*Info, error) {
 		}
 	}
 
-	out.WorkFiles = listWorkFiles(e.WorkDir(sessionID), 50)
+	out.WorkFiles = ListWorkFiles(e.WorkDir(sessionID), 50)
 	return out, nil
 }
 
-// listWorkFiles walks workDir and returns up to limit entries sorted
-// newest-first by mtime.
-func listWorkFiles(workDir string, limit int) []FileInfo {
+// ListWorkFiles walks workDir and returns up to limit entries sorted
+// newest-first by mtime. Exported so the Wails bindings can list a
+// session's /work directory regardless of whether the engine is
+// currently running — the directory layout is owned by the engine
+// but reading it is just file I/O.
+//
+// Pass limit ≤ 0 for "no limit"; the caller is then responsible
+// for any truncation.
+func ListWorkFiles(workDir string, limit int) []FileInfo {
 	var files []FileInfo
 	_ = filepath.WalkDir(workDir, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
