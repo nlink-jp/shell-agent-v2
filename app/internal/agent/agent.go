@@ -1276,6 +1276,18 @@ func (a *Agent) setBackend(backend config.LLMBackend) {
 		timeoutSec = a.cfg.LLM.Local.LocalRequestTimeout()
 	}
 	policy := llm.DefaultRetryPolicy(time.Duration(timeoutSec) * time.Second)
+	// Surface retry backoffs to the UI so a slow round looks
+	// like "rate-limited, retrying…" instead of a hang.
+	policy.OnBackoff = func(attempt int, wait time.Duration, err error) {
+		label := llm.ClassifyError(err)
+		if label == "" {
+			label = "transient error"
+		}
+		a.emitActivity(ActivityEvent{
+			Type:   "retry_backoff",
+			Detail: fmt.Sprintf("attempt %d: %s (waiting %s)", attempt, label, wait.Round(100*time.Millisecond)),
+		})
+	}
 	a.backend = llm.WithRetry(inner, policy)
 }
 

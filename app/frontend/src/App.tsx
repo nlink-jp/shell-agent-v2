@@ -99,6 +99,10 @@ function App() {
     // settingsTab state moved into SettingsDialog (Phase 3 of
     // frontend-decomposition: it's a local-only concern).
     const [progressTool, setProgressTool] = useState('')
+    // retryStatus shows a transient footer badge while the LLM
+    // backend is between attempts (retry-backoff). Cleared as soon
+    // as the next tool_start / tool_end arrives.
+    const [retryStatus, setRetryStatus] = useState('')
     const messagesEndRef = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
@@ -114,6 +118,7 @@ function App() {
             const cleanupActivity = window.runtime.EventsOn('agent:activity', (data: any) => {
                 if (data.type === 'tool_end') {
                     setProgressTool('')
+                    setRetryStatus('')
                     // Phase A: backend reports 'success' or 'error'.
                     // Old event payloads without status fall back to
                     // success so older runs still render.
@@ -131,9 +136,12 @@ function App() {
                     })
                 } else if (data.type === 'tool_start') {
                     setProgressTool(data.detail || '')
+                    setRetryStatus('')
                     setMessages(prev => [...prev, {role: 'tool-event', content: data.detail || '', status: 'running', timestamp: nowTime()}])
                 } else if (data.type === 'thinking') {
                     setProgressTool(data.detail || '')
+                } else if (data.type === 'retry_backoff') {
+                    setRetryStatus(data.detail || 'retrying...')
                 }
             })
             const cleanupPinned = window.runtime.EventsOn('pinned:updated', () => {
@@ -508,6 +516,11 @@ function App() {
                 )}
                 <div className="input-status-bar">
                     <span className={`backend-badge ${backend}`}>{backend || '...'}</span>
+                    {retryStatus && (
+                        <span className="retry-badge" title="LLM backend hit a transient failure and is retrying">
+                            {retryStatus}
+                        </span>
+                    )}
                     {llmStatus && (
                         <>
                             <span className="status-msg-counts" title="Recent messages kept verbatim · older messages condensed into summaries">

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -246,5 +247,78 @@ func TestDefaultRetryPolicy_HasNonZeroBackoff(t *testing.T) {
 	}
 	if p.PerRequestTimeout != 120*time.Second {
 		t.Errorf("PerRequestTimeout = %v, want 120s", p.PerRequestTimeout)
+	}
+}
+
+func TestClassifyError(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"nil", nil, ""},
+		{"vertex 429", errors.New("Error 429, Message: Resource exhausted"), "rate limit"},
+		{"plain rate limit", errors.New("rate limit exceeded"), "rate limit"},
+		{"503", errors.New("HTTP 503: backend unavailable"), "server unavailable"},
+		{"unavailable", errors.New("UNAVAILABLE"), "server unavailable"},
+		{"deadline exceeded", context.DeadlineExceeded, "timeout"},
+		{"i/o timeout", errors.New("dial: i/o timeout"), "timeout"},
+		{"unknown", errors.New("invalid auth"), "transient error"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ClassifyError(tc.err); got != tc.want {
+				t.Errorf("ClassifyError(%v) = %q, want %q", tc.err, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestWithRetry_OnBackoffFires(t *testing.T) {
+	fb := &fakeBackend{
+		scenarios: []error{errors.New("Error 429 too many requests"), nil},
+	}
+	type call struct {
+		attempt int
+		wait    time.Duration
+		errMsg  string
+	}
+	var calls []call
+	b := WithRetry(fb, RetryPolicy{
+		MaxAttempts: 3,
+		Backoff:     fastBackoff(),
+		OnBackoff: func(attempt int, wait time.Duration, err error) {
+			calls = append(calls, call{attempt, wait, err.Error()})
+		},
+	})
+
+	if _, err := b.Chat(context.Background(), nil, nil); err != nil {
+		t.Fatalf("expected eventual success, got: %v", err)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("OnBackoff calls = %d, want 1", len(calls))
+	}
+	if calls[0].attempt != 1 {
+		t.Errorf("attempt = %d, want 1 (1-indexed; failed try is the first one)", calls[0].attempt)
+	}
+	if calls[0].wait <= 0 {
+		t.Errorf("wait = %v, want > 0", calls[0].wait)
+	}
+	if !strings.Contains(calls[0].errMsg, "429") {
+		t.Errorf("err message lost: %q", calls[0].errMsg)
+	}
+}
+
+func TestWithRetry_OnBackoffNotCalledOnSuccess(t *testing.T) {
+	fb := &fakeBackend{} // succeeds first try
+	called := 0
+	b := WithRetry(fb, RetryPolicy{
+		MaxAttempts: 3,
+		Backoff:     fastBackoff(),
+		OnBackoff:   func(int, time.Duration, error) { called++ },
+	})
+	_, _ = b.Chat(context.Background(), nil, nil)
+	if called != 0 {
+		t.Errorf("OnBackoff fired %d times on a clean success", called)
 	}
 }

@@ -42,6 +42,14 @@ type RetryPolicy struct {
 	// triggers the package-default backoff schedule (base 5s, 2×
 	// growth capped at 60s, jitter ±10%).
 	Backoff backoff.Backoff
+
+	// OnBackoff is invoked once per backoff period — i.e. after
+	// attempt N failed with a retryable error, before the wait
+	// timer fires. The wrapper passes the just-failed attempt
+	// number (1-indexed), the upcoming wait duration, and the
+	// underlying error. Used to surface "rate-limited, retrying"
+	// state to the UI. Optional; nil is fine.
+	OnBackoff func(attempt int, wait time.Duration, err error)
 }
 
 // DefaultRetryPolicy returns the policy used when no explicit one
@@ -156,6 +164,9 @@ func (r *retryBackend) do(ctx context.Context, op func(context.Context) (*Respon
 		wait := bo.Duration(attempt)
 		logger.Info("llm: %s.%s backoff attempt=%d wait=%s",
 			r.inner.Name(), opName, attempt+1, wait)
+		if r.policy.OnBackoff != nil {
+			r.policy.OnBackoff(attempt+1, wait, err)
+		}
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
@@ -164,6 +175,37 @@ func (r *retryBackend) do(ctx context.Context, op func(context.Context) (*Respon
 	}
 	return nil, fmt.Errorf("llm: %s %s: gave up after %d attempts: %w",
 		r.inner.Name(), opName, maxAttempts, lastErr)
+}
+
+// ClassifyError reduces a backend error to a short user-facing
+// label ("rate limit", "server unavailable", "timeout",
+// "transient error"). Used by the agent layer to surface
+// retry-backoff status to the UI without leaking the raw
+// SDK message. nil → "" so the caller can branch on empty.
+func ClassifyError(err error) string {
+	if err == nil {
+		return ""
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "timeout"
+	}
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "429") ||
+		strings.Contains(msg, "resource_exhausted") ||
+		strings.Contains(msg, "rate limit"):
+		return "rate limit"
+	case strings.Contains(msg, "503") || strings.Contains(msg, "502") ||
+		strings.Contains(msg, "504") ||
+		strings.Contains(msg, "unavailable"):
+		return "server unavailable"
+	case strings.Contains(msg, "deadline") ||
+		strings.Contains(msg, "timeout") ||
+		strings.Contains(msg, "i/o timeout"):
+		return "timeout"
+	default:
+		return "transient error"
+	}
 }
 
 // IsRetryable reports whether an error from a Backend call should

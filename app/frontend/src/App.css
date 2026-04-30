@@ -412,6 +412,17 @@ input, textarea {
     color: #66aaee;
 }
 
+.retry-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    background: var(--bg-msg-error);
+    color: var(--text-error);
+    opacity: 0.85;
+}
+
 /* Findings */
 .finding-card {
     background: var(--bg-hover);
