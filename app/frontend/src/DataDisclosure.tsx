@@ -41,6 +41,7 @@ interface Props {
     refreshTick: number;            // bumped by parent to force refetch (debounced)
     sandboxEnabled: boolean;        // hide the /work section when sandbox is off
     onPreviewObject?: (obj: ObjectInfo) => void;
+    onObjectsChanged?: () => void;  // called after delete so parent can clear caches
 }
 
 function fmtBytes(n: number): string {
@@ -55,7 +56,7 @@ function fmtRows(n: number): string {
     return `${(n / 1_000_000).toFixed(1)}M rows`
 }
 
-export default function DataDisclosure({sessionId, refreshTick, sandboxEnabled, onPreviewObject}: Props) {
+export default function DataDisclosure({sessionId, refreshTick, sandboxEnabled, onPreviewObject, onObjectsChanged}: Props) {
     const [objects, setObjects] = useState<ObjectInfo[]>([])
     const [tables, setTables] = useState<TableInfo[]>([])
     const [workFiles, setWorkFiles] = useState<WorkFile[]>([])
@@ -63,6 +64,11 @@ export default function DataDisclosure({sessionId, refreshTick, sandboxEnabled, 
     const [previewName, setPreviewName] = useState<string | null>(null)
     const [previewData, setPreviewData] = useState<TablePreview | null>(null)
     const [previewError, setPreviewError] = useState<string | null>(null)
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+    // confirmDeleteSingle: id of object whose ✕ was clicked and is awaiting Yes/No
+    // confirmDeleteBulk: count of objects whose bulk Delete was clicked and is awaiting Yes/No
+    const [confirmDeleteSingle, setConfirmDeleteSingle] = useState<string | null>(null)
+    const [confirmDeleteBulk, setConfirmDeleteBulk] = useState(false)
 
     const refetch = useCallback(async () => {
         if (!sessionId || !window.go) {
@@ -127,14 +133,66 @@ export default function DataDisclosure({sessionId, refreshTick, sandboxEnabled, 
             </summary>
             <div className="data-body">
                 {objects.length > 0 && (
-                    <section className="data-section">
-                        <h4>Objects ({objects.length})</h4>
+                    <section className={`data-section ${selectedIds.size > 0 ? 'bulk-active' : ''}`}>
+                        <div className="data-section-header">
+                            <h4>Objects ({objects.length})</h4>
+                            {selectedIds.size > 0 && !confirmDeleteBulk && (
+                                <div className="data-bulk-actions">
+                                    <span className="data-bulk-count">{selectedIds.size} selected</span>
+                                    <button onClick={() => setSelectedIds(new Set(objects.map(o => o.id)))}>All</button>
+                                    <button onClick={() => setSelectedIds(new Set())}>Clear</button>
+                                    <button className="data-bulk-delete" onClick={() => setConfirmDeleteBulk(true)}>Delete{'\u2026'}</button>
+                                </div>
+                            )}
+                            {confirmDeleteBulk && (
+                                <div className="data-confirm-bar">
+                                    <span className="data-confirm-text">Delete {selectedIds.size} item(s)?</span>
+                                    <button className="data-confirm-yes" onClick={async () => {
+                                        const ids = Array.from(selectedIds)
+                                        setConfirmDeleteBulk(false)
+                                        if (ids.length === 0) return
+                                        try {
+                                            await window.go.main.Bindings.DeleteObjects(ids)
+                                            setSelectedIds(new Set())
+                                            await refetch()
+                                            onObjectsChanged?.()
+                                        } catch (err) {
+                                            alert('Delete failed: ' + ((err as any)?.message ?? String(err)))
+                                        }
+                                    }}>Delete</button>
+                                    <button className="data-confirm-no" onClick={() => setConfirmDeleteBulk(false)}>Cancel</button>
+                                </div>
+                            )}
+                        </div>
                         <div className="data-object-grid">
                             {objects.map(o => (
                                 <ObjectCard
                                     key={o.id}
                                     obj={o}
+                                    selected={selectedIds.has(o.id)}
+                                    confirmDelete={confirmDeleteSingle === o.id}
                                     onPreview={onPreviewObject}
+                                    onToggleSelect={(id, sel) => {
+                                        const next = new Set(selectedIds)
+                                        if (sel) next.add(id); else next.delete(id)
+                                        setSelectedIds(next)
+                                    }}
+                                    onExport={async id => {
+                                        try { await window.go.main.Bindings.ExportObject(id) } catch {}
+                                    }}
+                                    onRequestDelete={() => setConfirmDeleteSingle(o.id)}
+                                    onConfirmDelete={async () => {
+                                        const id = o.id
+                                        setConfirmDeleteSingle(null)
+                                        try {
+                                            await window.go.main.Bindings.DeleteObject(id)
+                                            await refetch()
+                                            onObjectsChanged?.()
+                                        } catch (err) {
+                                            alert('Delete failed: ' + ((err as any)?.message ?? String(err)))
+                                        }
+                                    }}
+                                    onCancelDelete={() => setConfirmDeleteSingle(null)}
                                 />
                             ))}
                         </div>
@@ -227,15 +285,47 @@ function PreviewModal({name, data, error, onClose}: {
 // Images get a real thumbnail via ObjectImage (which caches data
 // URLs across the session); blobs and reports get a typed icon
 // card so the user can still see size and filename at a glance.
-function ObjectCard({obj, onPreview}: {obj: ObjectInfo; onPreview?: (obj: ObjectInfo) => void}) {
+//
+// Card click → preview (image lightbox, report viewer, etc.).
+// Hover surfaces a checkbox + per-card action overlay (export,
+// delete) so bulk and one-shot management both live here. The
+// old sidebar Objects panel used to own these — Phase 3 of the
+// information-display redesign moved them in.
+function ObjectCard({
+    obj,
+    selected,
+    confirmDelete,
+    onPreview,
+    onToggleSelect,
+    onExport,
+    onRequestDelete,
+    onConfirmDelete,
+    onCancelDelete,
+}: {
+    obj: ObjectInfo;
+    selected: boolean;
+    confirmDelete: boolean;
+    onPreview?: (obj: ObjectInfo) => void;
+    onToggleSelect: (id: string, selected: boolean) => void;
+    onExport: (id: string) => void;
+    onRequestDelete: () => void;
+    onConfirmDelete: () => void;
+    onCancelDelete: () => void;
+}) {
     const isImage = obj.type === 'image'
     return (
         <div
-            className={`data-object-card data-object-${obj.type}`}
+            className={`data-object-card data-object-${obj.type} ${selected ? 'selected' : ''} ${confirmDelete ? 'confirming-delete' : ''}`}
             title={obj.id}
-            onClick={() => onPreview?.(obj)}
         >
-            <div className="data-object-thumb">
+            <input
+                type="checkbox"
+                className="bulk-check data-object-check"
+                checked={selected}
+                onClick={e => e.stopPropagation()}
+                onChange={e => onToggleSelect(obj.id, e.target.checked)}
+            />
+            <div className="data-object-thumb" onClick={() => onPreview?.(obj)}>
                 {isImage ? (
                     <ObjectImage id={obj.id} alt={obj.orig_name} />
                 ) : (
@@ -245,9 +335,26 @@ function ObjectCard({obj, onPreview}: {obj: ObjectInfo; onPreview?: (obj: Object
                 )}
             </div>
             <div className="data-object-meta">
-                <div className="data-object-name">{obj.orig_name || obj.id}</div>
+                <div className="data-object-name" onClick={() => onPreview?.(obj)}>{obj.orig_name || obj.id}</div>
                 <div className="data-object-size">{fmtBytes(obj.size)}</div>
             </div>
+            <div className="data-object-actions">
+                <button title="Export" onClick={e => { e.stopPropagation(); onExport(obj.id) }}>{'\u2913'}</button>
+                <button
+                    title="Delete"
+                    className="data-object-delete"
+                    onClick={e => { e.stopPropagation(); onRequestDelete() }}
+                >{'\u2715'}</button>
+            </div>
+            {confirmDelete && (
+                <div className="data-object-confirm" onClick={e => e.stopPropagation()}>
+                    <span className="data-confirm-text">Delete?</span>
+                    <div className="data-confirm-buttons">
+                        <button className="data-confirm-yes" onClick={onConfirmDelete}>Yes</button>
+                        <button className="data-confirm-no" onClick={onCancelDelete}>No</button>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }

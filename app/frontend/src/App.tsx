@@ -181,7 +181,7 @@ interface SandboxSettings {
     timeout_seconds: number;
 }
 
-type SidebarPanel = 'sessions' | 'status' | 'objects';
+type SidebarPanel = 'sessions' | 'status';
 
 interface ObjectInfo {
     id: string;
@@ -399,9 +399,9 @@ function App() {
     const [pinnedMemories, setPinnedMemories] = useState<PinnedMemory[]>([])
     const [selectedFindingIds, setSelectedFindingIds] = useState<Set<string>>(new Set())
     const [selectedPinnedKeys, setSelectedPinnedKeys] = useState<Set<string>>(new Set())
-    const [objects, setObjects] = useState<ObjectInfo[]>([])
-    const [selectedObjectIds, setSelectedObjectIds] = useState<Set<string>>(new Set())
-    const [confirmingObjectDelete, setConfirmingObjectDelete] = useState<string | null>(null)
+    // Objects panel state was removed in info-display redesign Phase 3 —
+    // bulk selection, confirmation, and the global object list now live
+    // inside the per-session DataDisclosure component.
     const [llmStatus, setLLMStatus] = useState<LLMStatus | null>(null)
     const [lightboxImage, setLightboxImage] = useState<string | null>(null)
     const [expandedReport, setExpandedReport] = useState<{title: string; content: string} | null>(null)
@@ -600,9 +600,6 @@ function App() {
             window.go.main.Bindings.GetLLMStatus().then(setLLMStatus)
             window.go.main.Bindings.GetPinnedMemories().then(setPinnedMemories)
         }
-        if (sidebarPanel === 'objects' && window.go) {
-            window.go.main.Bindings.ListObjects().then(setObjects)
-        }
     }, [sidebarPanel, refreshFindings])
 
     // Auto-save settings on change
@@ -716,9 +713,6 @@ function App() {
                         <div className="sidebar-nav-divider" />
                         <button className="sidebar-nav-btn" onClick={() => { setSidebarCollapsed(false); setSidebarPanel('status') }} title="Status">
                             <span className="sidebar-nav-ic">&#x2261;</span>
-                        </button>
-                        <button className="sidebar-nav-btn" onClick={() => { setSidebarCollapsed(false); setSidebarPanel('objects') }} title="Objects">
-                            <span className="sidebar-nav-ic">&#x25A3;</span>
                         </button>
                         <button className="sidebar-nav-btn" onClick={() => { setSidebarCollapsed(false); openSettings() }} title="Settings">
                             <span className="sidebar-nav-ic">&#x2699;</span>
@@ -883,109 +877,9 @@ function App() {
                             </div>
                         )}
                     </>)}
-                    {sidebarPanel === 'objects' && (
-                        <div className={`status-section ${selectedObjectIds.size > 0 ? 'bulk-active' : ''}`}>
-                            <div className="bulk-section-header">
-                                <h3>Objects ({objects.length})</h3>
-                                <BulkActions
-                                    total={objects.length}
-                                    selectedCount={selectedObjectIds.size}
-                                    onSelectAll={() => setSelectedObjectIds(new Set(objects.map(o => o.id)))}
-                                    onClear={() => setSelectedObjectIds(new Set())}
-                                    onPrepareConfirm={async () => {
-                                        const ids = Array.from(selectedObjectIds)
-                                        const refs = await window.go.main.Bindings.ObjectReferences(ids)
-                                        const referenced = ids.filter(id => (refs[id] || 0) > 0)
-                                        if (referenced.length === 0) return `Confirm delete ${ids.length}`
-                                        return `${referenced.length}/${ids.length} still in use — confirm`
-                                    }}
-                                    onDelete={async () => {
-                                        const ids = Array.from(selectedObjectIds)
-                                        if (ids.length === 0) return
-                                        await window.go.main.Bindings.DeleteObjects(ids)
-                                        setSelectedObjectIds(new Set())
-                                        const updated = await window.go.main.Bindings.ListObjects()
-                                        setObjects(updated)
-                                        clearObjectCache()
-                                    }}
-                                />
-                            </div>
-                            {objects.length === 0 ? (
-                                <p className="sidebar-hint">No objects stored yet</p>
-                            ) : objects.map(o => (
-                                <div key={o.id} className={`object-item ${selectedObjectIds.has(o.id) ? 'selected' : ''}`}>
-                                    <input
-                                        type="checkbox"
-                                        className="bulk-check"
-                                        checked={selectedObjectIds.has(o.id)}
-                                        onChange={e => {
-                                            const next = new Set(selectedObjectIds)
-                                            if (e.target.checked) next.add(o.id); else next.delete(o.id)
-                                            setSelectedObjectIds(next)
-                                        }}
-                                    />
-                                    <div className="object-thumb">
-                                        {o.type === 'image' ? (
-                                            <ObjectImage id={o.id} alt={o.orig_name || o.id} onClick={async () => {
-                                                const url = await window.go.main.Bindings.GetImageDataURL(o.id)
-                                                setLightboxImage(url)
-                                            }} />
-                                        ) : o.type === 'report' ? (
-                                            <button
-                                                className="object-icon type-report object-icon-btn"
-                                                title="Open report"
-                                                onClick={async () => {
-                                                    try {
-                                                        const text = await window.go.main.Bindings.GetObjectText(o.id)
-                                                        const title = (text.split('\n')[0] || '').replace(/^#\s*/, '') || o.orig_name || o.id
-                                                        setExpandedReport({title, content: text})
-                                                    } catch {}
-                                                }}
-                                            >&#x1F4C4;</button>
-                                        ) : (
-                                            <span className={`object-icon type-${o.type}`}>&#x25A1;</span>
-                                        )}
-                                    </div>
-                                    <div className="object-meta">
-                                        <div className="object-id">{o.id}</div>
-                                        <div className="object-line"><span className={`object-type type-${o.type}`}>{o.type}</span> · <span>{formatSize(o.size)}</span> · <span>{o.created_at}</span></div>
-                                        {o.session_id && <div className="object-line object-session">session: {o.session_id}</div>}
-                                        {o.orig_name && <div className="object-line object-orig">{o.orig_name}</div>}
-                                    </div>
-                                    <div className="object-actions">
-                                        <button className="object-action" title="Export to file" onClick={async () => {
-                                            try { await window.go.main.Bindings.ExportObject(o.id) } catch {}
-                                        }}>&#x2913;</button>
-                                        <button
-                                            className={`object-action object-delete ${confirmingObjectDelete === o.id ? 'confirming' : ''}`}
-                                            title={confirmingObjectDelete === o.id ? 'Click again to delete' : 'Delete object'}
-                                            onClick={async () => {
-                                                if (confirmingObjectDelete === o.id) {
-                                                    await window.go.main.Bindings.DeleteObject(o.id)
-                                                    setConfirmingObjectDelete(null)
-                                                    const updated = await window.go.main.Bindings.ListObjects()
-                                                    setObjects(updated)
-                                                    clearObjectCache()
-                                                    return
-                                                }
-                                                const refs = await window.go.main.Bindings.ObjectReferences([o.id])
-                                                const used = refs[o.id] || 0
-                                                if (used === 0) {
-                                                    await window.go.main.Bindings.DeleteObject(o.id)
-                                                    const updated = await window.go.main.Bindings.ListObjects()
-                                                    setObjects(updated)
-                                                    clearObjectCache()
-                                                } else {
-                                                    setConfirmingObjectDelete(o.id)
-                                                    setTimeout(() => setConfirmingObjectDelete(prev => prev === o.id ? null : prev), 6000)
-                                                }
-                                            }}
-                                        >{confirmingObjectDelete === o.id ? '!' : '\u2715'}</button>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    )}
+                    {/* Sidebar Objects panel removed in info-display redesign Phase 3.
+                       Object management now lives in the per-session Data
+                       disclosure (DataDisclosure component). */}
                 </div>
 
                 <div className="sidebar-bottom">
@@ -995,9 +889,6 @@ function App() {
                     <div className="sidebar-nav-divider" />
                     <button className={`sidebar-nav-btn ${sidebarPanel === 'status' ? 'active' : ''}`} onClick={() => setSidebarPanel(sidebarPanel === 'status' ? 'sessions' : 'status')}>
                         <span className="sidebar-nav-ic">&#x2261;</span> Status
-                    </button>
-                    <button className={`sidebar-nav-btn ${sidebarPanel === 'objects' ? 'active' : ''}`} onClick={() => setSidebarPanel(sidebarPanel === 'objects' ? 'sessions' : 'objects')}>
-                        <span className="sidebar-nav-ic">&#x25A3;</span> Objects
                     </button>
                     <button className="sidebar-nav-btn" onClick={openSettings}>
                         <span className="sidebar-nav-ic">&#x2699;</span> Settings
@@ -1015,6 +906,7 @@ function App() {
                         sessionId={currentSessionId}
                         refreshTick={dataRefreshTick}
                         sandboxEnabled={!!settings?.sandbox?.enabled}
+                        onObjectsChanged={() => clearObjectCache()}
                         onPreviewObject={async obj => {
                             try {
                                 if (obj.type === 'image') {

@@ -2071,6 +2071,54 @@ input, textarea {
     font-weight: 500;
 }
 
+/* Bulk-actions strip in section header (Objects card grid) */
+.data-section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+    gap: 8px;
+}
+
+.data-section-header h4 {
+    margin: 0;
+}
+
+.data-bulk-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.data-bulk-count {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.data-bulk-actions button {
+    font-size: 11px;
+    padding: 2px 8px;
+    background: transparent;
+    border: 1px solid var(--border-input);
+    color: var(--text-secondary);
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.data-bulk-actions button:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.data-bulk-delete {
+    border-color: var(--border-msg-error) !important;
+    color: var(--text-error) !important;
+}
+
+.data-bulk-delete:hover {
+    background: var(--bg-msg-error) !important;
+}
+
 /* Objects sub-section: card grid with image thumbnails */
 .data-object-grid {
     display: grid;
@@ -2079,13 +2127,13 @@ input, textarea {
 }
 
 .data-object-card {
+    position: relative;
     display: flex;
     flex-direction: column;
     background: var(--bg-primary);
     border: 1px solid var(--border-primary);
     border-radius: 6px;
     overflow: hidden;
-    cursor: pointer;
     transition: border-color 0.1s, transform 0.05s;
 }
 
@@ -2093,8 +2141,152 @@ input, textarea {
     border-color: var(--border-accent);
 }
 
+.data-object-card.selected {
+    outline: 2px solid var(--border-accent);
+    outline-offset: -2px;
+}
+
+.data-object-thumb,
+.data-object-name {
+    cursor: pointer;
+}
+
 .data-object-card:active {
     transform: scale(0.98);
+}
+
+.data-object-check {
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    z-index: 2;
+    margin: 0;
+    opacity: 0;
+    transition: opacity 0.1s;
+}
+
+.data-object-card:hover .data-object-check,
+.data-object-card.selected .data-object-check,
+.bulk-active .data-object-check {
+    opacity: 1;
+}
+
+.data-object-actions {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    z-index: 2;
+    display: flex;
+    gap: 2px;
+    opacity: 0;
+    transition: opacity 0.1s;
+}
+
+.data-object-card:hover .data-object-actions,
+.data-object-card.selected .data-object-actions {
+    opacity: 1;
+}
+
+.data-object-actions button {
+    /* Sit on top of image thumbnails, so use --bg-sidebar (mostly
+       opaque in every theme) for readability rather than a
+       hardcoded grey. */
+    background: var(--bg-sidebar);
+    color: var(--text-muted);
+    border: 1px solid var(--border-primary);
+    width: 22px;
+    height: 22px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 11px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.data-object-actions button:hover {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border-color: var(--border-accent);
+}
+
+.data-object-delete:hover {
+    color: var(--text-error) !important;
+    background: var(--bg-msg-error) !important;
+    border-color: var(--border-msg-error) !important;
+}
+
+/* Card-level confirm overlay (single-object delete).
+   Floats above the thumbnail with separate Yes / No buttons so a
+   stray click on the same delete spot can't accidentally proceed. */
+.data-object-confirm {
+    position: absolute;
+    inset: 0;
+    z-index: 4;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(2px);
+    padding: 6px;
+}
+
+.data-object-confirm .data-confirm-text {
+    color: #fff;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.data-confirm-buttons {
+    display: flex;
+    gap: 6px;
+}
+
+.data-confirm-yes,
+.data-confirm-no {
+    border: 1px solid var(--border-input);
+    border-radius: 4px;
+    font-size: 11px;
+    padding: 3px 12px;
+    cursor: pointer;
+    background: var(--bg-sidebar);
+    color: var(--text-primary);
+}
+
+.data-confirm-yes {
+    background: var(--bg-msg-error);
+    border-color: var(--text-error);
+    color: var(--text-error);
+    font-weight: 600;
+}
+
+.data-confirm-yes:hover {
+    background: var(--text-error);
+    color: var(--bg-primary);
+}
+
+.data-confirm-no:hover {
+    background: var(--bg-hover);
+}
+
+/* Section-header confirm bar (bulk delete). Replaces the
+   bulk-actions strip while a confirmation is pending. */
+.data-confirm-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 8px;
+    background: var(--bg-msg-error);
+    border: 1px solid var(--text-error);
+    border-radius: 4px;
+}
+
+.data-confirm-bar .data-confirm-text {
+    color: var(--text-error);
+    font-size: 11px;
+    font-weight: 600;
 }
 
 .data-object-thumb {
