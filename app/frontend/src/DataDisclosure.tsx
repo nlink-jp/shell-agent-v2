@@ -110,10 +110,13 @@ export default function DataDisclosure({sessionId, refreshTick, sandboxEnabled, 
         setPreviewError(null)
     }, [])
 
-    // Render an empty placeholder strip when there really is nothing
-    // — keeps the chat pane uncluttered for fresh sessions.
+    // No data anywhere → render nothing. The previous "Data —
+    // empty" placeholder strip was cited (GitHub #2) as wasted
+    // chat-pane real estate on fresh sessions; the disclosure
+    // returns as soon as the agent produces or loads anything,
+    // so suppressing it here is purely a visibility tweak.
     if (isEmpty) {
-        return <div className="data-disclosure data-disclosure-empty">Data — empty</div>
+        return null
     }
 
     return (

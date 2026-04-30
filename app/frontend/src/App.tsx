@@ -728,39 +728,31 @@ function App() {
     return (
         <div className="app">
             <div className="titlebar-drag" />
-            {sidebarCollapsed && (
-                <div className="sidebar-collapsed">
-                    <div className="sidebar-collapsed-top">
-                        <button className="sidebar-nav-btn" onClick={() => { setSidebarCollapsed(false); setSidebarPanel('sessions') }} title="Sessions">
+            {/* Single sidebar DOM for both states: collapsed only
+               adds an `is-collapsed` class that hides labels and
+               content panels via CSS. The icon Y-positions and
+               section dividers stay identical between modes. */}
+            <div
+                className={`sidebar ${sidebarCollapsed ? 'is-collapsed' : ''}`}
+                style={sidebarCollapsed ? undefined : {width: sidebarWidth}}
+            >
+                {/* Two-way accordion: Sessions and Memory each
+                   have a clickable header always visible. The
+                   active section's content fills the available
+                   vertical space; the inactive section is just
+                   a header. */}
+                <div className="sidebar-accordion">
+                    <section className={`acc-section ${sidebarPanel === 'sessions' ? 'expanded' : 'collapsed'}`}>
+                        <button
+                            className={`sidebar-nav-btn ${sidebarPanel === 'sessions' ? 'active' : ''}`}
+                            onClick={() => { if (sidebarCollapsed) setSidebarCollapsed(false); setSidebarPanel('sessions') }}
+                            title="Sessions"
+                        >
                             <span className="sidebar-nav-ic">&#x2630;</span>
+                            <span className="sidebar-nav-label">Sessions</span>
                         </button>
-                    </div>
-                    <div className="sidebar-collapsed-bottom">
-                        <button className="sidebar-nav-btn" onClick={handleNewSession} disabled={state === 'busy'} title="New Chat">
-                            <span className="sidebar-nav-ic">+</span>
-                        </button>
-                        <div className="sidebar-nav-divider" />
-                        <button className="sidebar-nav-btn" onClick={() => { setSidebarCollapsed(false); setSidebarPanel('memory') }} title="Memory">
-                            <span className="sidebar-nav-ic">&#x2261;</span>
-                        </button>
-                        <button className="sidebar-nav-btn" onClick={() => { setSidebarCollapsed(false); openSettings() }} title="Settings">
-                            <span className="sidebar-nav-ic">&#x2699;</span>
-                        </button>
-                        <div className="sidebar-nav-divider" />
-                        <button className="sidebar-nav-btn" onClick={() => setSidebarCollapsed(false)} title="Expand sidebar">
-                            <span className="sidebar-nav-ic">&#x25B6;</span>
-                        </button>
-                    </div>
-                </div>
-            )}
-            <div className="sidebar" style={{width: sidebarCollapsed ? 0 : sidebarWidth, display: sidebarCollapsed ? 'none' : undefined}}>
-                <div className="sidebar-top">
-                    <button className="sidebar-nav-btn active" onClick={() => setSidebarPanel('sessions')}>
-                        <span className="sidebar-nav-ic">{sidebarPanel === 'sessions' ? '\u2630' : '\u2261'}</span> {sidebarPanel === 'sessions' ? 'Sessions' : 'Status'}
-                    </button>
-                </div>
-                <div className="sidebar-panel">
-                    {sidebarPanel === 'sessions' && (<>
+                        {sidebarPanel === 'sessions' && (
+                        <div className="acc-content"><>
                         {sessions.length === 0 ? (
                             <p className="sidebar-hint">No sessions yet</p>
                         ) : sessions.map(s => (
@@ -792,9 +784,20 @@ function App() {
                                 </div>
                             </div>
                         ))}
-                    </>)}
-
-                    {sidebarPanel === 'memory' && (<>
+                    </></div>
+                        )}
+                    </section>
+                    <section className={`acc-section ${sidebarPanel === 'memory' ? 'expanded' : 'collapsed'}`}>
+                        <button
+                            className={`sidebar-nav-btn ${sidebarPanel === 'memory' ? 'active' : ''}`}
+                            onClick={() => { if (sidebarCollapsed) setSidebarCollapsed(false); setSidebarPanel('memory') }}
+                            title="Memory"
+                        >
+                            <span className="sidebar-nav-ic">&#x2605;</span>
+                            <span className="sidebar-nav-label">Memory</span>
+                        </button>
+                        {sidebarPanel === 'memory' && (
+                        <div className="acc-content"><>
                         {findings.length > 0 && (
                             <div className={`status-section ${selectedFindingIds.size > 0 ? 'bulk-active' : ''}`}>
                                 <div className="bulk-section-header">
@@ -899,26 +902,31 @@ function App() {
                         {/* Tokens section moved to chat-pane footer in
                            info-display redesign Phase 4 — telemetry isn't
                            navigable content. */}
-                    </>)}
+                    </></div>
+                        )}
+                    </section>
                     {/* Sidebar Objects panel removed in info-display redesign Phase 3.
                        Object management now lives in the per-session Data
                        disclosure (DataDisclosure component). */}
                 </div>
 
                 <div className="sidebar-bottom">
-                    <button className="sidebar-nav-btn" onClick={handleNewSession} disabled={state === 'busy'}>
-                        <span className="sidebar-nav-ic">+</span> New Chat
+                    <button className="sidebar-nav-btn" onClick={handleNewSession} disabled={state === 'busy'} title="New Chat">
+                        <span className="sidebar-nav-ic">+</span>
+                        <span className="sidebar-nav-label">New Chat</span>
                     </button>
                     <div className="sidebar-nav-divider" />
-                    <button className={`sidebar-nav-btn ${sidebarPanel === 'memory' ? 'active' : ''}`} onClick={() => setSidebarPanel(sidebarPanel === 'memory' ? 'sessions' : 'memory')}>
-                        <span className="sidebar-nav-ic">&#x2261;</span> Memory
-                    </button>
-                    <button className="sidebar-nav-btn" onClick={openSettings}>
-                        <span className="sidebar-nav-ic">&#x2699;</span> Settings
+                    <button className="sidebar-nav-btn" onClick={openSettings} title="Settings">
+                        <span className="sidebar-nav-ic">&#x2699;</span>
+                        <span className="sidebar-nav-label">Settings</span>
                     </button>
                     <div className="sidebar-nav-divider" />
-                    <button className="sidebar-nav-btn" onClick={() => setSidebarCollapsed(true)} title="Collapse sidebar">
-                        <span className="sidebar-nav-ic">&#x25C0;</span>
+                    <button
+                        className="sidebar-nav-btn"
+                        onClick={() => setSidebarCollapsed(c => !c)}
+                        title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                    >
+                        <span className="sidebar-nav-ic">{sidebarCollapsed ? '\u25B6' : '\u25C0'}</span>
                     </button>
                 </div>
             </div>

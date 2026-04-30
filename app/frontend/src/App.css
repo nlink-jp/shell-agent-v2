@@ -36,29 +36,25 @@ input, textarea {
     flex-direction: column;
 }
 
-.sidebar-collapsed {
+/* Collapsed sidebar: same DOM as expanded, just narrower with
+   labels and content panels hidden. The icon Y-positions and
+   section dividers therefore stay byte-for-byte identical
+   between modes — there's literally no separate layout. */
+.sidebar.is-collapsed {
     width: 42px;
-    flex-shrink: 0;
-    padding-top: 36px;
-    display: flex;
-    flex-direction: column;
-    background: var(--bg-sidebar, rgba(30, 30, 30, 0.95));
-    border-right: 1px solid var(--border-primary, #2a3a4a);
-    --wails-draggable: drag;
 }
 
-.sidebar-collapsed-top {
-    padding: 4px;
-    --wails-draggable: no-drag;
+.sidebar.is-collapsed .sidebar-nav-label {
+    display: none;
 }
 
-/* sidebar-collapsed-bottom uses same layout as sidebar-bottom */
-.sidebar-collapsed-bottom {
-    margin-top: auto;
-    padding: 4px;
-    border-top: 1px solid var(--border-primary, #2a3a4a);
-    --wails-draggable: no-drag;
+.sidebar.is-collapsed .acc-content {
+    display: none;
 }
+/* No padding / alignment overrides for the buttons in collapsed
+   mode — keeping their native padding (acc-header: 0 12px,
+   sidebar-nav-btn: 6px 8px) gives the icon the same left
+   position in both modes. */
 
 .sidebar-top {
     padding: 4px;
@@ -81,6 +77,55 @@ input, textarea {
     overflow-y: auto;
     padding: 8px 12px;
     --wails-draggable: no-drag;
+}
+
+/* Accordion-style sidebar — Sessions and Memory each have a
+   header that's always visible; the active section's content
+   fills the available vertical space. Inactive section is just
+   a clickable header with a ▸ caret. */
+.sidebar-accordion {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    --wails-draggable: no-drag;
+    min-height: 0;
+}
+
+.acc-section {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+/* Single divider between Sessions and Memory sections, mirrors
+   the divider that .sidebar-collapsed-bottom's border-top
+   provides in the collapsed layout. The previous "every
+   section gets a border-bottom" was double-bordering against
+   the bottom-nav and looked inconsistent with collapsed mode. */
+.acc-section:not(:last-child) {
+    border-bottom: 1px solid var(--border-primary);
+}
+
+.acc-section.expanded {
+    flex: 1;
+    min-height: 0;
+}
+
+.acc-section.collapsed {
+    flex: 0 0 auto;
+}
+
+/* Sessions/Memory section headers reuse .sidebar-nav-btn styling
+   exactly so their icon position lines up with New Chat /
+   Settings (same padding, same display, same icon span). The
+   `.active` modifier class provides the highlight when a
+   section is the currently-shown panel. */
+
+.acc-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 12px;
+    min-height: 0;
 }
 
 .sidebar-bottom {
