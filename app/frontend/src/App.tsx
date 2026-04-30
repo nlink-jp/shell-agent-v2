@@ -6,6 +6,7 @@ import rehypeHighlight from 'rehype-highlight'
 import rehypeKatex from 'rehype-katex'
 import ChatInput from './ChatInput'
 import ObjectImage, {clearObjectCache} from './ObjectImage'
+import DataDisclosure from './DataDisclosure'
 import {defaultUrlTransform} from 'react-markdown'
 import 'highlight.js/styles/github-dark.css'
 import 'katex/dist/katex.min.css'
@@ -68,6 +69,10 @@ declare global {
                     RestartSandbox(): Promise<void>;
                     RestartLLMBackend(): Promise<void>;
                     GetMCPStatus(): Promise<{name: string; status: string; tool_count: number; error?: string}[]>;
+                    GetSessionObjects(sessionID: string): Promise<ObjectInfo[]>;
+                    GetSessionTables(sessionID: string): Promise<{name: string; row_count: number; columns: string[]; description?: string}[]>;
+                    PreviewTable(name: string, limit: number): Promise<{columns: string[]; rows: any[][]; total: number; truncated: boolean}>;
+                    GetWorkFiles(sessionID: string): Promise<{path: string; size: number; mtime: number}[]>;
                 };
             };
         };
@@ -379,6 +384,9 @@ function App() {
     const resizingRef = useRef(false)
     const [sessions, setSessions] = useState<SessionInfo[]>([])
     const [currentSessionId, setCurrentSessionId] = useState<string>('')
+    // Bumped to force the chat-pane Data disclosure to refetch.
+    // Bumped on (a) session switch, (b) agent turn completion.
+    const [dataRefreshTick, setDataRefreshTick] = useState(0)
     const [findings, setFindings] = useState<Finding[]>([])
     const [showSettings, setShowSettings] = useState(false)
     const [editingSession, setEditingSession] = useState<string | null>(null)
@@ -663,6 +671,9 @@ function App() {
                 window.go.main.Bindings.GetBackend().then(setBackend)
                 window.go.main.Bindings.GetLLMStatus().then(setLLMStatus)
             }
+            // The agent may have produced new objects, loaded data,
+            // or written /work files — refresh the Data disclosure.
+            setDataRefreshTick(t => t + 1)
         }
     }, [state, currentSessionId])
 
@@ -1000,6 +1011,14 @@ function App() {
             {!sidebarCollapsed && <div className="sidebar-resize" onMouseDown={startResize} />}
             <div className="main">
                 <div className="messages">
+                    {currentSessionId && (
+                        <DataDisclosure
+                            sessionId={currentSessionId}
+                            refreshTick={dataRefreshTick}
+                            sandboxEnabled={!!settings?.sandbox?.enabled}
+                            onPreviewObject={id => window.go.main.Bindings.GetImageDataURL(id).then(setLightboxImage).catch(() => {})}
+                        />
+                    )}
                     {messages.filter(msg => msg.role !== 'tool').map((msg, i) => (
                         <div key={i} className={`message ${msg.role}`}>
                             <MessageItem msg={msg} onLightbox={setLightboxImage} onExpandReport={setExpandedReport} />

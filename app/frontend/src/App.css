@@ -1964,3 +1964,208 @@ input, textarea {
 .lightbox-close:hover {
     background: rgba(255, 255, 255, 0.3);
 }
+
+
+/* === Data disclosure (chat-pane top, info-display redesign Phase 2) === */
+
+.data-disclosure {
+    margin: 6px 12px 10px;
+    padding: 6px 10px;
+    background: var(--bg-hover);
+    border: 1px solid var(--border-primary);
+    border-radius: 8px;
+    font-size: 12px;
+}
+
+.data-disclosure-empty {
+    color: var(--text-dim);
+    font-style: italic;
+    text-align: center;
+    padding: 4px 10px;
+}
+
+.data-disclosure summary {
+    cursor: pointer;
+    list-style: none;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    color: var(--text-secondary);
+    user-select: none;
+}
+
+.data-disclosure summary::-webkit-details-marker {
+    display: none;
+}
+
+.data-summary-title {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.data-summary-counts {
+    display: flex;
+    gap: 8px;
+    color: var(--text-muted);
+    font-size: 11px;
+}
+
+.data-body {
+    margin-top: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.data-section h4 {
+    margin: 0 0 4px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    font-weight: 600;
+}
+
+.data-section ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.data-section li {
+    display: grid;
+    grid-template-columns: 18px 1fr auto auto;
+    gap: 8px;
+    align-items: baseline;
+    padding: 3px 4px;
+    border-radius: 4px;
+    cursor: default;
+}
+
+.data-section li:hover {
+    background: var(--bg-inline-code);
+}
+
+.data-table-row,
+.data-object-row {
+    cursor: pointer;
+}
+
+.data-icon {
+    text-align: center;
+    color: var(--text-muted);
+}
+
+.data-name {
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.data-size {
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    font-size: 11px;
+}
+
+.data-cols {
+    color: var(--text-dim);
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 240px;
+    grid-column: 2 / 3;
+}
+
+/* Table preview modal */
+.preview-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 90;
+}
+
+.preview-modal {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: 8px;
+    width: min(900px, 92vw);
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+}
+
+.preview-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border-primary);
+}
+
+.preview-title {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.preview-close {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 16px;
+}
+
+.preview-close:hover {
+    color: var(--text-primary);
+}
+
+.preview-body {
+    overflow: auto;
+    padding: 8px 14px;
+}
+
+.preview-loading,
+.preview-error {
+    padding: 12px;
+    color: var(--text-muted);
+    font-family: ui-monospace, monospace;
+    white-space: pre-wrap;
+}
+
+.preview-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: ui-monospace, "SF Mono", monospace;
+    font-size: 12px;
+}
+
+.preview-table th,
+.preview-table td {
+    border-bottom: 1px solid var(--border-primary);
+    padding: 4px 8px;
+    text-align: left;
+    color: var(--text-primary);
+    white-space: nowrap;
+    vertical-align: top;
+}
+
+.preview-table th {
+    background: var(--bg-hover);
+    color: var(--text-secondary);
+    position: sticky;
+    top: 0;
+}
+
+.preview-table tr:hover td {
+    background: var(--bg-inline-code);
+}
