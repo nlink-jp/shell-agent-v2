@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.13] - 2026-04-30
+
+### Changed
+
+- **All sandbox tool dispatchers return typed status.** The
+  Phase B-1 wiring relied on a `wrapErrorPrefix` helper that
+  inferred success / failure from whether the result string
+  started with `"Error:"`. Each `toolSandbox*` function now
+  returns `(string, ActivityEventStatus)` directly, the same
+  shape `run-shell` / `run-python` already used. A
+  successful tool whose output happened to begin with the
+  word "Error" can no longer be misclassified.
+
+### Added
+
+- **MCP `result.isError` is now classified as failure.** The
+  MCP spec lets a server succeed at the RPC layer but mark
+  the result as a logical failure via `result.isError: true`.
+  `Guardian.CallTool` now returns `ErrToolFailed` on that
+  path while preserving the response body so the LLM still
+  sees the diagnostic. The agent branch maps `ErrToolFailed`
+  to an error tool-event bubble.
+
+### Coverage
+
+- `TestGuardian_CallToolIsErrorSurfacesAsErrToolFailed` covers
+  the new path against the existing python stub guardian.
+- All `executeSandboxTool` dispatch tests pass with the new
+  signature; no behaviour change for previously-classified
+  paths.
+
 ## [0.1.12] - 2026-04-30
 
 ### Added
