@@ -117,6 +117,12 @@ func (r *retryBackend) do(ctx context.Context, op func(context.Context) (*Respon
 			r.inner.Name(), opName, attempt+1, maxAttempts, r.policy.PerRequestTimeout)
 
 		resp, err := op(attemptCtx)
+		// If our per-attempt timeout fired, the underlying SDK
+		// surfaces it in many shapes (context.DeadlineExceeded
+		// directly, or a 499 / "cancelled" / "context canceled"
+		// wrapping). Capture the authoritative signal before we
+		// release the cancel func.
+		attemptTimedOut := attemptCtx.Err() == context.DeadlineExceeded
 		if cancel != nil {
 			cancel()
 		}
@@ -128,9 +134,9 @@ func (r *retryBackend) do(ctx context.Context, op func(context.Context) (*Respon
 			return resp, nil
 		}
 
-		retryable := IsRetryable(err)
-		logger.Info("llm: %s.%s err attempt=%d duration=%s retryable=%v err=%v",
-			r.inner.Name(), opName, attempt+1, dur, retryable, err)
+		retryable := attemptTimedOut || IsRetryable(err)
+		logger.Info("llm: %s.%s err attempt=%d duration=%s retryable=%v timed_out=%v err=%v",
+			r.inner.Name(), opName, attempt+1, dur, retryable, attemptTimedOut, err)
 
 		lastErr = err
 
@@ -202,11 +208,14 @@ func IsRetryable(err error) bool {
 // failure was transient. Order doesn't matter; first match wins.
 var retryableHints = []string{
 	"429",                // raw HTTP status from local
+	"499",                // client-closed-request — Vertex echoes this when our
+	                      // own per-attempt cancellation lands as the response
 	"500", "502", "503", "504", // server-side, often transient
 	"resource_exhausted", // gRPC code 8 / Vertex quota
 	"unavailable",        // gRPC code 14
 	"deadline_exceeded",  // gRPC code 4
 	"deadline exceeded",  // also "context deadline exceeded"
+	"cancelled",          // Vertex APIError.Status when client closed
 	"connection reset",
 	"connection refused",
 	"i/o timeout",
