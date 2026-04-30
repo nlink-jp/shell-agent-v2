@@ -5,6 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.10] - 2026-04-30
+
+### Fixed
+
+- **Local LLM looped `load-data` on sandbox-produced files.**
+  After generating CSVs in the sandbox, gemma (and similar
+  smaller local models) would call `load-data` with bare
+  filenames and retry the same args several rounds before
+  switching to `sandbox-load-into-analysis`. The `load-data`
+  description and parameter doc now explicitly say it's for
+  the host filesystem only and point at
+  `sandbox-load-into-analysis` for `/work` files. The system
+  prompt's sandbox guidance gains a decision rule: if the file
+  lives under `/work`, use `sandbox-load-into-analysis` —
+  `load-data` will never see `/work`, don't retry it.
+- **`sandbox-write-file` and `sandbox-export-sql` result
+  messages echoed the LLM's raw input.** When the model passed
+  `/work/foo.csv`, the result said `wrote ... to /work//work/
+  foo.csv` — a misleading double `/work/` segment that looks
+  like the very path-doubling regression we fixed in
+  `safeWorkPath`. Both messages now derive the relative path
+  from the resolved destination so the displayed path is the
+  canonical `/work/<rel>`.
+- **Findings card didn't follow the active theme.** The CSS
+  used `var(--bg-secondary, #1a2a3a)`, but `--bg-secondary` is
+  not defined in any theme — so the hardcoded fallback always
+  won. Same for hardcoded text colours. Findings now use the
+  existing theme tokens (`--bg-hover`, `--text-primary`,
+  `--text-muted`, `--text-link`, `--bg-inline-code`).
+  Severity tag colours stay hardcoded — they encode meaning,
+  not theme.
+- **Findings checkbox left an empty column after mouse-leave.**
+  `.finding-card` was `display: flex` with a fixed gap, so an
+  `opacity: 0` bulk-check still reserved its column and made
+  the body look indented. Pinned memory wasn't affected
+  because it uses normal block flow. Findings now matches:
+  the checkbox floats inline so when invisible it's truly out
+  of layout.
+
 ## [0.1.9] - 2026-04-30
 
 ### Fixed
