@@ -18,13 +18,13 @@ func analysisTools(hasData bool) []llm.ToolDef {
 	tools := []llm.ToolDef{
 		{
 			Name:        "load-data",
-			Description: "Load a data file (CSV, JSON, JSONL) into the analysis database. Creates or replaces the table.",
+			Description: "Load a data file (CSV, JSON, JSONL) from the HOST filesystem into the analysis database. Creates or replaces the table. Only use this for absolute host paths the user supplied, or files explicitly attached to the conversation. For files inside the sandbox /work directory (anything you produced via sandbox-run-python, sandbox-write-file, sandbox-export-sql etc.), call sandbox-load-into-analysis instead — load-data cannot reach into the container.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"file_path": map[string]any{
 						"type":        "string",
-						"description": "Path to the CSV file to load",
+						"description": "Absolute path on the host. NOT a /work/ path (use sandbox-load-into-analysis for those).",
 					},
 					"table_name": map[string]any{
 						"type":        "string",

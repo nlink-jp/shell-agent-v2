@@ -176,6 +176,16 @@ func TestExecuteSandboxTool_WriteFileNormalisesWorkPrefix(t *testing.T) {
 		if _, err := os.Stat(expected); err != nil {
 			t.Errorf("input %q: expected file at %s, got %v", in, expected, err)
 		}
+		// The success message must show /work/data.csv (single
+		// /work/), not /work//work/data.csv — the result text is
+		// what the LLM sees, and a doubled prefix can mislead the
+		// next call.
+		if strings.Contains(out, "/work//") || strings.Contains(out, "/work/work/") {
+			t.Errorf("input %q: result message has doubled /work/ segment: %q", in, out)
+		}
+		if !strings.Contains(out, "/work/data.csv") {
+			t.Errorf("input %q: result message should mention /work/data.csv, got %q", in, out)
+		}
 	}
 }
 

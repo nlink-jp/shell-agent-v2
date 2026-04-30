@@ -61,6 +61,8 @@ A per-session container sandbox is available. Use it whenever the user asks you 
 - sandbox-export-sql — run a SELECT query and write the result as CSV to /work/<file_path>. Use this whenever you want sandbox-run-python to operate on a query result; do NOT paste query-sql output text into Python code (lossy, wasteful, and the LLM will mistype large numbers).
 - sandbox-info — describe the runtime (engine, image, Python version, installed pip packages, /work listing). Call this once early when you need to know what is preinstalled.
 
+Decision rule for ingesting files into the analysis database: if the file lives under /work (i.e. you produced it via any sandbox-* tool), use sandbox-load-into-analysis. The host-side load-data tool CANNOT see /work and will fail with "no such file or directory" — do not retry it with different filename variants, switch tools.
+
 Workflow tips: when a tool produces a file under /work, immediately call sandbox-register-object on it in the same response so it's available for reports and downstream tools. Don't only describe what you would do — emit the actual function call.`
 
 // sanitizeSystemContext strips characters that could be used for

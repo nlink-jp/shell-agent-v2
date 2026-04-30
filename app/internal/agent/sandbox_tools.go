@@ -209,7 +209,8 @@ func (a *Agent) toolSandboxWriteFile(sid, argsJSON string) string {
 	if err := os.WriteFile(dest, []byte(args.Content), 0644); err != nil {
 		return "Error: write: " + err.Error()
 	}
-	return fmt.Sprintf("wrote %s to /work/%s", humanSize(int64(len(args.Content))), filepath.ToSlash(args.Path))
+	rel, _ := filepath.Rel(a.sandbox.WorkDir(sid), dest)
+	return fmt.Sprintf("wrote %s to /work/%s", humanSize(int64(len(args.Content))), filepath.ToSlash(rel))
 }
 
 func (a *Agent) toolSandboxCopyObject(sid, argsJSON string) string {
@@ -414,7 +415,8 @@ func (a *Agent) toolSandboxExportSQL(sid, argsJSON string) string {
 		_ = os.Remove(dest)
 		return "Error: " + err.Error()
 	}
-	return fmt.Sprintf("wrote %d rows × %d columns to /work/%s (columns: %v)", n, len(cols), rel, cols)
+	relOut, _ := filepath.Rel(a.sandbox.WorkDir(sid), dest)
+	return fmt.Sprintf("wrote %d rows × %d columns to /work/%s (columns: %v)", n, len(cols), filepath.ToSlash(relOut), cols)
 }
 
 // SandboxStop tears down the per-session sandbox container, if any.
