@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nlink-jp/nlk/jsonfix"
 	"github.com/nlink-jp/shell-agent-v2/internal/analysis"
 	"github.com/nlink-jp/shell-agent-v2/internal/chat"
 	"github.com/nlink-jp/shell-agent-v2/internal/config"
@@ -913,7 +914,30 @@ func (a *Agent) requestMITL(toolName, arguments, category string) string {
 	return "Tool execution rejected by user."
 }
 
+// normalizeToolArgs runs jsonfix.Extract over the LLM-supplied
+// arguments before any handler tries to json.Unmarshal them.
+// Local models (gemma in particular) sometimes wrap their tool
+// arguments in a ```json fence or include trailing prose; the
+// agent used to fail on those because each handler did a raw
+// Unmarshal. jsonfix repairs the common cases — fences, single
+// quotes, trailing commas — and we fall back to the original
+// string if Extract can't recover anything (so well-formed JSON
+// is unaffected).
+//
+// RFP §3 calls for nlk/jsonfix at this seam.
+func normalizeToolArgs(raw string) string {
+	if raw == "" {
+		return raw
+	}
+	fixed, err := jsonfix.Extract(raw)
+	if err != nil {
+		return raw
+	}
+	return fixed
+}
+
 func (a *Agent) executeTool(ctx context.Context, tc llm.ToolCall) string {
+	tc.Arguments = normalizeToolArgs(tc.Arguments)
 	switch tc.Name {
 	case "resolve-date":
 		result, err := chat.ResolveDate(tc.Arguments)

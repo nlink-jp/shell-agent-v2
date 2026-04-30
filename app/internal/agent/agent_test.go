@@ -126,3 +126,37 @@ func TestLoadSessionRejectsDuringBusy(t *testing.T) {
 		t.Errorf("LoadSession during busy = %v, want ErrBusy", err)
 	}
 }
+
+func TestNormalizeToolArgs(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string // exact wanted output (post-jsonfix); empty means "must round-trip via Unmarshal cleanly"
+	}{
+		{"plain JSON unchanged", `{"a":1}`, `{"a":1}`},
+		{"empty stays empty", "", ""},
+		{"markdown fence stripped", "```json\n{\"a\":1}\n```", `{"a":1}`},
+		{"prose around JSON", `Sure, here it is: {"a":1}`, `{"a":1}`},
+		{"trailing comma repaired", `{"a":1,}`, `{"a":1}`},
+		{"single-quoted keys repaired", `{'a':1}`, `{"a":1}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := normalizeToolArgs(tc.in)
+			if got != tc.want {
+				t.Errorf("normalizeToolArgs(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestNormalizeToolArgs_FallsBackOnGarbage(t *testing.T) {
+	// jsonfix.Extract returns ErrNoJSON for input that doesn't
+	// contain anything recoverable. We must surface the original
+	// string so downstream Unmarshal produces a normal "invalid
+	// arguments" error instead of pretending the input was empty.
+	in := "absolutely not JSON"
+	if got := normalizeToolArgs(in); got != in {
+		t.Errorf("garbage input should pass through untouched, got %q", got)
+	}
+}

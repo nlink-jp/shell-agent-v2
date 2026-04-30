@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/nlink-jp/nlk/guard"
+	"github.com/nlink-jp/nlk/jsonfix"
 )
 
 // LLMClient is the interface for LLM calls used by the summarizer.
@@ -234,44 +235,22 @@ func (s *Summarizer) buildUserPrompt(tag guard.Tag, summary string, findings []F
 
 func (s *Summarizer) parseWindowResponse(resp string) windowResponse {
 	var wr windowResponse
-
-	// Try to extract JSON from the response
 	resp = strings.TrimSpace(resp)
 
-	// Try direct parse
-	if err := json.Unmarshal([]byte(resp), &wr); err == nil {
-		return wr
-	}
-
-	// Try extracting JSON block from markdown code fence
-	if idx := strings.Index(resp, "```json"); idx >= 0 {
-		start := idx + 7
-		if end := strings.Index(resp[start:], "```"); end >= 0 {
-			if err := json.Unmarshal([]byte(resp[start:start+end]), &wr); err == nil {
-				return wr
-			}
+	// jsonfix handles markdown fences, surrounding prose, single
+	// quotes, trailing commas, and unbalanced braces — all the
+	// things a hand-rolled "try direct parse → strip ```json
+	// fence → walk to first balanced }" cascade tries to deal
+	// with, but with more cases covered. RFP §3 explicitly lists
+	// nlk/jsonfix as a reuse target; until v0.1.11 we'd shipped
+	// a degraded copy.
+	if fixed, err := jsonfix.Extract(resp); err == nil {
+		if jerr := json.Unmarshal([]byte(fixed), &wr); jerr == nil {
+			return wr
 		}
 	}
-
-	// Try extracting first { ... } block
-	if idx := strings.Index(resp, "{"); idx >= 0 {
-		depth := 0
-		for i := idx; i < len(resp); i++ {
-			switch resp[i] {
-			case '{':
-				depth++
-			case '}':
-				depth--
-				if depth == 0 {
-					if err := json.Unmarshal([]byte(resp[idx:i+1]), &wr); err == nil {
-						return wr
-					}
-				}
-			}
-		}
-	}
-
-	// Fallback: use the raw text as summary
+	// Fallback: use the raw text as summary so a malformed
+	// response still produces something usable downstream.
 	return windowResponse{Summary: resp}
 }
 
