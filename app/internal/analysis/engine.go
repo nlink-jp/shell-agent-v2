@@ -90,6 +90,20 @@ func (e *Engine) Close() error {
 	return nil
 }
 
+// OpenIfExists opens the underlying DuckDB only if the file is
+// already present on disk. Used at session-load time to restore
+// table metadata for previously-loaded data without creating an
+// empty database for sessions that never used analysis.
+//
+// Returns nil and does NOT open if the file is missing — callers
+// can still Open() lazily on the first analysis tool call.
+func (e *Engine) OpenIfExists() error {
+	if _, err := os.Stat(e.dbPath); err != nil {
+		return nil
+	}
+	return e.Open()
+}
+
 // IsOpen reports whether the database connection is open.
 func (e *Engine) IsOpen() bool {
 	e.mu.Lock()

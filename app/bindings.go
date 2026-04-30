@@ -887,6 +887,14 @@ func (b *Bindings) switchAnalysis(sessionID string) {
 		b.analysis.Close()
 	}
 	b.analysis = analysis.New(sessionID)
+	// Eagerly reopen if a DuckDB file already exists for this
+	// session — otherwise the engine's tables map stays empty
+	// until the first analysis tool call, and HasData() (used to
+	// gate which tools are advertised to the LLM) keeps returning
+	// false even though the data is sitting on disk.
+	if err := b.analysis.OpenIfExists(); err != nil {
+		logger.Error("switchAnalysis: OpenIfExists failed: %v", err)
+	}
 	b.agent.SetAnalysis(b.analysis)
 }
 

@@ -41,6 +41,68 @@ func TestOpenClose(t *testing.T) {
 	}
 }
 
+// TestOpenIfExists_RestoresMetadataAfterReopen reproduces the
+// session-restore bug: when an agent restart created a fresh
+// Engine for an existing session and never called Open() because
+// the lazy-open path waited for the first analysis tool call,
+// HasData() returned false even though tables were on disk.
+// OpenIfExists is the fix; this test pins it.
+func TestOpenIfExists_RestoresMetadataAfterReopen(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.duckdb")
+
+	csvPath := filepath.Join(tmpDir, "data.csv")
+	if err := os.WriteFile(csvPath, []byte("a,b\n1,2\n3,4\n"), 0644); err != nil {
+		t.Fatalf("write csv: %v", err)
+	}
+
+	// Session 1: load data and close.
+	e1 := &Engine{sessionID: "s", dbPath: dbPath, tables: make(map[string]*TableMeta)}
+	if err := e1.LoadCSV("nums", csvPath); err != nil {
+		t.Fatalf("LoadCSV: %v", err)
+	}
+	if !e1.HasData() {
+		t.Fatal("HasData should be true after LoadCSV")
+	}
+	if err := e1.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	// Session 2 (simulated restart): fresh Engine, file present.
+	e2 := &Engine{sessionID: "s", dbPath: dbPath, tables: make(map[string]*TableMeta)}
+	// Before OpenIfExists: tables map is empty so HasData returns false.
+	if e2.HasData() {
+		t.Fatal("brand-new Engine should report HasData=false until restored")
+	}
+	if err := e2.OpenIfExists(); err != nil {
+		t.Fatalf("OpenIfExists: %v", err)
+	}
+	if !e2.IsOpen() {
+		t.Error("OpenIfExists should have opened the DB since file exists")
+	}
+	if !e2.HasData() {
+		t.Error("HasData should be true after OpenIfExists with existing file")
+	}
+}
+
+// TestOpenIfExists_NoFileLeavesDBClosed pins the other half: a
+// fresh session with no .duckdb on disk shouldn't trigger
+// directory creation or DB initialisation.
+func TestOpenIfExists_NoFileLeavesDBClosed(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "missing.duckdb")
+	e := &Engine{sessionID: "s", dbPath: dbPath, tables: make(map[string]*TableMeta)}
+	if err := e.OpenIfExists(); err != nil {
+		t.Fatalf("OpenIfExists with missing file should be a no-op, got: %v", err)
+	}
+	if e.IsOpen() {
+		t.Error("DB should remain closed when file is missing")
+	}
+	if _, err := os.Stat(dbPath); !os.IsNotExist(err) {
+		t.Errorf("missing file should still be missing, stat err = %v", err)
+	}
+}
+
 func TestLoadCSVAndQuery(t *testing.T) {
 	e, cleanup := setupTestEngine(t)
 	defer cleanup()
