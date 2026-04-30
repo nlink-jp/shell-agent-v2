@@ -23,7 +23,7 @@ and hybrid LLM backend (Local + Vertex AI).
 - **Multi-turn memory** — Hot/Warm/Cold three-tier sliding window with timestamps
 - **Pinned Memory** — persistent cross-session facts (rendered with a `(learned YYYY-MM-DD)` suffix so the model can weigh recency)
 - **Multimodal** — image input via drag & drop, paste, or file picker
-- **Object repository panel** — sidebar Objects tab lists every image / report / blob; click a report to preview, bulk-select to delete (with reference scan that warns when an object is still in use elsewhere) or per-row export.
+- **Per-session Data panel** — collapsible disclosure at the top of the chat pane showing the current session's objects (images / reports / blobs as cards with thumbnails), DuckDB tables (click for a 20-row preview), and sandbox `/work` files. Bulk-select and delete with separate Yes / No confirmation.
 - **Bulk select / delete** — Findings and Pinned Memory entries can be checked individually or all-at-once, with two-click confirm.
 - **Temporal context** — enriched date/time injection + `resolve-date` system tool
 

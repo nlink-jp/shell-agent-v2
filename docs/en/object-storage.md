@@ -297,39 +297,45 @@ Frontend maintains an in-memory cache:
 - Subsequent access: return from cache
 - Cache invalidation: on session switch
 
-### 7.4 Objects Sidebar Panel (v0.1.3+)
+### 7.4 Per-Session Objects in the Data Disclosure (v0.1.11+)
 
-A dedicated **Objects** sidebar panel exposes the central repository
-for direct inspection.
+The information-display redesign retired the standalone Objects
+sidebar panel. Direct inspection now happens inside the chat-pane
+**Data** disclosure (top of the chat panel, collapsible), filtered
+to the currently-selected session. The underlying storage is still
+the same content-addressed central blob store described above; only
+the user surface is per-session. See
+[information-display-redesign.md](information-display-redesign.md)
+for the broader rationale.
 
-**Listing:** `bindings.ListObjects()` returns every object's metadata
+**Listing:** `bindings.GetSessionObjects(sessionID)` wraps
+`objstore.ListBySession` and returns each object's metadata
 (`ID / Type / MimeType / OrigName / CreatedAt / SessionID / Size`)
-sorted newest-first. The panel renders one row per object:
+sorted newest-first. The card grid renders one tile per object:
 
-- **Image** — thumbnail via the existing `ObjectImage` component;
-  click opens the lightbox.
-- **Report** — clickable document icon (📄). Click loads the markdown
-  via `bindings.GetObjectText(id)` and opens it in the existing
+- **Image** — thumbnail via `ObjectImage`; click opens the
+  lightbox.
+- **Report** — clickable document icon (📄). Click loads the
+  markdown via `bindings.GetObjectText(id)` and opens it in the
   fullscreen report viewer.
-- **Blob** — generic icon, no preview.
+- **Blob** — typed icon, no preview.
 
-**Bulk delete with reference awareness.** The same `BulkActions`
-toolbar used by Findings / Pinned applies. Two-click confirm pattern:
+**Bulk and single delete** both go through an inline confirmation
+with separate Yes / No buttons (the previous "click the same
+button twice" affordance was replaced because a misclick on the
+delete target could land on the now-confirming button). Bulk
+flow: select cards → "Delete…" in the section header opens a
+red confirmation strip showing "Delete N item(s)?" with
+[Delete] [Cancel]. Single flow: card's hover-revealed ✕ opens a
+backdrop-blurred overlay covering that card with [Yes] [No].
+`bindings.DeleteObject(id)` / `DeleteObjects(ids)` is invoked
+only on the confirmation button.
 
-```
-first click  → bindings.ObjectReferences(selectedIds) is called;
-               counts how many sessions still reference each id
-               (Record.ObjectIDs match OR "object:<id>" substring in
-               Record.Content for markdown image refs in reports)
-               confirm-state button shows:
-                 "Confirm delete N"           if no live refs
-                 "K/N still in use — confirm" otherwise
-second click → bindings.DeleteObjects(ids) executes the deletion
-```
-
-Single-row delete (the per-row × button) applies the same logic:
-zero references → delete immediately; non-zero → × flips to `!` and
-arms a 6-second window for the second click.
+`ObjectReferences` is no longer queried before showing the
+confirm prompt — the confirm itself is the safety net. The
+binding remains available for callers that want to surface
+"still in use" warnings, but the redesign treats the explicit
+two-button confirm as sufficient.
 
 **Export.** Per-row `⤓` → `bindings.ExportObject(id)` → save dialog.
 For `TypeReport`, the markdown is passed through

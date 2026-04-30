@@ -136,11 +136,21 @@ shell-agent-v2/
   `get-location`, `write-note`.
 
 ### UI
-- Sidebar: v1-style icon navigation (Sessions / Status / Objects
-  panels, collapse/expand, resize). Objects panel lists every
-  entry in objstore with thumbnail / icon, metadata, per-row
-  Export, reference-aware Delete (warns when an object is still
-  used elsewhere), and bulk-select.
+- Sidebar: icon navigation with two panels — **Sessions**
+  (session list) and **Memory** (Findings + Pinned, both
+  global). Collapsible / resizable. The old Objects panel and
+  the merged Status / Tokens grouping went away in the
+  information-display redesign (docs/en/information-display-redesign.md).
+- Chat-pane top: collapsible **Data** disclosure scoped to the
+  selected session, with three sub-sections — Objects (card
+  grid, image thumbnails / typed icons, hover-revealed export +
+  delete with separate Yes / No confirm overlay), Tables
+  (row-list, click → 20-row preview modal), and `/work` (light
+  card grid; only when sandbox is on).
+- Chat-pane bottom: status footer strip — backend badge,
+  message counts (hot + summarized), prompt / output token
+  totals from the last call. Wraps to two lines on narrow
+  windows.
 - Settings: tabbed (General / Tools / MCP) near-fullscreen overlay.
   General has Memory (UseV2 toggle), Sandbox (Enabled, engine,
   image, network, limits) and per-backend budget editors.
@@ -158,7 +168,8 @@ shell-agent-v2/
 All implementation must follow these design documents:
 - **agent-data-flow.md** — agent loop, context budget, MITL, events, tool confirmation
 - **memory-architecture-v2.md** — non-destructive contextbuild, summary cache, time markers across every channel
-- **object-storage.md** — central object storage, lifecycle, LLM tools, Objects sidebar panel
+- **object-storage.md** — content-addressed object store (physical layout), lifecycle, LLM tools. UI surface lives in the chat-pane Data disclosure since the information-display redesign.
+- **information-display-redesign.md** — sidebar / chat-pane / footer reorganisation that retired the standalone Objects panel and the mixed-scope Status panel.
 - **sandbox-execution.md** — per-session container sandbox, eight `sandbox-*` tools, macOS prerequisites
 - **llm-abstraction.md** — backend role mapping, tool format conversion, multimodal
 - **shell-agent-v2-architecture.md** — top-level architecture, per-backend budget tree, bundled tool embed
