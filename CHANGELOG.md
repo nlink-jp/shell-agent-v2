@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.14] - 2026-04-30
+
+A round of UI fixes from the GitHub issue tracker, covering
+#1–#4. The sidebar reorganization that v0.1.11 introduced had
+several rough edges that this release smooths out.
+
+### Fixed
+
+- **#1 — Sidebar title showed "Status" instead of "Memory".**
+  The variable rename from v0.1.11 missed the literal label at
+  the top of the panel. Memory's icon also matched Sessions'
+  triple-bar (≡), making them indistinguishable. Memory is
+  now ★ and the section is labelled correctly. The whole
+  sidebar was reworked into a single DOM tree that adapts to
+  collapsed mode via a CSS class — collapsed and expanded
+  sidebars now share an identical layout source-of-truth, so
+  icon Y-positions and section dividers match between modes
+  by construction.
+- **#2 — Empty Data disclosure took chat-pane real estate.**
+  When a session has no Objects, no DuckDB tables, and no
+  `/work` files, `DataDisclosure` returns null instead of
+  rendering the muted "Data — empty" strip.
+- **#3 — Sidebar icon and label vertical alignment.** The icon
+  glyph (font-size 18px on a 13px line) was rendering above
+  the label baseline. `.sidebar-nav-btn` now uses flex with
+  align-items: center, and the icon span is an inline-flex
+  with a fixed 22px basis. Plus button horizontal padding
+  bumped to 10px so the 22px icon centers in the 42px
+  collapsed sidebar (10 + 22 + 10 = 42).
+- **#4 — Sidebar width and collapsed state were ephemeral.**
+  Saved to `UIConfig.SidebarWidth` / `SidebarCollapsed` via
+  new `Bindings.GetSidebarPrefs` / `SaveSidebarPrefs`
+  bindings; the frontend reads them on mount and writes on
+  resize-end / collapse toggle.
+
 ## [0.1.13] - 2026-04-30
 
 ### Changed
