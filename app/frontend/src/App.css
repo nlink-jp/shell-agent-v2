@@ -130,14 +130,27 @@ input, textarea {
 
 .sidebar-bottom {
     margin-top: auto;
-    padding: 4px;
+    /* Padding 0: buttons inside use their own 8px padding-left,
+       which now matches the buttons in the accordion sections
+       above (those sit directly inside .acc-section with no
+       extra wrapping padding). border-top still spans the
+       sidebar's full width. */
+    padding: 0;
     border-top: 1px solid var(--border-primary, #2a3a4a);
     --wails-draggable: no-drag;
 }
 
 .sidebar-nav-btn {
     --wails-draggable: no-drag;
-    display: block;
+    /* Flex with align-items: center makes the icon and label
+       share the row's vertical midline (GitHub #3). Horizontal
+       alignment is preserved across all buttons because both
+       the accordion sections and .sidebar-bottom now have zero
+       horizontal padding — icons land at button-padding-left
+       (8px) from the sidebar edge in every row. */
+    display: flex;
+    align-items: center;
+    gap: 6px;
     width: 100%;
     background: none;
     border: none;
@@ -145,7 +158,11 @@ input, textarea {
     cursor: pointer;
     font-size: 13px;
     height: 34px;
-    padding: 6px 8px;
+    /* 10px horizontal so the 22px icon is centered in the
+       42px-wide collapsed sidebar ((42-22)/2 = 10). Same
+       padding in expanded mode shifts everything 2px right
+       which lines up the icons across modes. */
+    padding: 6px 10px;
     border-radius: 4px;
     text-align: left;
 }
@@ -166,12 +183,17 @@ input, textarea {
 }
 
 .sidebar-nav-ic {
-    display: inline-block;
+    /* inline-flex (vs inline-block) lets the parent flex
+       button's align-items: center actually take effect on
+       the icon row. Without this the inline-block's intrinsic
+       baseline was throwing off the centering. */
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 22px;
     width: 22px;
     font-size: 18px;
-    line-height: 13px;
-    vertical-align: 1px;
-    text-align: center;
+    line-height: 1;
 }
 
 .sidebar-nav-divider {
