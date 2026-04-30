@@ -73,6 +73,8 @@ declare global {
                     GetSessionTables(sessionID: string): Promise<{name: string; row_count: number; columns: string[]; description?: string}[]>;
                     PreviewTable(name: string, limit: number): Promise<{columns: string[]; rows: any[][]; total: number; truncated: boolean}>;
                     GetWorkFiles(sessionID: string): Promise<{path: string; size: number; mtime: number}[]>;
+                    GetSidebarPrefs(): Promise<{width: number; collapsed: boolean}>;
+                    SaveSidebarPrefs(width: number, collapsed: boolean): Promise<void>;
                 };
             };
         };
@@ -396,6 +398,11 @@ function App() {
     const [sidebarPanel, setSidebarPanel] = useState<SidebarPanel>('sessions')
     const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
     const [sidebarWidth, setSidebarWidth] = useState(280)
+    // True once GetSidebarPrefs has resolved on mount. Used to
+    // skip the persistence effect on the very first render
+    // (otherwise we'd overwrite the saved state with the
+    // initial useState defaults before the load completes).
+    const sidebarPrefsLoaded = useRef(false)
     const resizingRef = useRef(false)
     const [sessions, setSessions] = useState<SessionInfo[]>([])
     const [currentSessionId, setCurrentSessionId] = useState<string>('')
@@ -487,6 +494,14 @@ function App() {
         messagesEndRef.current?.scrollIntoView({behavior: 'smooth'})
     }, [messages, streaming])
 
+    // Persist sidebarCollapsed whenever it changes after the
+    // initial load. Width is persisted at resize-end inside
+    // startResize so we don't write on every drag pixel.
+    useEffect(() => {
+        if (!sidebarPrefsLoaded.current || !window.go) return
+        window.go.main.Bindings.SaveSidebarPrefs(sidebarWidth, sidebarCollapsed).catch(() => {})
+    }, [sidebarCollapsed])  // eslint-disable-line react-hooks/exhaustive-deps
+
     useEffect(() => {
         // Wails populates window.go and Go startup runs asynchronously.
         // Retry until backend reports a non-empty name (agent ready).
@@ -501,6 +516,14 @@ function App() {
             })
             window.go.main.Bindings.GetSettings().then(s => {
                 if (!cancel && s.theme) document.documentElement.setAttribute('data-theme', s.theme)
+            })
+            // Restore the user's saved sidebar layout (GitHub #4
+            // — width and collapsed flag were ephemeral until now).
+            window.go.main.Bindings.GetSidebarPrefs().then(p => {
+                if (cancel || !p) return
+                if (p.width > 0) setSidebarWidth(p.width)
+                setSidebarCollapsed(p.collapsed)
+                sidebarPrefsLoaded.current = true
             })
             // Footer strip needs initial values too — Phase 4 moved
             // Tokens out of the Memory panel, so the on-mount fetch
@@ -708,14 +731,22 @@ function App() {
         resizingRef.current = true
         const startX = e.clientX
         const startW = sidebarWidth
+        let lastW = startW
         function onMove(ev: MouseEvent) {
             if (!resizingRef.current) return
-            setSidebarWidth(Math.max(180, Math.min(500, startW + ev.clientX - startX)))
+            lastW = Math.max(180, Math.min(500, startW + ev.clientX - startX))
+            setSidebarWidth(lastW)
         }
         function onUp() {
             resizingRef.current = false
             document.removeEventListener('mousemove', onMove)
             document.removeEventListener('mouseup', onUp)
+            // Persist the final width so it survives app restart.
+            // The drag itself only updates React state; the
+            // backend save fires once on release.
+            if (window.go) {
+                window.go.main.Bindings.SaveSidebarPrefs(lastW, sidebarCollapsed).catch(() => {})
+            }
         }
         document.addEventListener('mousemove', onMove)
         document.addEventListener('mouseup', onUp)

@@ -538,6 +538,40 @@ func (b *Bindings) RestartLLMBackend() {
 	}
 }
 
+// SidebarPrefsData is the persisted sidebar layout state — width
+// in pixels and whether it starts collapsed. Returned by
+// GetSidebarPrefs so the frontend can restore the user's
+// preferred layout at startup; updated via SaveSidebarPrefs on
+// resize-end and on collapse toggle.
+type SidebarPrefsData struct {
+	Width     int  `json:"width"`
+	Collapsed bool `json:"collapsed"`
+}
+
+// GetSidebarPrefs returns the persisted sidebar width and
+// collapsed flag, falling back to the package default width
+// when the config has never been written.
+func (b *Bindings) GetSidebarPrefs() SidebarPrefsData {
+	w := b.cfg.UI.SidebarWidth
+	if w <= 0 {
+		w = config.DefaultSidebarWidth
+	}
+	return SidebarPrefsData{
+		Width:     w,
+		Collapsed: b.cfg.UI.SidebarCollapsed,
+	}
+}
+
+// SaveSidebarPrefs persists the sidebar layout state. Lightweight
+// because it's called on every resize-end / collapse toggle.
+func (b *Bindings) SaveSidebarPrefs(width int, collapsed bool) error {
+	if width > 0 {
+		b.cfg.UI.SidebarWidth = width
+	}
+	b.cfg.UI.SidebarCollapsed = collapsed
+	return b.cfg.Save()
+}
+
 // RestartSandbox tears down all sandbox containers and re-reads
 // cfg.Sandbox so Settings changes (Enabled / Engine / Image / Network
 // / limits) take effect without an app restart.

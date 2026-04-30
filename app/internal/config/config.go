@@ -109,10 +109,17 @@ type WindowConfig struct {
 
 // UIConfig holds UI-related settings.
 type UIConfig struct {
-	Theme       string       `json:"theme"`
-	StartupMode string       `json:"startup_mode"`
-	Window      WindowConfig `json:"window"`
+	Theme            string       `json:"theme"`
+	StartupMode      string       `json:"startup_mode"`
+	Window           WindowConfig `json:"window"`
+	SidebarWidth     int          `json:"sidebar_width,omitempty"`     // px, 0 = use default (280)
+	SidebarCollapsed bool         `json:"sidebar_collapsed,omitempty"` // true → start collapsed
 }
+
+// DefaultSidebarWidth is the px width used when SidebarWidth is
+// unset (or 0) in UIConfig. The resize handle in the frontend
+// clamps user-driven changes to [180, 500].
+const DefaultSidebarWidth = 280
 
 // ContextBudgetConfig controls how many tokens are sent to the LLM.
 type ContextBudgetConfig struct {
