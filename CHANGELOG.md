@@ -5,6 +5,113 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.11] - 2026-04-30
+
+### Added
+
+- **LLM call control: per-request timeout, retry, backoff, and
+  call logging.** Closes the `nlk: …backoff…` gap in
+  `docs/en/shell-agent-v2-rfp.md` §3 — until now the Vertex
+  backend had *no* timeout (the SDK's default `http.Client.
+  Timeout` is zero) and the Local backend had a hardcoded
+  5-minute one, neither retried, and `app.log` had zero
+  visibility into the LLM call layer. A thinking-mode call
+  could hang the UI indefinitely with no sign of life.
+
+  New `internal/llm/retry.go` wraps any `Backend` with
+  `context.WithTimeout` per attempt, conservative retry on
+  transient signals (HTTP 429 / 5xx, gRPC `RESOURCE_EXHAUSTED`
+  / `UNAVAILABLE` / `DEADLINE_EXCEEDED`, network resets, plus
+  the per-attempt timeout firing — including the
+  Vertex-side echo as `Error 499 CANCELLED`), exponential
+  backoff via `nlk/backoff` (base 5s, ×2, cap 60s, ±10%
+  jitter), 3 attempts total, and `start / done / err / backoff`
+  log lines so app.log finally shows what happened.
+
+  Configurable via Settings:
+  - `LLM.Local.RequestTimeoutSeconds` (default 300)
+  - `LLM.VertexAI.RequestTimeoutSeconds` (default 180 — gives
+    gemini-2.5-flash thinking mode headroom while still
+    bounding silent hangs)
+
+  `Bindings.RestartLLMBackend` lets the Settings UI rebuild the
+  wrapper live without an app restart. Local backend's
+  hardcoded `http.Client.Timeout` was removed (one timeout
+  source only).
+- **Information display redesign — sidebar / chat pane /
+  footer reorganisation** (docs/en/information-display-redesign.md).
+  Six-phase plan; phases 1–5 ship in this release.
+  - Sidebar shrinks to two panels: **Sessions** and **Memory**
+    (Findings + Pinned, both global). The mixed-scope `Status`
+    panel and the standalone `Objects` panel both go away.
+  - Chat pane gains a collapsible **Data** disclosure at the
+    top, scoped to the currently-selected session. Three
+    sub-sections: **Objects** (card grid with image
+    thumbnails / typed icons; click to preview, hover-revealed
+    export + delete), **Tables** (row list; click for a
+    20-row preview modal), **/work** (light card grid with
+    extension badges; only when sandbox is on). Marker
+    triangle ▶ / ▼ in the disclosure summary, count
+    indicators on collapsed view.
+  - Per-session DuckDB tables and sandbox `/work` files were
+    previously LLM-only; now visible in the UI as a sanity
+    check after `load-data` or session restore.
+  - Footer strip below the chat shows `backend · Messages: N
+    (+M summarized) · Tokens: X in / Y out`. Two-line wrap on
+    narrow windows is the accepted degradation.
+  - Delete UX: every destructive action (single-card delete,
+    bulk delete) now goes through an inline Yes / No confirm
+    with *separate* buttons. The previous "click the same
+    button twice" pattern was replaced because a misclick
+    landed on the now-confirming button and proceeded
+    unintended.
+  - New backend bindings: `GetSessionObjects`,
+    `GetSessionTables`, `PreviewTable`, `GetWorkFiles`. The
+    LLM-side `list-objects` was already per-session-filtered;
+    only the UI catches up with this release.
+- **Engine-level table preview** —
+  `analysis.Engine.PreviewTable(name, limit)` runs `SELECT *
+  FROM <name> LIMIT N` with identifier sanitisation, `[]byte` →
+  string conversion for clean JSON, and a `[1, 1000]` clamp.
+  Used by `Bindings.PreviewTable`; LLM still goes through
+  `query-sql`.
+
+### Fixed
+
+- **Session reopen lost DuckDB tables in the UI.**
+  `analysis.New(sessionID)` was lazy — `Open()` only ran on
+  the first `LoadCSV` / `Query` call. After app restart and
+  session selection, `HasData()` returned false because the
+  tables map was empty, so `buildToolDefs` hid `query-sql` /
+  `describe-data` / `suggest-analysis` from the LLM. The
+  DuckDB file with the loaded tables was sitting on disk
+  untouched.
+  New `Engine.OpenIfExists()` opens the DB only if the file is
+  already present (sessions that never used analysis still
+  avoid creating an empty `.duckdb`). `bindings.switchAnalysis`
+  calls it on every session load.
+- **Local LLM looped `load-data` on sandbox-produced files.**
+  After generating CSVs in the sandbox, gemma kept calling
+  `load-data` with bare filenames and retrying for several
+  rounds before discovering `sandbox-load-into-analysis`.
+  `load-data`'s description and parameter doc now state
+  explicitly that it's host-only and point at
+  `sandbox-load-into-analysis` for `/work` files. The system
+  prompt's sandbox guidance gains a decision rule.
+
+### Coverage
+
+- 9 unit + 4 integration tests for `internal/llm/retry.go`
+  (transient retry, persistent giveup, non-retryable bail,
+  per-attempt timeout, caller-cancel, ChatStream parity, and
+  the `IsRetryable` truth table).
+- `analysis.Engine.PreviewTable` covered (rows + Total +
+  Truncated accounting, unknown-table error, limit clamping,
+  cross-restart metadata restore).
+- `Bindings.GetSessionObjects` / `GetSessionTables` /
+  `PreviewTable` / `GetWorkFiles` unit-tested for filtering,
+  empty-engine fallbacks, and slash-form path output.
+
 ## [0.1.10] - 2026-04-30
 
 ### Fixed
