@@ -70,6 +70,13 @@ export default function DataDisclosure({sessionId, refreshTick, sandboxEnabled, 
     const [confirmDeleteSingle, setConfirmDeleteSingle] = useState<string | null>(null)
     const [confirmDeleteBulk, setConfirmDeleteBulk] = useState(false)
 
+    // Active tab inside the disclosure (Phase 6: tabbed
+    // sub-sections). Auto-falls back to the first sub-section
+    // that has data so a refetch that empties the current tab
+    // doesn't leave the body blank.
+    type TabKey = 'objects' | 'tables' | 'work'
+    const [activeTab, setActiveTab] = useState<TabKey>('objects')
+
     const refetch = useCallback(async () => {
         if (!sessionId || !window.go) {
             setObjects([]); setTables([]); setWorkFiles([])
@@ -91,6 +98,21 @@ export default function DataDisclosure({sessionId, refreshTick, sandboxEnabled, 
 
     const total = objects.length + tables.length + workFiles.length
     const isEmpty = total === 0
+
+    // If the active tab loses its data (e.g. the user clears
+    // the table list), switch to a still-populated tab so the
+    // disclosure doesn't render an empty body.
+    useEffect(() => {
+        const tabHasContent: Record<TabKey, boolean> = {
+            objects: objects.length > 0,
+            tables: tables.length > 0,
+            work: sandboxEnabled && workFiles.length > 0,
+        }
+        if (tabHasContent[activeTab]) return
+        const fallback: TabKey | null = (['objects', 'tables', 'work'] as TabKey[])
+            .find(k => tabHasContent[k]) ?? null
+        if (fallback && fallback !== activeTab) setActiveTab(fallback)
+    }, [objects.length, tables.length, workFiles.length, sandboxEnabled, activeTab])
 
     const openPreview = useCallback(async (name: string) => {
         setPreviewName(name)
@@ -135,10 +157,32 @@ export default function DataDisclosure({sessionId, refreshTick, sandboxEnabled, 
                 )}
             </summary>
             <div className="data-body">
-                {objects.length > 0 && (
+                <div className="data-tabs" role="tablist">
+                    {objects.length > 0 && (
+                        <button
+                            role="tab"
+                            className={`data-tab ${activeTab === 'objects' ? 'active' : ''}`}
+                            onClick={() => setActiveTab('objects')}
+                        >Objects <span className="data-tab-count">{objects.length}</span></button>
+                    )}
+                    {tables.length > 0 && (
+                        <button
+                            role="tab"
+                            className={`data-tab ${activeTab === 'tables' ? 'active' : ''}`}
+                            onClick={() => setActiveTab('tables')}
+                        >Tables <span className="data-tab-count">{tables.length}</span></button>
+                    )}
+                    {sandboxEnabled && workFiles.length > 0 && (
+                        <button
+                            role="tab"
+                            className={`data-tab ${activeTab === 'work' ? 'active' : ''}`}
+                            onClick={() => setActiveTab('work')}
+                        >/work <span className="data-tab-count">{workFiles.length}</span></button>
+                    )}
+                </div>
+                {activeTab === 'objects' && objects.length > 0 && (
                     <section className={`data-section ${selectedIds.size > 0 ? 'bulk-active' : ''}`}>
-                        <div className="data-section-header">
-                            <h4>Objects ({objects.length})</h4>
+                        <div className="data-section-header data-section-header-tabbed">
                             {selectedIds.size > 0 && !confirmDeleteBulk && (
                                 <div className="data-bulk-actions">
                                     <span className="data-bulk-count">{selectedIds.size} selected</span>
@@ -201,9 +245,8 @@ export default function DataDisclosure({sessionId, refreshTick, sandboxEnabled, 
                         </div>
                     </section>
                 )}
-                {tables.length > 0 && (
+                {activeTab === 'tables' && tables.length > 0 && (
                     <section className="data-section">
-                        <h4>Tables ({tables.length})</h4>
                         <ul>
                             {tables.map(t => (
                                 <li key={t.name} className="data-table-row" onClick={() => openPreview(t.name)}>
@@ -218,9 +261,8 @@ export default function DataDisclosure({sessionId, refreshTick, sandboxEnabled, 
                         </ul>
                     </section>
                 )}
-                {sandboxEnabled && workFiles.length > 0 && (
+                {activeTab === 'work' && sandboxEnabled && workFiles.length > 0 && (
                     <section className="data-section">
-                        <h4>/work ({workFiles.length})</h4>
                         <div className="data-work-grid">
                             {workFiles.map(f => (
                                 <div key={f.path} className="data-work-card" title={f.path}>

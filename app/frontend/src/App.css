@@ -2173,6 +2173,61 @@ input, textarea {
 }
 
 /* Bulk-actions strip in section header (Objects card grid) */
+/* Tab strip at the top of the disclosure body. Each tab shows
+   the section name + count badge; only sections with content
+   are rendered. Active tab gets a subtle highlight + bottom-
+   border accent so the current section is unambiguous. */
+.data-tabs {
+    display: flex;
+    gap: 2px;
+    border-bottom: 1px solid var(--border-primary);
+    margin-bottom: 8px;
+}
+
+.data-tab {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 6px 10px;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px; /* sit on the strip's border-bottom */
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.data-tab:hover {
+    color: var(--text-primary);
+}
+
+.data-tab.active {
+    color: var(--text-primary);
+    border-bottom-color: var(--border-accent);
+    font-weight: 600;
+}
+
+.data-tab-count {
+    font-size: 10px;
+    color: var(--text-muted);
+    background: var(--bg-inline-code);
+    padding: 1px 6px;
+    border-radius: 8px;
+    font-variant-numeric: tabular-nums;
+}
+
+.data-tab.active .data-tab-count {
+    color: var(--text-primary);
+}
+
+/* When the section header lives below the tabs, drop the
+   redundant h4 spacing — the tab itself already labels it. */
+.data-section-header-tabbed {
+    margin-bottom: 4px;
+    min-height: 0;
+}
+
 .data-section-header {
     display: flex;
     justify-content: space-between;
