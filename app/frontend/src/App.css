@@ -339,31 +339,31 @@ input, textarea {
 
 /* Findings */
 .finding-card {
-    background: var(--bg-secondary, #1a2a3a);
-    border: 1px solid var(--border-primary, #2a3a4a);
+    background: var(--bg-hover);
+    border: 1px solid var(--border-primary);
     border-radius: 8px;
     padding: 10px;
     margin-bottom: 8px;
-    color: #e0e8f0;
+    color: var(--text-primary);
 }
 
 .finding-content {
     font-size: 13px;
     line-height: 1.4;
     margin-bottom: 6px;
-    color: #e0e8f0;
+    color: var(--text-primary);
 }
 
 .finding-meta {
     display: flex;
     justify-content: space-between;
     font-size: 11px;
-    color: #6688aa;
+    color: var(--text-muted);
 }
 
 .finding-origin {
     cursor: pointer;
-    color: #5a8abf;
+    color: var(--text-link);
 }
 
 .finding-origin:hover {
@@ -380,8 +380,8 @@ input, textarea {
 .tag {
     padding: 1px 6px;
     border-radius: 3px;
-    background: #2a3a4a;
-    color: #8899aa;
+    background: var(--bg-inline-code);
+    color: var(--text-muted);
     font-size: 10px;
 }
 
@@ -1321,14 +1321,16 @@ input, textarea {
     outline: 1px solid var(--border-accent);
 }
 
-.finding-card {
-    display: flex;
-    gap: 8px;
-    align-items: flex-start;
+/* Match .pinned-item's block layout so the bulk-check column doesn't
+   reserve space when invisible. With flex, an opacity:0 checkbox
+   still occupies its column + gap and looks like the box is still
+   there even after mouse leave. */
+.finding-card .bulk-check {
+    float: left;
+    margin-top: 2px;
 }
 
 .finding-body {
-    flex: 1;
     min-width: 0;
 }
 
