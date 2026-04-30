@@ -136,35 +136,23 @@ func (a *Agent) executeSandboxTool(ctx context.Context, name, argsJSON string) (
 		return fmt.Sprintf("Error: ensure container: %v", err), ActivityStatusError
 	}
 
-	// Helper to wrap return-string-only handlers — anything they
-	// surface that starts with "Error:" is a Go-side failure
-	// (validation, file I/O, etc.) and should colour the bubble
-	// red. Container exit codes are NOT classified this way; the
-	// run-shell / run-python branches handle those explicitly.
-	wrapErrorPrefix := func(s string) (string, ActivityEventStatus) {
-		if strings.HasPrefix(s, "Error:") {
-			return s, ActivityStatusError
-		}
-		return s, ActivityStatusSuccess
-	}
-
 	switch name {
 	case "sandbox-run-shell":
 		return a.toolSandboxRunShell(ctx, sid, argsJSON)
 	case "sandbox-run-python":
 		return a.toolSandboxRunPython(ctx, sid, argsJSON)
 	case "sandbox-write-file":
-		return wrapErrorPrefix(a.toolSandboxWriteFile(sid, argsJSON))
+		return a.toolSandboxWriteFile(sid, argsJSON)
 	case "sandbox-copy-object":
-		return wrapErrorPrefix(a.toolSandboxCopyObject(sid, argsJSON))
+		return a.toolSandboxCopyObject(sid, argsJSON)
 	case "sandbox-register-object":
-		return wrapErrorPrefix(a.toolSandboxRegisterObject(sid, argsJSON))
+		return a.toolSandboxRegisterObject(sid, argsJSON)
 	case "sandbox-info":
-		return wrapErrorPrefix(a.toolSandboxInfo(ctx, sid))
+		return a.toolSandboxInfo(ctx, sid)
 	case "sandbox-load-into-analysis":
-		return wrapErrorPrefix(a.toolSandboxLoadIntoAnalysis(sid, argsJSON))
+		return a.toolSandboxLoadIntoAnalysis(sid, argsJSON)
 	case "sandbox-export-sql":
-		return wrapErrorPrefix(a.toolSandboxExportSQL(sid, argsJSON))
+		return a.toolSandboxExportSQL(sid, argsJSON)
 	default:
 		return fmt.Sprintf("Error: unknown sandbox tool %q", name), ActivityStatusError
 	}
@@ -218,48 +206,48 @@ func execResultStatus(res *sandbox.ExecResult) ActivityEventStatus {
 	return ActivityStatusSuccess
 }
 
-func (a *Agent) toolSandboxWriteFile(sid, argsJSON string) string {
+func (a *Agent) toolSandboxWriteFile(sid, argsJSON string) (string, ActivityEventStatus) {
 	var args struct {
 		Path    string `json:"path"`
 		Content string `json:"content"`
 	}
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
-		return "Error: invalid arguments: " + err.Error()
+		return "Error: invalid arguments: " + err.Error(), ActivityStatusError
 	}
 	if args.Path == "" {
-		return "Error: 'path' is required"
+		return "Error: 'path' is required", ActivityStatusError
 	}
 	dest, err := safeWorkPath(a.sandbox.WorkDir(sid), args.Path)
 	if err != nil {
-		return "Error: " + err.Error()
+		return "Error: " + err.Error(), ActivityStatusError
 	}
 	if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
-		return "Error: mkdir: " + err.Error()
+		return "Error: mkdir: " + err.Error(), ActivityStatusError
 	}
 	if err := os.WriteFile(dest, []byte(args.Content), 0644); err != nil {
-		return "Error: write: " + err.Error()
+		return "Error: write: " + err.Error(), ActivityStatusError
 	}
 	rel, _ := filepath.Rel(a.sandbox.WorkDir(sid), dest)
-	return fmt.Sprintf("wrote %s to /work/%s", humanSize(int64(len(args.Content))), filepath.ToSlash(rel))
+	return fmt.Sprintf("wrote %s to /work/%s", humanSize(int64(len(args.Content))), filepath.ToSlash(rel)), ActivityStatusSuccess
 }
 
-func (a *Agent) toolSandboxCopyObject(sid, argsJSON string) string {
+func (a *Agent) toolSandboxCopyObject(sid, argsJSON string) (string, ActivityEventStatus) {
 	var args struct {
 		ObjectID string `json:"object_id"`
 		Path     string `json:"path"`
 	}
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
-		return "Error: invalid arguments: " + err.Error()
+		return "Error: invalid arguments: " + err.Error(), ActivityStatusError
 	}
 	if args.ObjectID == "" {
-		return "Error: 'object_id' is required"
+		return "Error: 'object_id' is required", ActivityStatusError
 	}
 	if a.objects == nil {
-		return "Error: object store not available"
+		return "Error: object store not available", ActivityStatusError
 	}
 	meta, ok := a.objects.Get(args.ObjectID)
 	if !ok {
-		return "Error: object not found: " + args.ObjectID
+		return "Error: object not found: " + args.ObjectID, ActivityStatusError
 	}
 	destPath := args.Path
 	if destPath == "" {
@@ -270,52 +258,52 @@ func (a *Agent) toolSandboxCopyObject(sid, argsJSON string) string {
 	}
 	dest, err := safeWorkPath(a.sandbox.WorkDir(sid), destPath)
 	if err != nil {
-		return "Error: " + err.Error()
+		return "Error: " + err.Error(), ActivityStatusError
 	}
 	if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
-		return "Error: mkdir: " + err.Error()
+		return "Error: mkdir: " + err.Error(), ActivityStatusError
 	}
 	src, err := a.objects.ReadData(args.ObjectID)
 	if err != nil {
-		return "Error: read object: " + err.Error()
+		return "Error: read object: " + err.Error(), ActivityStatusError
 	}
 	defer src.Close()
 	out, err := os.Create(dest)
 	if err != nil {
-		return "Error: create dest: " + err.Error()
+		return "Error: create dest: " + err.Error(), ActivityStatusError
 	}
 	n, copyErr := io.Copy(out, src)
 	if cerr := out.Close(); cerr != nil && copyErr == nil {
 		copyErr = cerr
 	}
 	if copyErr != nil {
-		return "Error: copy: " + copyErr.Error()
+		return "Error: copy: " + copyErr.Error(), ActivityStatusError
 	}
-	return fmt.Sprintf("copied object %s (%s) to /work/%s", args.ObjectID, humanSize(n), filepath.ToSlash(destPath))
+	return fmt.Sprintf("copied object %s (%s) to /work/%s", args.ObjectID, humanSize(n), filepath.ToSlash(destPath)), ActivityStatusSuccess
 }
 
-func (a *Agent) toolSandboxRegisterObject(sid, argsJSON string) string {
+func (a *Agent) toolSandboxRegisterObject(sid, argsJSON string) (string, ActivityEventStatus) {
 	var args struct {
 		Path string `json:"path"`
 		Type string `json:"type"`
 		Name string `json:"name"`
 	}
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
-		return "Error: invalid arguments: " + err.Error()
+		return "Error: invalid arguments: " + err.Error(), ActivityStatusError
 	}
 	if args.Path == "" {
-		return "Error: 'path' is required"
+		return "Error: 'path' is required", ActivityStatusError
 	}
 	if a.objects == nil {
-		return "Error: object store not available"
+		return "Error: object store not available", ActivityStatusError
 	}
 	src, err := safeWorkPath(a.sandbox.WorkDir(sid), args.Path)
 	if err != nil {
-		return "Error: " + err.Error()
+		return "Error: " + err.Error(), ActivityStatusError
 	}
 	f, err := os.Open(src)
 	if err != nil {
-		return "Error: open source: " + err.Error()
+		return "Error: open source: " + err.Error(), ActivityStatusError
 	}
 	defer f.Close()
 
@@ -330,17 +318,17 @@ func (a *Agent) toolSandboxRegisterObject(sid, argsJSON string) string {
 	}
 	meta, err := a.objects.Store(f, objstore.ObjectType(objType), mime, name, sid)
 	if err != nil {
-		return "Error: store: " + err.Error()
+		return "Error: store: " + err.Error(), ActivityStatusError
 	}
-	return fmt.Sprintf("registered as object %s (%s, %s)", meta.ID, objType, humanSize(meta.Size))
+	return fmt.Sprintf("registered as object %s (%s, %s)", meta.ID, objType, humanSize(meta.Size)), ActivityStatusSuccess
 }
 
-func (a *Agent) toolSandboxInfo(ctx context.Context, sid string) string {
+func (a *Agent) toolSandboxInfo(ctx context.Context, sid string) (string, ActivityEventStatus) {
 	info, err := a.sandbox.Info(ctx, sid)
 	if err != nil {
-		return "Error: " + err.Error()
+		return "Error: " + err.Error(), ActivityStatusError
 	}
-	return sandbox.FormatInfo(info)
+	return sandbox.FormatInfo(info), ActivityStatusSuccess
 }
 
 // toolSandboxLoadIntoAnalysis bridges a /work file into the DuckDB
@@ -351,9 +339,9 @@ func (a *Agent) toolSandboxInfo(ctx context.Context, sid string) string {
 // Accepts both `file_path` (matching load-data) and `path` so that
 // either spelling the LLM picks up works. We trim a leading "/work/"
 // because the LLM tends to write the in-container path verbatim.
-func (a *Agent) toolSandboxLoadIntoAnalysis(sid, argsJSON string) string {
+func (a *Agent) toolSandboxLoadIntoAnalysis(sid, argsJSON string) (string, ActivityEventStatus) {
 	if a.analysis == nil {
-		return "Error: analysis engine not available in this session"
+		return "Error: analysis engine not available in this session", ActivityStatusError
 	}
 	var args struct {
 		FilePath  string `json:"file_path"`
@@ -361,7 +349,7 @@ func (a *Agent) toolSandboxLoadIntoAnalysis(sid, argsJSON string) string {
 		TableName string `json:"table_name"`
 	}
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
-		return "Error: invalid arguments: " + err.Error()
+		return "Error: invalid arguments: " + err.Error(), ActivityStatusError
 	}
 	rel := args.FilePath
 	if rel == "" {
@@ -369,25 +357,25 @@ func (a *Agent) toolSandboxLoadIntoAnalysis(sid, argsJSON string) string {
 	}
 	rel = strings.TrimPrefix(rel, "/work/")
 	if rel == "" || args.TableName == "" {
-		return "Error: 'file_path' and 'table_name' are required"
+		return "Error: 'file_path' and 'table_name' are required", ActivityStatusError
 	}
 	src, err := safeWorkPath(a.sandbox.WorkDir(sid), rel)
 	if err != nil {
-		return "Error: " + err.Error()
+		return "Error: " + err.Error(), ActivityStatusError
 	}
 	if _, statErr := os.Stat(src); statErr != nil {
-		return "Error: file not found at /work/" + rel
+		return "Error: file not found at /work/" + rel, ActivityStatusError
 	}
 	if err := a.analysis.LoadFile(args.TableName, src); err != nil {
-		return "Error: load: " + err.Error()
+		return "Error: load: " + err.Error(), ActivityStatusError
 	}
 	for _, t := range a.analysis.Tables() {
 		if t.Name == args.TableName {
 			return fmt.Sprintf("Loaded /work/%s into table %q: %d rows, columns: %v",
-				rel, t.Name, t.RowCount, t.Columns)
+				rel, t.Name, t.RowCount, t.Columns), ActivityStatusSuccess
 		}
 	}
-	return fmt.Sprintf("Loaded /work/%s into table %q", rel, args.TableName)
+	return fmt.Sprintf("Loaded /work/%s into table %q", rel, args.TableName), ActivityStatusSuccess
 }
 
 // RestartSandbox tears down every existing sandbox container and
@@ -406,9 +394,9 @@ func (a *Agent) RestartSandbox() {
 // CSV into /work, so the LLM can hand a precise dataset to
 // sandbox-run-python (pandas, scikit-learn, …) without
 // reconstructing it from text.
-func (a *Agent) toolSandboxExportSQL(sid, argsJSON string) string {
+func (a *Agent) toolSandboxExportSQL(sid, argsJSON string) (string, ActivityEventStatus) {
 	if a.analysis == nil {
-		return "Error: analysis engine not available in this session"
+		return "Error: analysis engine not available in this session", ActivityStatusError
 	}
 	var args struct {
 		SQL      string `json:"sql"`
@@ -416,7 +404,7 @@ func (a *Agent) toolSandboxExportSQL(sid, argsJSON string) string {
 		Path     string `json:"path"` // accept either spelling, like load-into-analysis
 	}
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
-		return "Error: invalid arguments: " + err.Error()
+		return "Error: invalid arguments: " + err.Error(), ActivityStatusError
 	}
 	rel := args.FilePath
 	if rel == "" {
@@ -424,18 +412,18 @@ func (a *Agent) toolSandboxExportSQL(sid, argsJSON string) string {
 	}
 	rel = strings.TrimPrefix(rel, "/work/")
 	if args.SQL == "" || rel == "" {
-		return "Error: 'sql' and 'file_path' are required"
+		return "Error: 'sql' and 'file_path' are required", ActivityStatusError
 	}
 	dest, err := safeWorkPath(a.sandbox.WorkDir(sid), rel)
 	if err != nil {
-		return "Error: " + err.Error()
+		return "Error: " + err.Error(), ActivityStatusError
 	}
 	if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
-		return "Error: mkdir: " + err.Error()
+		return "Error: mkdir: " + err.Error(), ActivityStatusError
 	}
 	f, err := os.Create(dest)
 	if err != nil {
-		return "Error: create: " + err.Error()
+		return "Error: create: " + err.Error(), ActivityStatusError
 	}
 	cols, n, err := a.analysis.QuerySQLToCSV(args.SQL, f)
 	if cerr := f.Close(); cerr != nil && err == nil {
@@ -443,10 +431,10 @@ func (a *Agent) toolSandboxExportSQL(sid, argsJSON string) string {
 	}
 	if err != nil {
 		_ = os.Remove(dest)
-		return "Error: " + err.Error()
+		return "Error: " + err.Error(), ActivityStatusError
 	}
 	relOut, _ := filepath.Rel(a.sandbox.WorkDir(sid), dest)
-	return fmt.Sprintf("wrote %d rows × %d columns to /work/%s (columns: %v)", n, len(cols), filepath.ToSlash(relOut), cols)
+	return fmt.Sprintf("wrote %d rows × %d columns to /work/%s (columns: %v)", n, len(cols), filepath.ToSlash(relOut), cols), ActivityStatusSuccess
 }
 
 // SandboxStop tears down the per-session sandbox container, if any.

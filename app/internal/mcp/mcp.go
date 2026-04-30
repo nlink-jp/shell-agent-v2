@@ -4,6 +4,7 @@ package mcp
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
@@ -148,7 +149,22 @@ func (g *Guardian) Tools() []ToolDef {
 	return g.tools
 }
 
+// ErrToolFailed is returned by CallTool when the JSON-RPC call
+// itself succeeded but the response carried `result.isError:
+// true`. Per the MCP spec this means the tool ran on the upstream
+// server and reported a tool-level failure (vs. a transport-level
+// error, which surfaces as a non-RPC Go error). Callers can
+// errors.Is against this to distinguish: in either case the
+// returned RawMessage still carries the upstream response body
+// so the LLM gets the full diagnostic text.
+var ErrToolFailed = errors.New("mcp: tool reported isError")
+
 // CallTool invokes an MCP tool and returns the result.
+//
+// Three outcomes:
+//  1. transport / RPC error  → (nil, transport-level error)
+//  2. result.isError == true → (response body, ErrToolFailed)
+//  3. success                → (response body, nil)
 func (g *Guardian) CallTool(name string, arguments json.RawMessage) (json.RawMessage, error) {
 	resp, err := g.call("tools/call", map[string]any{
 		"name":      name,
@@ -156,6 +172,14 @@ func (g *Guardian) CallTool(name string, arguments json.RawMessage) (json.RawMes
 	})
 	if err != nil {
 		return nil, err
+	}
+	// Inspect result.isError for tool-level failures. Servers
+	// that don't include the field are treated as success.
+	var probe struct {
+		IsError bool `json:"isError"`
+	}
+	if jerr := json.Unmarshal(resp.Result, &probe); jerr == nil && probe.IsError {
+		return resp.Result, ErrToolFailed
 	}
 	return resp.Result, nil
 }

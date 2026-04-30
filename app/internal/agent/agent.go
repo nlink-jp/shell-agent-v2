@@ -1045,6 +1045,14 @@ func (a *Agent) executeTool(ctx context.Context, tc llm.ToolCall) (string, Activ
 				return fmt.Sprintf("Error: MCP guardian %q not found", parts[0]), ActivityStatusError
 			}
 			result, err := g.CallTool(parts[1], json.RawMessage(tc.Arguments))
+			if errors.Is(err, mcp.ErrToolFailed) {
+				// Upstream MCP server signalled a tool-level
+				// failure via result.isError. The body still
+				// carries diagnostic content the LLM benefits
+				// from seeing, so pass it through; only the
+				// chat-bubble status flips to error.
+				return string(result), ActivityStatusError
+			}
 			if err != nil {
 				return fmt.Sprintf("Error: MCP %s: %v", parts[1], err), ActivityStatusError
 			}

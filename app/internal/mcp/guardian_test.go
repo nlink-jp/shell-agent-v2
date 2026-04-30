@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -43,6 +44,10 @@ for line in sys.stdin:
         name = req.get("params", {}).get("name", "")
         if name == "fail-tool":
             resp = {"jsonrpc":"2.0","id":rid,"error":{"code":-32000,"message":"tool failed"}}
+        elif name == "tool-isError":
+            # Tool-level failure: RPC succeeds but isError marks
+            # the result as a logical failure.
+            resp = {"jsonrpc":"2.0","id":rid,"result":{"isError":True,"content":[{"type":"text","text":"oops"}]}}
         else:
             resp = {"jsonrpc":"2.0","id":rid,"result":{"content":[{"type":"text","text":"ok"}]}}
     else:
@@ -108,6 +113,28 @@ func TestGuardian_CallToolRPCErrorSurfaces(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "-32000") {
 		t.Errorf("error should include RPC code: %v", err)
+	}
+}
+
+func TestGuardian_CallToolIsErrorSurfacesAsErrToolFailed(t *testing.T) {
+	// MCP spec: a successful RPC response with result.isError:true
+	// means the tool ran and reported a tool-level failure. CallTool
+	// must surface this as ErrToolFailed so the agent can render the
+	// chat bubble red while still passing the result body to the LLM
+	// (the body has the diagnostic content).
+	stub := makeStub(t)
+	g := NewGuardian(stub)
+	if err := g.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer g.Stop()
+
+	res, err := g.CallTool("tool-isError", json.RawMessage(`{}`))
+	if !errors.Is(err, ErrToolFailed) {
+		t.Fatalf("err = %v, want ErrToolFailed", err)
+	}
+	if !strings.Contains(string(res), "oops") {
+		t.Errorf("result body should still be returned even on isError, got: %s", res)
 	}
 }
 
