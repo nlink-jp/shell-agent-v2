@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.15] - 2026-05-01
+
+### Added
+
+- **Tabbed Data sub-sections** (information-display redesign
+  §6). The chat-pane Data disclosure no longer stacks Objects
+  / Tables / /work vertically; a tab strip at the top of the
+  body switches between them, with only the active section's
+  content rendered below. Tabs only appear for sub-sections
+  that actually have data, and the active tab falls back to
+  whichever still has content if the current one empties.
+
+### Changed
+
+- **Frontend code organisation.** `App.tsx` was 1457 lines
+  with ten-plus interfaces, the Wails binding declaration,
+  three subcomponents, the entire App component, the sidebar
+  tree, and four overlay dialogs all in one file. Decomposed
+  into a coordinating shell + dedicated modules:
+  - `types.ts` — shared TypeScript interfaces
+  - `bindings.ts` — `window.go.main.Bindings` global
+    declaration
+  - `components/` — `MessageItem`, `BulkActions`,
+    `BackendBudgetEditor`
+  - `sidebar/Sidebar.tsx` — accordion + bottom-nav + resize
+    handle (sidebar-local state moved here)
+  - `dialogs/SettingsDialog.tsx`, `MITLDialog.tsx`,
+    `Lightbox.tsx`, `ReportViewer.tsx`
+  Final `App.tsx`: 587 lines (~60% reduction). DOM, CSS
+  classes, Wails binding surface all unchanged. Plan
+  documented in
+  [docs/en/frontend-decomposition.md](docs/en/frontend-decomposition.md).
+
 ## [0.1.14] - 2026-04-30
 
 A round of UI fixes from the GitHub issue tracker, covering
