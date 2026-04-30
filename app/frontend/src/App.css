@@ -194,10 +194,18 @@ input, textarea {
 
 .input-status-bar {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 10px;
     padding: 4px 12px;
     border-top: 1px solid var(--border-primary, #2a3a4a);
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.status-msg-counts {
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
 }
 
 .sidebar-hint {

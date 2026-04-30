@@ -181,7 +181,7 @@ interface SandboxSettings {
     timeout_seconds: number;
 }
 
-type SidebarPanel = 'sessions' | 'status';
+type SidebarPanel = 'sessions' | 'memory';
 
 interface ObjectInfo {
     id: string;
@@ -483,6 +483,12 @@ function App() {
             window.go.main.Bindings.GetSettings().then(s => {
                 if (!cancel && s.theme) document.documentElement.setAttribute('data-theme', s.theme)
             })
+            // Footer strip needs initial values too — Phase 4 moved
+            // Tokens out of the Memory panel, so the on-mount fetch
+            // can't piggy-back on that panel's effect any more.
+            window.go.main.Bindings.GetLLMStatus().then(s => {
+                if (!cancel && s) setLLMStatus(s)
+            })
         }
         load()
         return () => { cancel = true }
@@ -595,7 +601,7 @@ function App() {
     }, [])
 
     useEffect(() => {
-        if (sidebarPanel === 'status' && window.go) {
+        if (sidebarPanel === 'memory' && window.go) {
             refreshFindings()
             window.go.main.Bindings.GetLLMStatus().then(setLLMStatus)
             window.go.main.Bindings.GetPinnedMemories().then(setPinnedMemories)
@@ -711,7 +717,7 @@ function App() {
                             <span className="sidebar-nav-ic">+</span>
                         </button>
                         <div className="sidebar-nav-divider" />
-                        <button className="sidebar-nav-btn" onClick={() => { setSidebarCollapsed(false); setSidebarPanel('status') }} title="Status">
+                        <button className="sidebar-nav-btn" onClick={() => { setSidebarCollapsed(false); setSidebarPanel('memory') }} title="Memory">
                             <span className="sidebar-nav-ic">&#x2261;</span>
                         </button>
                         <button className="sidebar-nav-btn" onClick={() => { setSidebarCollapsed(false); openSettings() }} title="Settings">
@@ -765,7 +771,7 @@ function App() {
                         ))}
                     </>)}
 
-                    {sidebarPanel === 'status' && (<>
+                    {sidebarPanel === 'memory' && (<>
                         {findings.length > 0 && (
                             <div className={`status-section ${selectedFindingIds.size > 0 ? 'bulk-active' : ''}`}>
                                 <div className="bulk-section-header">
@@ -867,15 +873,9 @@ function App() {
                                 </div>
                             ))}
                         </div>
-                        {llmStatus && (
-                            <div className="status-section">
-                                <h3>Tokens</h3>
-                                <div className="status-row"><span>Hot messages</span><span>{llmStatus.hot_messages}</span></div>
-                                <div className="status-row"><span>Warm summaries</span><span>{llmStatus.warm_summaries}</span></div>
-                                <div className="status-row"><span>Prompt tokens</span><span>{llmStatus.prompt_tokens.toLocaleString()}</span></div>
-                                <div className="status-row"><span>Output tokens</span><span>{llmStatus.output_tokens.toLocaleString()}</span></div>
-                            </div>
-                        )}
+                        {/* Tokens section moved to chat-pane footer in
+                           info-display redesign Phase 4 — telemetry isn't
+                           navigable content. */}
                     </>)}
                     {/* Sidebar Objects panel removed in info-display redesign Phase 3.
                        Object management now lives in the per-session Data
@@ -887,8 +887,8 @@ function App() {
                         <span className="sidebar-nav-ic">+</span> New Chat
                     </button>
                     <div className="sidebar-nav-divider" />
-                    <button className={`sidebar-nav-btn ${sidebarPanel === 'status' ? 'active' : ''}`} onClick={() => setSidebarPanel(sidebarPanel === 'status' ? 'sessions' : 'status')}>
-                        <span className="sidebar-nav-ic">&#x2261;</span> Status
+                    <button className={`sidebar-nav-btn ${sidebarPanel === 'memory' ? 'active' : ''}`} onClick={() => setSidebarPanel(sidebarPanel === 'memory' ? 'sessions' : 'memory')}>
+                        <span className="sidebar-nav-ic">&#x2261;</span> Memory
                     </button>
                     <button className="sidebar-nav-btn" onClick={openSettings}>
                         <span className="sidebar-nav-ic">&#x2699;</span> Settings
@@ -958,7 +958,15 @@ function App() {
                 <div className="input-status-bar">
                     <span className={`backend-badge ${backend}`}>{backend || '...'}</span>
                     {llmStatus && (
-                        <span className="status-tokens">{llmStatus.prompt_tokens.toLocaleString()} in / {llmStatus.output_tokens.toLocaleString()} out</span>
+                        <>
+                            <span className="status-msg-counts" title="Recent messages kept verbatim · older messages condensed into summaries">
+                                Messages: {llmStatus.hot_messages}
+                                {llmStatus.warm_summaries > 0 && ` (+${llmStatus.warm_summaries} summarized)`}
+                            </span>
+                            <span className="status-tokens" title="Prompt / output tokens of the most recent LLM call">
+                                Tokens: {llmStatus.prompt_tokens.toLocaleString()} in / {llmStatus.output_tokens.toLocaleString()} out
+                            </span>
+                        </>
                     )}
                     {state === 'busy' && <span className="tool-progress">{progressTool || 'Thinking...'}</span>}
                 </div>
