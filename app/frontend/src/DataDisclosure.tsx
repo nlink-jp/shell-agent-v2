@@ -7,6 +7,7 @@
 // or when the agent reports a tool-result event.
 
 import {useCallback, useEffect, useMemo, useState} from 'react'
+import ObjectImage from './ObjectImage'
 
 interface ObjectInfo {
     id: string;
@@ -39,7 +40,7 @@ interface Props {
     sessionId: string;
     refreshTick: number;            // bumped by parent to force refetch (debounced)
     sandboxEnabled: boolean;        // hide the /work section when sandbox is off
-    onPreviewObject?: (id: string) => void;
+    onPreviewObject?: (obj: ObjectInfo) => void;
 }
 
 function fmtBytes(n: number): string {
@@ -112,7 +113,10 @@ export default function DataDisclosure({sessionId, refreshTick, sandboxEnabled, 
     return (
         <details className="data-disclosure" open={open} onToggle={e => setOpen((e.target as HTMLDetailsElement).open)}>
             <summary>
-                <span className="data-summary-title">Data ({total})</span>
+                <span className="data-summary-left">
+                    <span className="data-summary-marker" aria-hidden>{open ? '\u25BC' : '\u25B6'}</span>
+                    <span className="data-summary-title">Data ({total})</span>
+                </span>
                 {!open && (
                     <span className="data-summary-counts">
                         {objects.length > 0 && <span>{objects.length} obj</span>}
@@ -125,15 +129,15 @@ export default function DataDisclosure({sessionId, refreshTick, sandboxEnabled, 
                 {objects.length > 0 && (
                     <section className="data-section">
                         <h4>Objects ({objects.length})</h4>
-                        <ul>
+                        <div className="data-object-grid">
                             {objects.map(o => (
-                                <li key={o.id} className="data-object-row" onClick={() => onPreviewObject?.(o.id)} title={o.id}>
-                                    <span className="data-icon">{o.type === 'image' ? '\u{1F5BC}' : o.type === 'report' ? '\u{1F4C4}' : '\u{1F4E6}'}</span>
-                                    <span className="data-name">{o.orig_name || o.id}</span>
-                                    <span className="data-size">{fmtBytes(o.size)}</span>
-                                </li>
+                                <ObjectCard
+                                    key={o.id}
+                                    obj={o}
+                                    onPreview={onPreviewObject}
+                                />
                             ))}
-                        </ul>
+                        </div>
                     </section>
                 )}
                 {tables.length > 0 && (
@@ -146,7 +150,7 @@ export default function DataDisclosure({sessionId, refreshTick, sandboxEnabled, 
                                     <span className="data-name">{t.name}</span>
                                     <span className="data-size">{fmtRows(t.row_count)}</span>
                                     <span className="data-cols" title={t.columns.join(', ')}>
-                                        {t.columns.slice(0, 4).join(', ')}{t.columns.length > 4 && '\u2026'}
+                                        {t.columns.join(', ')}
                                     </span>
                                 </li>
                             ))}
@@ -156,15 +160,15 @@ export default function DataDisclosure({sessionId, refreshTick, sandboxEnabled, 
                 {sandboxEnabled && workFiles.length > 0 && (
                     <section className="data-section">
                         <h4>/work ({workFiles.length})</h4>
-                        <ul>
+                        <div className="data-work-grid">
                             {workFiles.map(f => (
-                                <li key={f.path} className="data-work-row">
-                                    <span className="data-icon">{'\u{1F4DD}'}</span>
-                                    <span className="data-name">{f.path}</span>
-                                    <span className="data-size">{fmtBytes(f.size)}</span>
-                                </li>
+                                <div key={f.path} className="data-work-card" title={f.path}>
+                                    <span className="data-work-ext">{extOf(f.path)}</span>
+                                    <span className="data-work-name">{f.path}</span>
+                                    <span className="data-work-size">{fmtBytes(f.size)}</span>
+                                </div>
                             ))}
-                        </ul>
+                        </div>
                     </section>
                 )}
             </div>
@@ -217,6 +221,46 @@ function PreviewModal({name, data, error, onClose}: {
             </div>
         </div>
     )
+}
+
+// ObjectCard renders a single object as a thumbnail card.
+// Images get a real thumbnail via ObjectImage (which caches data
+// URLs across the session); blobs and reports get a typed icon
+// card so the user can still see size and filename at a glance.
+function ObjectCard({obj, onPreview}: {obj: ObjectInfo; onPreview?: (obj: ObjectInfo) => void}) {
+    const isImage = obj.type === 'image'
+    return (
+        <div
+            className={`data-object-card data-object-${obj.type}`}
+            title={obj.id}
+            onClick={() => onPreview?.(obj)}
+        >
+            <div className="data-object-thumb">
+                {isImage ? (
+                    <ObjectImage id={obj.id} alt={obj.orig_name} />
+                ) : (
+                    <span className="data-object-glyph">
+                        {obj.type === 'report' ? '\u{1F4C4}' : '\u{1F4E6}'}
+                    </span>
+                )}
+            </div>
+            <div className="data-object-meta">
+                <div className="data-object-name">{obj.orig_name || obj.id}</div>
+                <div className="data-object-size">{fmtBytes(obj.size)}</div>
+            </div>
+        </div>
+    )
+}
+
+// extOf returns the file extension (no leading dot, upper-cased)
+// or "FILE" if there isn't one. Used as a tiny corner badge on
+// /work cards.
+function extOf(path: string): string {
+    const idx = path.lastIndexOf('.')
+    if (idx < 0 || idx === path.length - 1) return 'FILE'
+    const ext = path.slice(idx + 1)
+    if (ext.length > 5) return 'FILE'
+    return ext.toUpperCase()
 }
 
 function formatCell(v: any): string {

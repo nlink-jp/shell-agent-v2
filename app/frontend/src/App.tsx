@@ -1010,15 +1010,27 @@ function App() {
             </div>
             {!sidebarCollapsed && <div className="sidebar-resize" onMouseDown={startResize} />}
             <div className="main">
+                {currentSessionId && (
+                    <DataDisclosure
+                        sessionId={currentSessionId}
+                        refreshTick={dataRefreshTick}
+                        sandboxEnabled={!!settings?.sandbox?.enabled}
+                        onPreviewObject={async obj => {
+                            try {
+                                if (obj.type === 'image') {
+                                    const url = await window.go.main.Bindings.GetImageDataURL(obj.id)
+                                    setLightboxImage(url)
+                                } else if (obj.type === 'report') {
+                                    const text = await window.go.main.Bindings.GetObjectText(obj.id)
+                                    const title = (text.split('\n')[0] || '').replace(/^#\s*/, '') || obj.orig_name || obj.id
+                                    setExpandedReport({title, content: text})
+                                }
+                                // blob has no built-in preview yet — left as a click no-op.
+                            } catch {}
+                        }}
+                    />
+                )}
                 <div className="messages">
-                    {currentSessionId && (
-                        <DataDisclosure
-                            sessionId={currentSessionId}
-                            refreshTick={dataRefreshTick}
-                            sandboxEnabled={!!settings?.sandbox?.enabled}
-                            onPreviewObject={id => window.go.main.Bindings.GetImageDataURL(id).then(setLightboxImage).catch(() => {})}
-                        />
-                    )}
                     {messages.filter(msg => msg.role !== 'tool').map((msg, i) => (
                         <div key={i} className={`message ${msg.role}`}>
                             <MessageItem msg={msg} onLightbox={setLightboxImage} onExpandReport={setExpandedReport} />

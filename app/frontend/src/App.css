@@ -1998,6 +1998,18 @@ input, textarea {
     display: none;
 }
 
+.data-summary-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.data-summary-marker {
+    color: var(--text-muted);
+    font-size: 11px;
+    line-height: 1;
+}
+
 .data-summary-title {
     font-weight: 600;
     color: var(--text-primary);
@@ -2037,8 +2049,10 @@ input, textarea {
 
 .data-section li {
     display: grid;
-    grid-template-columns: 18px 1fr auto auto;
-    gap: 8px;
+    /* icon | name | rows | columns. Columns slot takes any
+       remaining width so the row fully spans the disclosure. */
+    grid-template-columns: 18px auto auto 1fr;
+    gap: 12px;
     align-items: baseline;
     padding: 3px 4px;
     border-radius: 4px;
@@ -2049,9 +2063,135 @@ input, textarea {
     background: var(--bg-inline-code);
 }
 
-.data-table-row,
-.data-object-row {
+.data-table-row {
     cursor: pointer;
+}
+
+.data-table-row .data-name {
+    font-weight: 500;
+}
+
+/* Objects sub-section: card grid with image thumbnails */
+.data-object-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 8px;
+}
+
+.data-object-card {
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: 6px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: border-color 0.1s, transform 0.05s;
+}
+
+.data-object-card:hover {
+    border-color: var(--border-accent);
+}
+
+.data-object-card:active {
+    transform: scale(0.98);
+}
+
+.data-object-thumb {
+    aspect-ratio: 16 / 10;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-inline-code);
+    overflow: hidden;
+}
+
+.data-object-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    margin: 0;
+    padding: 0;
+}
+
+.data-object-glyph {
+    font-size: 28px;
+    color: var(--text-muted);
+}
+
+.data-object-meta {
+    padding: 4px 8px 6px;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 6px;
+}
+
+.data-object-name {
+    font-size: 11px;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+}
+
+.data-object-size {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+}
+
+/* /work files: lighter card grid (no real preview, ext badge) */
+.data-work-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 6px;
+}
+
+.data-work-card {
+    display: grid;
+    grid-template-columns: 36px 1fr;
+    grid-template-rows: auto auto;
+    column-gap: 8px;
+    align-items: center;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: 6px;
+    padding: 5px 8px;
+}
+
+.data-work-ext {
+    grid-row: 1 / 3;
+    background: var(--bg-inline-code);
+    color: var(--text-muted);
+    font-size: 10px;
+    font-weight: 600;
+    text-align: center;
+    padding: 4px 0;
+    border-radius: 4px;
+    letter-spacing: 0.5px;
+}
+
+.data-work-name {
+    grid-column: 2;
+    grid-row: 1;
+    font-size: 11px;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.data-work-size {
+    grid-column: 2;
+    grid-row: 2;
+    font-size: 10px;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
 }
 
 .data-icon {
@@ -2078,8 +2218,10 @@ input, textarea {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    max-width: 240px;
-    grid-column: 2 / 3;
+    /* Columns slot is the trailing 1fr in .data-section li, so
+       the column list fills whatever width the disclosure has
+       — finally putting the per-row real estate to use. */
+    min-width: 0;
 }
 
 /* Table preview modal */
@@ -2097,8 +2239,8 @@ input, textarea {
     background: var(--bg-primary);
     border: 1px solid var(--border-primary);
     border-radius: 8px;
-    width: min(900px, 92vw);
-    max-height: 80vh;
+    width: min(1400px, 96vw);
+    max-height: 85vh;
     display: flex;
     flex-direction: column;
     box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
