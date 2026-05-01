@@ -119,6 +119,11 @@ function App() {
                 if (data.type === 'tool_end') {
                     setProgressTool('')
                     setRetryStatus('')
+                    // Refresh the Data panel after every tool — any
+                    // tool can register an object, load a table, or
+                    // write a /work file, and waiting until the
+                    // turn ends is too late for streaming UX.
+                    setDataRefreshTick(t => t + 1)
                     // Phase A: backend reports 'success' or 'error'.
                     // Old event payloads without status fall back to
                     // success so older runs still render.
@@ -373,6 +378,7 @@ function App() {
             setState('idle')
             setStreaming('')
             setProgressTool('')
+            setRetryStatus('')
             // Mark any leftover running tool-events as completed
             // (e.g. on agent error or abort). We can't know whether
             // they actually succeeded, but leaving them in 'running'
@@ -516,7 +522,7 @@ function App() {
                 )}
                 <div className="input-status-bar">
                     <span className={`backend-badge ${backend}`}>{backend || '...'}</span>
-                    {retryStatus && (
+                    {state === 'busy' && retryStatus && (
                         <span className="retry-badge" title="LLM backend hit a transient failure and is retrying">
                             {retryStatus}
                         </span>

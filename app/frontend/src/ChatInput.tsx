@@ -79,15 +79,21 @@ function ChatInput({onSend, disabled}: Props) {
     }
 
     async function addImages(files: FileList | File[]) {
-        for (const file of Array.from(files)) {
-            if (file.type.startsWith('image/')) {
+        // FileReader is async; reading files in a plain for-loop and
+        // appending each onload result lets readers race — bigger
+        // images finish later, so pendingImages can end up in a
+        // different order than the user actually attached. Read all
+        // in parallel, await, then append in the original order.
+        const fileArr = Array.from(files).filter(f => f.type.startsWith('image/'))
+        const dataURLs = await Promise.all(fileArr.map(file =>
+            new Promise<string>((resolve, reject) => {
                 const reader = new FileReader()
-                reader.onload = () => {
-                    setPendingImages(prev => [...prev, reader.result as string])
-                }
+                reader.onload = () => resolve(reader.result as string)
+                reader.onerror = () => reject(reader.error)
                 reader.readAsDataURL(file)
-            }
-        }
+            })
+        ))
+        setPendingImages(prev => [...prev, ...dataURLs])
     }
 
     function handlePaste(e: React.ClipboardEvent) {
