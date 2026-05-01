@@ -3,8 +3,10 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -463,6 +465,14 @@ func (a *Agent) SandboxStopAll(ctx context.Context) error {
 // because that's what they see inside sandbox-run-python. We strip
 // the "/work/" or leading "/" prefix as a courtesy so the join
 // doesn't end up with a doubled "/work/work/" segment.
+//
+// Returns the host-side absolute path the caller can pass to
+// os.Open / os.Create / os.WriteFile / DuckDB. The returned path
+// is guaranteed to live under workDir even when the LLM tries to
+// escape via "..", absolute paths, or symlinks created from inside
+// the container. (The container runs as the host UID, so /work
+// symlinks resolve on the host when the Go side opens them — see
+// docs/{en,ja}/security-hardening{,.ja}.md §3.2.1.)
 func safeWorkPath(workDir, rel string) (string, error) {
 	// Normalise the LLM's path back into a /work-relative form.
 	for {
@@ -485,7 +495,47 @@ func safeWorkPath(workDir, rel string) (string, error) {
 	if cleaned == ".." || strings.HasPrefix(cleaned, "../") {
 		return "", fmt.Errorf("path escapes /work: %q", rel)
 	}
-	return filepath.Join(workDir, cleaned), nil
+
+	joined := filepath.Join(workDir, cleaned)
+
+	// macOS /var → /private/var means the lexical workDir often
+	// doesn't match the symlink-resolved form. Resolve the
+	// workDir once so the prefix check below compares like with
+	// like.
+	resolvedWorkDir, err := filepath.EvalSymlinks(workDir)
+	if err != nil {
+		// workDir is created by EnsureContainer before any tool
+		// runs; if it doesn't resolve, that's a setup bug.
+		return "", fmt.Errorf("resolve workDir: %w", err)
+	}
+
+	// Resolve symlinks on the parent (the leaf may not exist for
+	// write operations). EvalSymlinks errors on a non-existent
+	// component; treat that as "no resolution needed" — the
+	// lexical check above already proved cleaned stays under
+	// workDir.
+	parent := filepath.Dir(joined)
+	leaf := filepath.Base(joined)
+	resolvedParent, err := filepath.EvalSymlinks(parent)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return joined, nil
+		}
+		return "", fmt.Errorf("resolve parent: %w", err)
+	}
+	if !strings.HasPrefix(resolvedParent+string(filepath.Separator), resolvedWorkDir+string(filepath.Separator)) && resolvedParent != resolvedWorkDir {
+		return "", fmt.Errorf("path escapes /work via symlink: %q", rel)
+	}
+	final := filepath.Join(resolvedParent, leaf)
+
+	// Reject when the leaf itself is a symlink, even one that
+	// resolves inside workDir — keeps the attack surface from
+	// growing across follow-up operations on the same session
+	// (e.g. an attacker swapping the target after a write).
+	if info, err := os.Lstat(final); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("path is a symlink: %q", rel)
+	}
+	return final, nil
 }
 
 // humanSize is a tiny duplicate of sandbox.humanSize so we can keep

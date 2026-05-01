@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -118,7 +119,7 @@ func (e *cliEngine) EnsureContainer(ctx context.Context, sessionID string) error
 		return err
 	}
 
-	args := buildRunArgs(e.cfg, name, e.WorkDir(sessionID))
+	args := buildRunArgs(e.cfg, name, e.WorkDir(sessionID), useSELinuxRelabel(bin))
 	if err := runCommand(ctx, bin, args...); err != nil {
 		return fmt.Errorf("sandbox: start container: %w", err)
 	}
@@ -143,15 +144,33 @@ func (e *cliEngine) ensureImage(ctx context.Context) error {
 	return nil
 }
 
+// useSELinuxRelabel reports whether the bind mount should be
+// suffixed with `:Z` (request SELinux relabel of the host
+// directory). Only correct on podman + Linux: podman on Linux
+// uses SELinux when present, while docker-desktop on macOS
+// rejects the option as invalid and Linux+docker without SELinux
+// can clobber labels on shared parents. Probed once per
+// EnsureContainer call from the resolved binary basename.
+func useSELinuxRelabel(binary string) bool {
+	if runtime.GOOS != "linux" {
+		return false
+	}
+	return strings.EqualFold(filepath.Base(binary), "podman")
+}
+
 // buildRunArgs builds the `podman run` / `docker run` argv (without
 // the binary prefix). Exposed for unit testing.
-func buildRunArgs(cfg Config, name, workDir string) []string {
+func buildRunArgs(cfg Config, name, workDir string, selinuxRelabel bool) []string {
+	mountSpec := workDir + ":/work:rw"
+	if selinuxRelabel {
+		mountSpec = workDir + ":/work:Z"
+	}
 	args := []string{
 		"run", "-d",
 		"--name", name,
 		"--label", containerLabel,
 		"--workdir", "/work",
-		"--volume", workDir + ":/work:Z",
+		"--volume", mountSpec,
 		"--user", strconv.Itoa(os.Getuid()),
 	}
 	if !cfg.Network {

@@ -15,7 +15,7 @@ func TestBuildRunArgs_Defaults(t *testing.T) {
 		MemoryLimit:    "1g",
 		TimeoutSeconds: 60,
 	}
-	got := buildRunArgs(cfg, "shell-agent-v2-test", "/tmp/work")
+	got := buildRunArgs(cfg, "shell-agent-v2-test", "/tmp/work", true)
 
 	mustHaveSeq := [][]string{
 		{"run", "-d"},
@@ -43,7 +43,7 @@ func TestBuildRunArgs_Defaults(t *testing.T) {
 
 func TestBuildRunArgs_NetworkOnOmitsNoneFlag(t *testing.T) {
 	cfg := Config{Engine: "podman", Image: "i", Network: true, CPULimit: "1", MemoryLimit: "256m", TimeoutSeconds: 30}
-	got := buildRunArgs(cfg, "n", "/w")
+	got := buildRunArgs(cfg, "n", "/w", true)
 	if slices.Contains(got, "none") {
 		t.Errorf("network=true must not append --network none: %v", got)
 	}
@@ -51,12 +51,34 @@ func TestBuildRunArgs_NetworkOnOmitsNoneFlag(t *testing.T) {
 
 func TestBuildRunArgs_OmitsEmptyLimits(t *testing.T) {
 	cfg := Config{Engine: "podman", Image: "i", Network: false, TimeoutSeconds: 30}
-	got := buildRunArgs(cfg, "n", "/w")
+	got := buildRunArgs(cfg, "n", "/w", true)
 	if slices.Contains(got, "--cpus") {
 		t.Errorf("empty CPULimit should omit flag; got %v", got)
 	}
 	if slices.Contains(got, "--memory") {
 		t.Errorf("empty MemoryLimit should omit flag; got %v", got)
+	}
+}
+
+// TestBuildRunArgs_VolumeFlagHonoursSelinuxRelabel asserts the
+// :Z suffix is only attached when the caller asked for it
+// (podman + Linux). On all other (engine, OS) combinations the
+// mount must use the plain :rw suffix so docker-desktop and
+// non-SELinux Linux+docker don't reject the option or clobber
+// labels on shared parents.
+func TestBuildRunArgs_VolumeFlagHonoursSelinuxRelabel(t *testing.T) {
+	cfg := Config{Engine: "podman", Image: "i", Network: false, TimeoutSeconds: 30}
+	withZ := buildRunArgs(cfg, "n", "/w", true)
+	withoutZ := buildRunArgs(cfg, "n", "/w", false)
+
+	if !slices.Contains(withZ, "/w:/work:Z") {
+		t.Errorf("selinuxRelabel=true should use :Z; got %v", withZ)
+	}
+	if !slices.Contains(withoutZ, "/w:/work:rw") {
+		t.Errorf("selinuxRelabel=false should use :rw; got %v", withoutZ)
+	}
+	if slices.Contains(withoutZ, "/w:/work:Z") {
+		t.Errorf("selinuxRelabel=false must NOT include :Z; got %v", withoutZ)
 	}
 }
 

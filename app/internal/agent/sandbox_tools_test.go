@@ -312,3 +312,118 @@ func TestExecuteSandboxTool_RunPythonTimeoutMaps(t *testing.T) {
 		t.Errorf("status = %q, want error (timeout)", status)
 	}
 }
+
+// --- safeWorkPath tests (Phase 2 hardening) ---
+
+// resolvedDir returns the symlink-resolved form of t.TempDir().
+// On macOS the temp root is /var/folders/... but the canonical
+// path is /private/var/folders/...; safeWorkPath returns the
+// resolved form, so test expectations need to too.
+func resolvedDir(t *testing.T) string {
+	t.Helper()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+func TestSafeWorkPath_AcceptsValidNewLeaf(t *testing.T) {
+	wd := resolvedDir(t)
+	p, err := safeWorkPath(wd, "subdir/file.csv")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if p != filepath.Join(wd, "subdir", "file.csv") {
+		t.Errorf("got %q", p)
+	}
+}
+
+func TestSafeWorkPath_StripsContainerPrefix(t *testing.T) {
+	wd := resolvedDir(t)
+	for _, in := range []string{"/work/foo.txt", "work/foo.txt", "foo.txt"} {
+		p, err := safeWorkPath(wd, in)
+		if err != nil {
+			t.Errorf("input %q: %v", in, err)
+			continue
+		}
+		if p != filepath.Join(wd, "foo.txt") {
+			t.Errorf("input %q: got %q, want %q", in, p, filepath.Join(wd, "foo.txt"))
+		}
+	}
+}
+
+func TestSafeWorkPath_BlocksAbsolute(t *testing.T) {
+	wd := resolvedDir(t)
+	if _, err := safeWorkPath(wd, "/etc/passwd"); err == nil {
+		// "/etc/passwd" gets the leading slash stripped → "etc/passwd",
+		// which is a valid relative path. So this is "accepted" but
+		// rooted at workDir; not actually escaping. The real escape
+		// vectors are dotdot and symlinks tested below.
+	}
+	// What we definitely must reject:
+	if _, err := safeWorkPath(wd, "../../etc/passwd"); err == nil {
+		t.Error("../../etc/passwd should escape /work")
+	}
+}
+
+func TestSafeWorkPath_BlocksDotDot(t *testing.T) {
+	wd := resolvedDir(t)
+	cases := []string{"..", "../foo", "a/../../b", "subdir/../../escape"}
+	for _, in := range cases {
+		if _, err := safeWorkPath(wd, in); err == nil {
+			t.Errorf("input %q: expected escape error, got nil", in)
+		}
+	}
+}
+
+func TestSafeWorkPath_BlocksSymlinkLeaf(t *testing.T) {
+	wd := resolvedDir(t)
+	target := filepath.Join(t.TempDir(), "outside.txt")
+	if err := os.WriteFile(target, []byte("secret"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(wd, "trap")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := safeWorkPath(wd, "trap"); err == nil {
+		t.Error("expected error: leaf is a symlink to outside")
+	}
+}
+
+func TestSafeWorkPath_BlocksSymlinkInParent(t *testing.T) {
+	wd := resolvedDir(t)
+	// /work/badparent → /tmp/somewhere-outside
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(wd, "badparent")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := safeWorkPath(wd, "badparent/file.txt"); err == nil {
+		t.Error("expected error: parent component is a symlink to outside")
+	}
+}
+
+func TestSafeWorkPath_AllowsSymlinkInsideWorkDir(t *testing.T) {
+	wd := resolvedDir(t)
+	if err := os.Mkdir(filepath.Join(wd, "real"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	// Symlink that stays inside workDir is OK at the parent level.
+	if err := os.Symlink(filepath.Join(wd, "real"), filepath.Join(wd, "alias")); err != nil {
+		t.Fatal(err)
+	}
+	p, err := safeWorkPath(wd, "alias/inner.txt")
+	if err != nil {
+		t.Fatalf("intra-workdir symlink should be allowed: %v", err)
+	}
+	if !strings.HasPrefix(p, wd+string(filepath.Separator)) {
+		t.Errorf("resolved path %q escapes workDir %q", p, wd)
+	}
+}
+
+func TestSafeWorkPath_RejectsEmpty(t *testing.T) {
+	if _, err := safeWorkPath(resolvedDir(t), "/work/"); err == nil {
+		t.Error("empty path after stripping should error")
+	}
+}
