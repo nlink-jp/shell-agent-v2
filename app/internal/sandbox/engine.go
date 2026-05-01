@@ -65,6 +65,20 @@ type Engine interface {
 	// packages, network policy, resource limits, /work listing).
 	// Safe to call before Exec — will EnsureContainer internally.
 	Info(ctx context.Context, sessionID string) (*Info, error)
+
+	// ImageReady reports whether `tag` exists on the local engine.
+	// The agent uses this to decide whether to register the
+	// sandbox-* tools — sandbox is only enabled when the
+	// configured Sandbox.Image is actually present.
+	ImageReady(ctx context.Context, tag string) (bool, error)
+
+	// BuildImage builds the recommended sandbox image (the
+	// embedded imagebuild bundle: python:3.12-slim + CJK fonts +
+	// analysis stack) and tags it as `tag`. Engine stdout/stderr
+	// stream line-by-line to onLine (nil-safe). Concurrent calls
+	// are serialised inside the engine; the second blocks until
+	// the first finishes.
+	BuildImage(ctx context.Context, tag string, onLine func(string)) error
 }
 
 // ExecArgs is the input to Exec.

@@ -1,6 +1,8 @@
 package sandbox
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -154,3 +156,26 @@ func containsSeq(b, sub []string) bool {
 
 // Helper used by other tests in the package.
 var _ = strings.Contains
+
+// TestWriteBundle materialises the embedded build context
+// into a temp dir and asserts the expected files are
+// written. The contents come from the imagebuild package
+// tests; here we only verify the unpack mechanics.
+func TestWriteBundle(t *testing.T) {
+	dir := t.TempDir()
+	if err := writeBundle(dir); err != nil {
+		t.Fatalf("writeBundle: %v", err)
+	}
+
+	for _, name := range []string{"Dockerfile", "matplotlibrc"} {
+		full := filepath.Join(dir, name)
+		info, err := os.Stat(full)
+		if err != nil {
+			t.Errorf("missing %s: %v", name, err)
+			continue
+		}
+		if info.Size() == 0 {
+			t.Errorf("%s is empty after writeBundle", name)
+		}
+	}
+}

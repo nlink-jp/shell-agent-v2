@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -16,6 +17,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/nlink-jp/shell-agent-v2/internal/sandbox/imagebuild"
 )
 
 // containerLabel is attached to every container we create so StopAll
@@ -33,6 +36,10 @@ type cliEngine struct {
 	// resolved binary, "" until Detect succeeds.
 	mu     sync.Mutex
 	binary string
+
+	// buildMu serialises BuildImage calls so a second click in the
+	// Settings UI doesn't kick off a parallel `podman build`.
+	buildMu sync.Mutex
 }
 
 // NewCLI constructs an Engine. Returns ErrEngineNotAvailable when
@@ -130,18 +137,139 @@ func (e *cliEngine) EnsureContainer(ctx context.Context, sessionID string) error
 // locally. Idempotent and a no-op when the image exists.
 func (e *cliEngine) ensureImage(ctx context.Context) error {
 	bin, _ := e.Detect()
-	out, err := runCommandOutput(ctx, bin, "image", "exists", e.cfg.Image)
-	_ = out
-	if err == nil {
+	ready, _ := e.imageReadyOn(ctx, bin, e.cfg.Image)
+	if ready {
 		return nil
 	}
-	// `image exists` returns non-zero (no stderr) when missing — fall
-	// through to pull. Distinguish other errors by re-running with
-	// stderr surfaced.
 	if pullErr := runCommand(ctx, bin, "pull", e.cfg.Image); pullErr != nil {
 		return fmt.Errorf("sandbox: pull image %s: %w", e.cfg.Image, pullErr)
 	}
 	return nil
+}
+
+// ImageReady reports whether tag exists on the local engine.
+// `podman image exists` exits 0 when present and non-zero (with
+// no stderr) when missing — we treat those two as the bool
+// outcome and only return an error on real engine failures
+// (binary missing, daemon down).
+func (e *cliEngine) ImageReady(ctx context.Context, tag string) (bool, error) {
+	bin, ok := e.Detect()
+	if !ok {
+		return false, ErrEngineNotAvailable
+	}
+	return e.imageReadyOn(ctx, bin, tag)
+}
+
+func (e *cliEngine) imageReadyOn(ctx context.Context, bin, tag string) (bool, error) {
+	_, err := runCommandOutput(ctx, bin, "image", "exists", tag)
+	if err == nil {
+		return true, nil
+	}
+	// `image exists` returns non-zero with no stderr when the tag
+	// is simply absent. Real failures (engine not running, unknown
+	// flag) surface as exec errors with stderr; we don't try to
+	// distinguish here — the caller treats (false, nil) and
+	// (false, err) the same way (image not usable). Surface only
+	// when the binary itself failed.
+	if errors.Is(err, exec.ErrNotFound) {
+		return false, err
+	}
+	return false, nil
+}
+
+// BuildImage materialises the embedded imagebuild bundle into a
+// temp dir, runs `podman/docker build -t tag .` on it, and
+// streams stdout/stderr lines to onLine.
+//
+// Concurrent calls are serialised via buildMu — a second click
+// in the Settings UI blocks until the first completes.
+func (e *cliEngine) BuildImage(ctx context.Context, tag string, onLine func(string)) error {
+	e.buildMu.Lock()
+	defer e.buildMu.Unlock()
+
+	bin, ok := e.Detect()
+	if !ok {
+		return ErrEngineNotAvailable
+	}
+
+	workDir, err := os.MkdirTemp("", "shell-agent-v2-build-*")
+	if err != nil {
+		return fmt.Errorf("sandbox build: temp dir: %w", err)
+	}
+	defer os.RemoveAll(workDir)
+
+	if err := writeBundle(workDir); err != nil {
+		return fmt.Errorf("sandbox build: write bundle: %w", err)
+	}
+
+	cmd := exec.CommandContext(ctx, bin, "build", "-t", tag, workDir)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("sandbox build: stdout pipe: %w", err)
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("sandbox build: stderr pipe: %w", err)
+	}
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("sandbox build: start: %w", err)
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go streamLines(stdout, onLine, &wg)
+	go streamLines(stderr, onLine, &wg)
+	wg.Wait()
+
+	if err := cmd.Wait(); err != nil {
+		return fmt.Errorf("sandbox build: %w", err)
+	}
+	return nil
+}
+
+// streamLines reads r line by line and forwards each line to
+// onLine. nil onLine drops lines on the floor; this lets
+// callers ignore progress without juggling a stub.
+func streamLines(r io.Reader, onLine func(string), wg *sync.WaitGroup) {
+	defer wg.Done()
+	if r == nil {
+		return
+	}
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for sc.Scan() {
+		if onLine != nil {
+			onLine(sc.Text())
+		}
+	}
+}
+
+// writeBundle materialises the embedded build context into
+// workDir, preserving filenames. Files inside bundle/ land
+// directly in workDir (Dockerfile / matplotlibrc); the
+// `bundle/` prefix is stripped.
+func writeBundle(workDir string) error {
+	return fs.WalkDir(imagebuild.Bundle, "bundle", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel := strings.TrimPrefix(path, "bundle/")
+		if rel == "" || rel == "bundle" {
+			return nil
+		}
+		dst := filepath.Join(workDir, rel)
+		if d.IsDir() {
+			return os.MkdirAll(dst, 0700)
+		}
+		data, err := imagebuild.Bundle.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(dst), 0700); err != nil {
+			return err
+		}
+		return os.WriteFile(dst, data, 0600)
+	})
 }
 
 // useSELinuxRelabel reports whether the bind mount should be

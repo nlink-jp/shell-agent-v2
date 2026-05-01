@@ -58,6 +58,14 @@ func (f *fakeEngine) Info(_ context.Context, _ string) (*sandbox.Info, error) {
 	return &sandbox.Info{Engine: "fake", Image: "fake:latest", PythonVersion: "Python 3.x"}, nil
 }
 
+// ImageReady defaults to "ready" so existing sandbox-tool
+// tests don't need to wire a build flow. Tests that exercise
+// the gate should override this.
+func (f *fakeEngine) ImageReady(_ context.Context, _ string) (bool, error) { return true, nil }
+func (f *fakeEngine) BuildImage(_ context.Context, _ string, _ func(string)) error {
+	return nil
+}
+
 // newAgentWithSandbox returns an Agent with a fake sandbox engine and
 // a session pre-loaded so tool dispatchers can run.
 func newAgentWithSandbox(t *testing.T) (*Agent, *fakeEngine) {
