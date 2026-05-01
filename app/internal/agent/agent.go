@@ -162,8 +162,28 @@ func (a *Agent) maybeStartSandbox() {
 		logger.Info("sandbox: %v — sandbox tools will be unavailable", err)
 		return
 	}
-	a.sandbox = eng
 	bin, _ := eng.Detect()
+
+	// Image-readiness gate: sandbox-* tools only register when
+	// the user has selected an Active image AND that image is
+	// present on the local engine. Without this check,
+	// "Enabled=true" + an empty or missing image means tools
+	// would register but every Exec would fail.
+	if rs.Image == "" {
+		logger.Info("sandbox: no Active image selected — pick one or click Build in the Sandbox tab. Sandbox tools will stay hidden.")
+		return
+	}
+	ready, err := eng.ImageReady(context.Background(), rs.Image)
+	if err != nil {
+		logger.Info("sandbox: image readiness probe for %q failed: %v — sandbox tools will stay hidden", rs.Image, err)
+		return
+	}
+	if !ready {
+		logger.Info("sandbox: image %q is not present on %s — pick another from the Sandbox tab or rebuild. Sandbox tools will stay hidden.", rs.Image, bin)
+		return
+	}
+
+	a.sandbox = eng
 	logger.Info("sandbox: enabled (engine=%s, image=%s)", bin, rs.Image)
 
 	// Sweep any containers left behind by a previous launch that

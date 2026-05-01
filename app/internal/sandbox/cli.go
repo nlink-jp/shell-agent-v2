@@ -177,42 +177,51 @@ func (e *cliEngine) imageReadyOn(ctx context.Context, bin, tag string) (bool, er
 	return false, nil
 }
 
-// BuildImage materialises the embedded imagebuild bundle into a
-// temp dir, runs `podman/docker build -t tag .` on it, and
-// streams stdout/stderr lines to onLine.
+// BuildImage writes the given Dockerfile body to a temp dir
+// and runs `<engine> build -t <tag> .` on it, with the tag
+// derived from imagebuild.TagFor(dockerfile). Stdout/stderr
+// stream to onLine line by line.
 //
-// Concurrent calls are serialised via buildMu — a second click
-// in the Settings UI blocks until the first completes.
-func (e *cliEngine) BuildImage(ctx context.Context, tag string, onLine func(string)) error {
+// Concurrent calls are serialised via buildMu — a second
+// click in the Settings UI blocks until the first completes.
+func (e *cliEngine) BuildImage(ctx context.Context, dockerfile string, onLine func(string)) (string, error) {
 	e.buildMu.Lock()
 	defer e.buildMu.Unlock()
 
 	bin, ok := e.Detect()
 	if !ok {
-		return ErrEngineNotAvailable
+		return "", ErrEngineNotAvailable
 	}
+
+	tag := imagebuild.TagFor(dockerfile)
 
 	workDir, err := os.MkdirTemp("", "shell-agent-v2-build-*")
 	if err != nil {
-		return fmt.Errorf("sandbox build: temp dir: %w", err)
+		return "", fmt.Errorf("sandbox build: temp dir: %w", err)
 	}
 	defer os.RemoveAll(workDir)
 
-	if err := writeBundle(workDir); err != nil {
-		return fmt.Errorf("sandbox build: write bundle: %w", err)
+	if err := os.WriteFile(filepath.Join(workDir, "Dockerfile"), []byte(dockerfile), 0600); err != nil {
+		return "", fmt.Errorf("sandbox build: write dockerfile: %w", err)
 	}
 
-	cmd := exec.CommandContext(ctx, bin, "build", "-t", tag, workDir)
+	// `--label app=shell-agent-v2-sandbox=1` lets ListImages
+	// enumerate just our builds without touching foreign tags.
+	cmd := exec.CommandContext(ctx, bin, "build",
+		"-t", tag,
+		"--label", imagebuild.TagPrefix+"=1",
+		workDir,
+	)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return fmt.Errorf("sandbox build: stdout pipe: %w", err)
+		return "", fmt.Errorf("sandbox build: stdout pipe: %w", err)
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		return fmt.Errorf("sandbox build: stderr pipe: %w", err)
+		return "", fmt.Errorf("sandbox build: stderr pipe: %w", err)
 	}
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("sandbox build: start: %w", err)
+		return "", fmt.Errorf("sandbox build: start: %w", err)
 	}
 
 	var wg sync.WaitGroup
@@ -222,7 +231,163 @@ func (e *cliEngine) BuildImage(ctx context.Context, tag string, onLine func(stri
 	wg.Wait()
 
 	if err := cmd.Wait(); err != nil {
-		return fmt.Errorf("sandbox build: %w", err)
+		return "", fmt.Errorf("sandbox build: %w", err)
+	}
+	return tag, nil
+}
+
+// ListImages enumerates locally-built sandbox images. We
+// identify ours by the tag prefix imagebuild.TagPrefix —
+// the content-addressed sha[:12] suffix makes false
+// positives effectively impossible. Returns newest-first.
+//
+// Earlier revisions tried `--filter label=…` but
+// buildkit and classic builders attach labels
+// inconsistently across podman / docker versions; a tag-
+// prefix match is engine-agnostic.
+func (e *cliEngine) ListImages(ctx context.Context) ([]ImageInfo, error) {
+	bin, ok := e.Detect()
+	if !ok {
+		return nil, ErrEngineNotAvailable
+	}
+	out, err := runCommandOutput(ctx, bin, "images",
+		"--format", "{{.Repository}}:{{.Tag}}|{{.CreatedAt}}|{{.Size}}",
+	)
+	if err != nil {
+		return nil, fmt.Errorf("sandbox: list images: %w", err)
+	}
+	var infos []ImageInfo
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "|", 3)
+		if len(parts) < 1 {
+			continue
+		}
+		// Accept both "shell-agent-v2-sandbox:<sha>" and
+		// "localhost/shell-agent-v2-sandbox:<sha>" — podman
+		// prepends "localhost/" to locally-built images.
+		// Normalise Tag to the bare form so it round-trips
+		// against what BuildImage produced and what we
+		// store in cfg.Sandbox.Image.
+		repoTag := parts[0]
+		bare := strings.TrimPrefix(repoTag, "localhost/")
+		if !strings.HasPrefix(bare, imagebuild.TagPrefix+":") {
+			continue
+		}
+		info := ImageInfo{Tag: bare}
+		if len(parts) >= 2 {
+			// Both podman and docker accept this format; podman
+			// emits RFC3339-ish, docker emits "2 days ago" by
+			// default. Best-effort parse.
+			if t, err := parseEngineTime(parts[1]); err == nil {
+				info.Created = t
+			}
+		}
+		if len(parts) >= 3 {
+			info.SizeBytes = parseEngineSize(parts[2])
+		}
+		infos = append(infos, info)
+	}
+	sort.Slice(infos, func(i, j int) bool {
+		return infos[i].Created.After(infos[j].Created)
+	})
+	return infos, nil
+}
+
+// parseEngineTime is a best-effort parser for the various
+// CreatedAt formats podman/docker emit. Failure returns a zero
+// time which sorts oldest.
+func parseEngineTime(s string) (time.Time, error) {
+	for _, layout := range []string{
+		time.RFC3339,
+		time.RFC3339Nano,
+		"2006-01-02 15:04:05 -0700 MST",
+		"2006-01-02 15:04:05 -0700",
+		"2006-01-02 15:04:05",
+	} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("unrecognised time format: %q", s)
+}
+
+// parseEngineSize reads a size string like "523MB" / "1.2GB"
+// into a byte count. Best-effort; returns 0 on parse error.
+func parseEngineSize(s string) int64 {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0
+	}
+	mult := int64(1)
+	switch {
+	case strings.HasSuffix(s, "GB"):
+		mult, s = 1024*1024*1024, strings.TrimSuffix(s, "GB")
+	case strings.HasSuffix(s, "MB"):
+		mult, s = 1024*1024, strings.TrimSuffix(s, "MB")
+	case strings.HasSuffix(s, "kB"), strings.HasSuffix(s, "KB"):
+		mult, s = 1024, s[:len(s)-2]
+	case strings.HasSuffix(s, "B"):
+		s = strings.TrimSuffix(s, "B")
+	}
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0
+	}
+	// Float-ish parse via strconv; ignore decimals beyond what
+	// fits in int64 without bringing in math/big.
+	dot := strings.IndexByte(s, '.')
+	if dot >= 0 {
+		s = s[:dot]
+	}
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return 0
+	}
+	return n * mult
+}
+
+// RemoveImage deletes the image with the given tag. Missing
+// tags are a no-op so the UI can call Delete idempotently.
+//
+// podman labels locally-built images as
+// "localhost/<repo>:<tag>" but accepts either form for `image
+// rm` only when there's no ambiguity. We try both forms with
+// -f so an in-use image is force-removed (the UI Delete
+// confirms the user's intent already).
+func (e *cliEngine) RemoveImage(ctx context.Context, tag string) error {
+	bin, ok := e.Detect()
+	if !ok {
+		return ErrEngineNotAvailable
+	}
+	// Safety: only remove tags under our prefix. Caller might
+	// pass anything; we refuse to touch foreign images.
+	bare := strings.TrimPrefix(tag, "localhost/")
+	if !strings.HasPrefix(bare, imagebuild.TagPrefix+":") {
+		return fmt.Errorf("sandbox: refuse to remove non-sandbox tag %q", tag)
+	}
+
+	// Probe both forms; idempotent no-op when neither exists.
+	bareReady, _ := e.imageReadyOn(ctx, bin, bare)
+	localhostForm := "localhost/" + bare
+	localhostReady, _ := e.imageReadyOn(ctx, bin, localhostForm)
+	if !bareReady && !localhostReady {
+		return nil
+	}
+
+	// Try the form podman actually has. Use -f because the UI
+	// Delete already confirmed and we don't want a "in-use by
+	// container" failure to confuse the user — the container
+	// wrapping is also force-removable.
+	target := bare
+	if !bareReady {
+		target = localhostForm
+	}
+	out, err := runCommandOutput(ctx, bin, "image", "rm", "-f", target)
+	if err != nil {
+		return fmt.Errorf("sandbox: remove image %s: %w (stdout=%q)", target, err, out)
 	}
 	return nil
 }
@@ -244,33 +409,6 @@ func streamLines(r io.Reader, onLine func(string), wg *sync.WaitGroup) {
 	}
 }
 
-// writeBundle materialises the embedded build context into
-// workDir, preserving filenames. Files inside bundle/ land
-// directly in workDir (Dockerfile / matplotlibrc); the
-// `bundle/` prefix is stripped.
-func writeBundle(workDir string) error {
-	return fs.WalkDir(imagebuild.Bundle, "bundle", func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		rel := strings.TrimPrefix(path, "bundle/")
-		if rel == "" || rel == "bundle" {
-			return nil
-		}
-		dst := filepath.Join(workDir, rel)
-		if d.IsDir() {
-			return os.MkdirAll(dst, 0700)
-		}
-		data, err := imagebuild.Bundle.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		if err := os.MkdirAll(filepath.Dir(dst), 0700); err != nil {
-			return err
-		}
-		return os.WriteFile(dst, data, 0600)
-	})
-}
 
 // useSELinuxRelabel reports whether the bind mount should be
 // suffixed with `:Z` (request SELinux relabel of the host

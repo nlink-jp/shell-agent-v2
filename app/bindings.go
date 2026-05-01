@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -19,6 +20,7 @@ import (
 	"github.com/nlink-jp/shell-agent-v2/internal/memory"
 	"github.com/nlink-jp/shell-agent-v2/internal/objstore"
 	"github.com/nlink-jp/shell-agent-v2/internal/sandbox"
+	"github.com/nlink-jp/shell-agent-v2/internal/sandbox/imagebuild"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -39,7 +41,15 @@ type Bindings struct {
 	// chan that the next request would silently consume.
 	mitlMu  sync.Mutex
 	mitlReq *mitlSlot
+
+	// Sandbox image build single-flight.
+	buildMu       sync.Mutex
+	buildInFlight bool
 }
+
+// ErrBuildInProgress is returned by BuildSandboxImage when a
+// previous build is still running.
+var ErrBuildInProgress = errors.New("sandbox: image build already in progress")
 
 // mitlSlot is the per-request state attached to b.mitlReq while
 // a tool is awaiting MITL approval.
@@ -438,6 +448,7 @@ type SandboxData struct {
 	Enabled        bool   `json:"enabled"`
 	Engine         string `json:"engine"`
 	Image          string `json:"image"`
+	Dockerfile     string `json:"dockerfile"`
 	Network        bool   `json:"network"`
 	CPULimit       string `json:"cpu_limit"`
 	MemoryLimit    string `json:"memory_limit"`
@@ -503,6 +514,7 @@ func (b *Bindings) GetSettings() SettingsData {
 			Enabled:        b.cfg.Sandbox.Enabled,
 			Engine:         b.cfg.Sandbox.Engine,
 			Image:          b.cfg.Sandbox.Image,
+			Dockerfile:     b.cfg.Sandbox.Dockerfile,
 			Network:        b.cfg.Sandbox.Network,
 			CPULimit:       b.cfg.Sandbox.CPULimit,
 			MemoryLimit:    b.cfg.Sandbox.MemoryLimit,
@@ -555,6 +567,7 @@ func (b *Bindings) SaveSettings(s SettingsData) error {
 		Enabled:        s.Sandbox.Enabled,
 		Engine:         s.Sandbox.Engine,
 		Image:          s.Sandbox.Image,
+		Dockerfile:     s.Sandbox.Dockerfile,
 		Network:        s.Sandbox.Network,
 		CPULimit:       s.Sandbox.CPULimit,
 		MemoryLimit:    s.Sandbox.MemoryLimit,
@@ -633,6 +646,233 @@ func (b *Bindings) RestartSandbox() {
 	if b.agent != nil {
 		b.agent.RestartSandbox()
 	}
+}
+
+// SandboxImageInfo is one entry in the built-images library
+// shown in the Sandbox tab.
+type SandboxImageInfo struct {
+	Tag       string `json:"tag"`
+	Created   string `json:"created"` // ISO8601 (empty when unknown)
+	SizeBytes int64  `json:"size_bytes"`
+	Active    bool   `json:"active"` // true when this is cfg.Sandbox.Image
+}
+
+// SandboxImageStatus is the snapshot the Settings dialog
+// reads on open and after each build event.
+type SandboxImageStatus struct {
+	ActiveTag             string             `json:"active_tag"`             // cfg.Sandbox.Image
+	ActiveReady           bool               `json:"active_ready"`           // engine has the active tag locally
+	Building              bool               `json:"building"`               // a build is in flight
+	RecommendedDockerfile string             `json:"recommended_dockerfile"` // imagebuild.RecommendedDockerfile
+	CurrentDockerfile     string             `json:"current_dockerfile"`     // cfg.Sandbox.Dockerfile or recommended
+	Images                []SandboxImageInfo `json:"images"`                 // locally-built sandbox images
+}
+
+// GetSandboxImageStatus is the "is the sandbox usable?" probe
+// the Settings dialog reads on open and after each build event.
+// Returns a usable shape even when no engine is available.
+func (b *Bindings) GetSandboxImageStatus() SandboxImageStatus {
+	s := SandboxImageStatus{
+		RecommendedDockerfile: imagebuild.RecommendedDockerfile,
+	}
+	if b.cfg != nil {
+		s.ActiveTag = b.cfg.Sandbox.Image
+		s.CurrentDockerfile = b.cfg.Sandbox.Dockerfile
+		if s.CurrentDockerfile == "" {
+			s.CurrentDockerfile = imagebuild.RecommendedDockerfile
+		}
+	}
+	b.buildMu.Lock()
+	s.Building = b.buildInFlight
+	b.buildMu.Unlock()
+
+	eng, err := sandbox.NewCLI(b.sandboxConfigForProbe())
+	if err != nil {
+		return s
+	}
+
+	// List locally-built sandbox images. Engine errors map to
+	// an empty list (Settings just shows "no images yet").
+	if infos, err := eng.ListImages(b.ctx); err == nil {
+		s.Images = make([]SandboxImageInfo, 0, len(infos))
+		for _, info := range infos {
+			created := ""
+			if !info.Created.IsZero() {
+				created = info.Created.UTC().Format("2006-01-02T15:04:05Z")
+			}
+			s.Images = append(s.Images, SandboxImageInfo{
+				Tag:       info.Tag,
+				Created:   created,
+				SizeBytes: info.SizeBytes,
+				Active:    info.Tag == s.ActiveTag,
+			})
+		}
+	}
+
+	if s.ActiveTag != "" {
+		if ready, err := eng.ImageReady(b.ctx, s.ActiveTag); err == nil && ready {
+			s.ActiveReady = true
+		}
+	}
+	return s
+}
+
+// sandboxConfigForProbe builds a transient sandbox.Config used
+// only to detect the engine binary. The work-dir / network /
+// limits don't matter for ImageReady.
+func (b *Bindings) sandboxConfigForProbe() sandbox.Config {
+	rs := b.cfg.ResolvedSandbox()
+	return sandbox.Config{
+		Engine:      rs.Engine,
+		Image:       rs.Image,
+		SessionsDir: filepath.Join(config.DataDir(), "sessions"),
+	}
+}
+
+// BuildSandboxImage starts a build using the user's
+// Dockerfile (cfg.Sandbox.Dockerfile, falling back to
+// imagebuild.RecommendedDockerfile). Returns immediately;
+// progress streams via Wails events:
+//
+//	"sandbox:build:line"  payload {"line": <stdout|stderr line>}
+//	"sandbox:build:done"  payload {"tag": <tag>, "error": <"" on success>}
+//
+// Concurrent calls return ErrBuildInProgress.
+//
+// On success the new tag is recorded as cfg.Sandbox.Image
+// (becomes Active), the config is saved, and the agent's
+// sandbox is restarted so the readiness gate re-evaluates
+// without waiting for the next SaveSettings.
+func (b *Bindings) BuildSandboxImage() error {
+	b.buildMu.Lock()
+	if b.buildInFlight {
+		b.buildMu.Unlock()
+		return ErrBuildInProgress
+	}
+	b.buildInFlight = true
+	b.buildMu.Unlock()
+
+	eng, err := sandbox.NewCLI(b.sandboxConfigForProbe())
+	if err != nil {
+		b.buildMu.Lock()
+		b.buildInFlight = false
+		b.buildMu.Unlock()
+		return err
+	}
+
+	dockerfile := ""
+	if b.cfg != nil {
+		dockerfile = b.cfg.Sandbox.Dockerfile
+	}
+	if dockerfile == "" {
+		dockerfile = imagebuild.RecommendedDockerfile
+	}
+
+	go func() {
+		ctx := b.ctx
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		tag, buildErr := eng.BuildImage(ctx, dockerfile, func(line string) {
+			wailsRuntime.EventsEmit(b.ctx, "sandbox:build:line", map[string]any{"line": line})
+		})
+
+		// Persist cfg + clear buildInFlight BEFORE emitting
+		// :done so the frontend's refreshImageStatus reads
+		// the new cfg.Sandbox.Image. Otherwise the dialog
+		// re-fetches with the old (empty) Image and the
+		// "Built images" list looks unchanged.
+		if buildErr == nil && tag != "" && b.cfg != nil {
+			b.cfg.Sandbox.Dockerfile = dockerfile
+			b.cfg.Sandbox.Image = tag
+			_ = b.cfg.Save()
+			if b.agent != nil {
+				b.agent.RestartSandbox()
+			}
+		}
+
+		b.buildMu.Lock()
+		b.buildInFlight = false
+		b.buildMu.Unlock()
+
+		errStr := ""
+		if buildErr != nil {
+			errStr = buildErr.Error()
+		}
+		wailsRuntime.EventsEmit(b.ctx, "sandbox:build:done", map[string]any{
+			"tag":   tag,
+			"error": errStr,
+		})
+	}()
+	return nil
+}
+
+// ListSandboxImages returns the current built-images
+// library snapshot, mirroring what's inside
+// GetSandboxImageStatus().Images. Provided as its own
+// binding so the dialog can re-fetch the list cheaply
+// after a Delete without re-running the heavier readiness
+// probe.
+func (b *Bindings) ListSandboxImages() []SandboxImageInfo {
+	return b.GetSandboxImageStatus().Images
+}
+
+// SetActiveSandboxImage sets cfg.Sandbox.Image to tag and
+// triggers RestartSandbox so the readiness gate
+// re-evaluates immediately. Returns an error if tag isn't
+// present on the engine — the dialog should keep its
+// current selection if so.
+func (b *Bindings) SetActiveSandboxImage(tag string) error {
+	if b.cfg == nil {
+		return fmt.Errorf("no config")
+	}
+	if tag != "" {
+		eng, err := sandbox.NewCLI(b.sandboxConfigForProbe())
+		if err != nil {
+			return err
+		}
+		ready, err := eng.ImageReady(b.ctx, tag)
+		if err != nil {
+			return err
+		}
+		if !ready {
+			return fmt.Errorf("image %q not present on engine", tag)
+		}
+	}
+	b.cfg.Sandbox.Image = tag
+	if err := b.cfg.Save(); err != nil {
+		return err
+	}
+	if b.agent != nil {
+		b.agent.RestartSandbox()
+	}
+	return nil
+}
+
+// RemoveSandboxImage deletes the given tag from the engine.
+// If the tag was Active, cfg.Sandbox.Image is cleared and
+// the agent's sandbox is restarted (which causes the tools
+// to unregister, since the gate now fails the empty check).
+func (b *Bindings) RemoveSandboxImage(tag string) error {
+	logger.Info("sandbox: RemoveSandboxImage tag=%q", tag)
+	eng, err := sandbox.NewCLI(b.sandboxConfigForProbe())
+	if err != nil {
+		logger.Error("sandbox: RemoveSandboxImage NewCLI: %v", err)
+		return err
+	}
+	if err := eng.RemoveImage(b.ctx, tag); err != nil {
+		logger.Error("sandbox: RemoveSandboxImage engine.RemoveImage: %v", err)
+		return err
+	}
+	logger.Info("sandbox: RemoveSandboxImage tag=%q removed", tag)
+	if b.cfg != nil && b.cfg.Sandbox.Image == tag {
+		b.cfg.Sandbox.Image = ""
+		_ = b.cfg.Save()
+		if b.agent != nil {
+			b.agent.RestartSandbox()
+		}
+	}
+	return nil
 }
 
 // GetMCPStatus returns the status of all MCP guardian profiles.

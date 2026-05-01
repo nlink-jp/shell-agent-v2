@@ -1,15 +1,16 @@
-// SettingsDialog is the full-screen settings modal with three
-// tabs (General / Tools / MCP). Each field calls onUpdate with a
-// partial Settings patch; the parent (App) is responsible for
-// merging, persisting, and triggering side-effects (theme apply,
-// sandbox restart, LLM-backend restart). MCP guardian restart
-// stays in App because it also touches the tool list.
+// SettingsDialog is the full-screen settings modal with four
+// tabs (General / Tools / MCP / Sandbox). Each field calls
+// onUpdate with a partial Settings patch; the parent (App) is
+// responsible for merging, persisting, and triggering
+// side-effects (theme apply, sandbox restart, LLM-backend
+// restart). MCP guardian restart stays in App because it also
+// touches the tool list.
 
-import {useState} from 'react'
+import {useState, useEffect, useRef} from 'react'
 import BackendBudgetEditor from '../components/BackendBudgetEditor'
-import type {MCPProfile, MCPStatus, Settings, ToolInfo} from '../types'
+import type {MCPProfile, MCPStatus, Settings, ToolInfo, SandboxImageStatus, SandboxImageInfo} from '../types'
 
-type SettingsTab = 'general' | 'tools' | 'mcp'
+type SettingsTab = 'general' | 'tools' | 'mcp' | 'sandbox'
 
 interface Props {
     settings: Settings;
@@ -22,6 +23,62 @@ interface Props {
 
 export default function SettingsDialog({settings, tools, mcpStatus, onUpdate, onClose, onRestartMCP}: Props) {
     const [tab, setTab] = useState<SettingsTab>('general')
+
+    // Sandbox image build state — local to the dialog so the
+    // build log doesn't survive close/reopen, but the
+    // imageStatus refresh after `sandbox:build:done` does
+    // pick up the new tag.
+    const [imageStatus, setImageStatus] = useState<SandboxImageStatus | null>(null)
+    const [buildLog, setBuildLog] = useState<string[]>([])
+    const [buildLogOpen, setBuildLogOpen] = useState(false)
+    const buildLogEndRef = useRef<HTMLDivElement | null>(null)
+    // Two-click confirm for image Delete: first click arms,
+    // second confirms. Auto-disarms after 3s. Same pattern as
+    // BulkActions / Findings delete. Wails webview's
+    // window.confirm() silently returns false on macOS, so we
+    // can't rely on it.
+    const [confirmDeleteTag, setConfirmDeleteTag] = useState<string | null>(null)
+    useEffect(() => {
+        if (!confirmDeleteTag) return
+        const t = setTimeout(() => setConfirmDeleteTag(null), 3000)
+        return () => clearTimeout(t)
+    }, [confirmDeleteTag])
+
+    const refreshImageStatus = () => {
+        if (!window.go) return
+        window.go.main.Bindings.GetSandboxImageStatus().then(setImageStatus).catch(() => {})
+    }
+
+    useEffect(() => {
+        refreshImageStatus()
+        if (!window.runtime) return
+        const cleanupLine = window.runtime.EventsOn('sandbox:build:line', (data: any) => {
+            setBuildLog(prev => [...prev, String(data?.line ?? '')])
+        })
+        const cleanupDone = window.runtime.EventsOn('sandbox:build:done', (data: any) => {
+            const errStr = String(data?.error ?? '')
+            setBuildLog(prev => [...prev, errStr ? `\n=== build failed: ${errStr} ===` : '\n=== build complete ==='])
+            refreshImageStatus()
+        })
+        return () => { cleanupLine(); cleanupDone() }
+    }, [])
+
+    useEffect(() => {
+        buildLogEndRef.current?.scrollIntoView({behavior: 'smooth', block: 'end'})
+    }, [buildLog])
+
+    const startBuild = async () => {
+        if (!window.go) return
+        setBuildLog([])
+        setBuildLogOpen(true)
+        try {
+            await window.go.main.Bindings.BuildSandboxImage()
+            refreshImageStatus()
+        } catch (e: any) {
+            setBuildLog(prev => [...prev, `\n=== ${String(e?.message || e)} ===`])
+        }
+    }
+
     return (
         <div className="settings-overlay" onClick={onClose}>
             <div className="settings-modal" onClick={e => e.stopPropagation()}>
@@ -33,6 +90,7 @@ export default function SettingsDialog({settings, tools, mcpStatus, onUpdate, on
                     <button className={tab === 'general' ? 'active' : ''} onClick={() => setTab('general')}>General</button>
                     <button className={tab === 'tools' ? 'active' : ''} onClick={() => setTab('tools')}>Tools</button>
                     <button className={tab === 'mcp' ? 'active' : ''} onClick={() => setTab('mcp')}>MCP</button>
+                    <button className={tab === 'sandbox' ? 'active' : ''} onClick={() => setTab('sandbox')}>Sandbox</button>
                 </div>
                 <div className="settings-body">
                     {tab === 'general' && (<>
@@ -78,46 +136,7 @@ export default function SettingsDialog({settings, tools, mcpStatus, onUpdate, on
                             </label>
                             <p className="sidebar-hint">Hard cap on tool-call rounds for one user message. Default 10. Loop detection (v0.1.16) catches stuck same-error stretches early; raise this only when a long, legitimate analysis legitimately needs more rounds.</p>
                         </div>
-                        <div className="settings-section">
-                            <h3>Sandbox (experimental)</h3>
-                            <label>
-                                <input type="checkbox" checked={!!settings.sandbox?.enabled} onChange={e => onUpdate({sandbox: {...settings.sandbox, enabled: e.target.checked}})} />
-                                <span>Enable container sandbox (podman/docker required)</span>
-                            </label>
-                            <p className="sidebar-hint">Exposes six sandbox-* tools that run shell/Python inside a per-session container. Settings changes here take effect immediately — existing sandbox containers are torn down and re-created with the new config on next tool use. Missing images are pulled automatically. See docs/en/sandbox-execution.md.</p>
-                            {settings.sandbox?.enabled && (
-                                <>
-                                    <label>
-                                        <span>Engine</span>
-                                        <select value={settings.sandbox.engine || 'auto'} onChange={e => onUpdate({sandbox: {...settings.sandbox, engine: e.target.value}})}>
-                                            <option value="auto">auto (podman → docker)</option>
-                                            <option value="podman">podman</option>
-                                            <option value="docker">docker</option>
-                                        </select>
-                                    </label>
-                                    <label>
-                                        <span>Image</span>
-                                        <input value={settings.sandbox.image || ''} placeholder="python:3.12-slim" onChange={e => onUpdate({sandbox: {...settings.sandbox, image: e.target.value}})} />
-                                    </label>
-                                    <label>
-                                        <input type="checkbox" checked={!!settings.sandbox.network} onChange={e => onUpdate({sandbox: {...settings.sandbox, network: e.target.checked}})} />
-                                        <span>Allow network egress (default off)</span>
-                                    </label>
-                                    <label>
-                                        <span>CPU limit</span>
-                                        <input value={settings.sandbox.cpu_limit || ''} placeholder="2" onChange={e => onUpdate({sandbox: {...settings.sandbox, cpu_limit: e.target.value}})} />
-                                    </label>
-                                    <label>
-                                        <span>Memory limit</span>
-                                        <input value={settings.sandbox.memory_limit || ''} placeholder="1g" onChange={e => onUpdate({sandbox: {...settings.sandbox, memory_limit: e.target.value}})} />
-                                    </label>
-                                    <label>
-                                        <span>Per-call timeout (seconds)</span>
-                                        <input type="number" min={5} value={settings.sandbox.timeout_seconds || 60} onChange={e => onUpdate({sandbox: {...settings.sandbox, timeout_seconds: parseInt(e.target.value, 10) || 60}})} />
-                                    </label>
-                                </>
-                            )}
-                        </div>
+                        {/* Sandbox section moved to dedicated tab in r3. */}
                         <div className="settings-section">
                             <h3>Local LLM</h3>
                             <label>
@@ -263,6 +282,128 @@ export default function SettingsDialog({settings, tools, mcpStatus, onUpdate, on
                             </div>
                             <button className="mcp-restart-btn" style={{marginTop: 16}} onClick={() => onRestartMCP()}>Restart MCP Guardians</button>
                         </div>
+                    </>)}
+                    {tab === 'sandbox' && (<>
+                        <div className="settings-section">
+                            <h3>Sandbox (experimental)</h3>
+                            <p className="sidebar-hint">Exposes the eight sandbox-* tools that run shell/Python inside a per-session container. Tools register only when an Active image exists, the engine has it locally, AND the checkbox below is on. See docs/en/sandbox-image-build.md.</p>
+                        </div>
+                        <div className="settings-section">
+                            <h3>Built images</h3>
+                            <p className="sidebar-hint">Locally-built sandbox images. Use to switch the Active one (no rebuild needed); Delete to free disk.</p>
+                            {(!imageStatus?.images || imageStatus.images.length === 0) ? (
+                                <p className="sidebar-hint">(none yet — edit the Dockerfile below and click Build)</p>
+                            ) : (
+                                <ul className="sandbox-image-list">
+                                    {imageStatus.images.map((img: SandboxImageInfo) => (
+                                        <li key={img.tag} className={img.active ? 'active' : ''}>
+                                            <span className="img-tag">{img.tag}</span>
+                                            <span className="img-meta">
+                                                {img.size_bytes > 0 ? `${(img.size_bytes / 1024 / 1024).toFixed(0)} MB` : ''}
+                                                {img.created ? ` • ${img.created.replace('T', ' ').replace('Z', '')}` : ''}
+                                            </span>
+                                            {img.active ? (
+                                                <span className="status-badge status-ready">Active</span>
+                                            ) : (
+                                                <button onClick={async () => {
+                                                    if (!window.go) return
+                                                    try { await window.go.main.Bindings.SetActiveSandboxImage(img.tag) } catch (e: any) { alert(String(e?.message || e)) }
+                                                    refreshImageStatus()
+                                                }}>Use</button>
+                                            )}
+                                            <button
+                                                className={`img-delete ${confirmDeleteTag === img.tag ? 'confirming' : ''}`}
+                                                title={confirmDeleteTag === img.tag ? 'Click again to confirm' : `Delete ${img.tag}`}
+                                                onClick={async () => {
+                                                    if (!window.go) return
+                                                    if (confirmDeleteTag !== img.tag) {
+                                                        setConfirmDeleteTag(img.tag)
+                                                        return
+                                                    }
+                                                    setConfirmDeleteTag(null)
+                                                    try {
+                                                        await window.go.main.Bindings.RemoveSandboxImage(img.tag)
+                                                    } catch (e: any) {
+                                                        alert(String(e?.message || e))
+                                                    }
+                                                    refreshImageStatus()
+                                                }}
+                                            >
+                                                {confirmDeleteTag === img.tag ? 'Click to confirm' : 'Delete'}
+                                            </button>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                            <label className={!imageStatus?.active_ready ? 'disabled-row' : ''} title={!imageStatus?.active_ready ? 'Pick an Active image first' : ''}>
+                                <input type="checkbox" disabled={!imageStatus?.active_ready} checked={!!settings.sandbox?.enabled} onChange={e => onUpdate({sandbox: {...settings.sandbox, enabled: e.target.checked}})} />
+                                <span>Enable container sandbox</span>
+                            </label>
+                        </div>
+                        <div className="settings-section">
+                            <h3>Dockerfile</h3>
+                            <p className="sidebar-hint">Edit and click Build to produce a new image. The tag is derived from the Dockerfile content (sha256), so identical edits don't rebuild.</p>
+                            <textarea
+                                className="dockerfile-editor"
+                                rows={16}
+                                value={settings.sandbox?.dockerfile ?? imageStatus?.current_dockerfile ?? ''}
+                                onChange={e => onUpdate({sandbox: {...settings.sandbox, dockerfile: e.target.value}})}
+                            />
+                            <div className="sandbox-image-status">
+                                <button type="button" disabled={!imageStatus?.recommended_dockerfile} onClick={() => onUpdate({sandbox: {...settings.sandbox, dockerfile: imageStatus?.recommended_dockerfile || ''}})}>
+                                    Reset to recommended
+                                </button>
+                                <button type="button" disabled={!!imageStatus?.building} onClick={startBuild}>
+                                    {imageStatus?.building ? 'Building…' : 'Build'}
+                                </button>
+                                {imageStatus?.building && <span className="status-badge status-building">⏳ Building…</span>}
+                                {buildLog.length > 0 && !buildLogOpen && (
+                                    <button type="button" onClick={() => setBuildLogOpen(true)}>View build log</button>
+                                )}
+                            </div>
+                            <p className="sidebar-hint">Build runs locally on your podman/docker. Takes a few minutes (apt-get + pip install).</p>
+                        </div>
+                        <div className="settings-section">
+                            <h3>Container limits</h3>
+                            <label>
+                                <span>Engine</span>
+                                <select value={settings.sandbox?.engine || 'auto'} onChange={e => onUpdate({sandbox: {...settings.sandbox, engine: e.target.value}})}>
+                                    <option value="auto">auto (podman → docker)</option>
+                                    <option value="podman">podman</option>
+                                    <option value="docker">docker</option>
+                                </select>
+                            </label>
+                            <label>
+                                <input type="checkbox" checked={!!settings.sandbox?.network} onChange={e => onUpdate({sandbox: {...settings.sandbox, network: e.target.checked}})} />
+                                <span>Allow network egress (default off)</span>
+                            </label>
+                            <label>
+                                <span>CPU limit</span>
+                                <input value={settings.sandbox?.cpu_limit || ''} placeholder="2" onChange={e => onUpdate({sandbox: {...settings.sandbox, cpu_limit: e.target.value}})} />
+                            </label>
+                            <label>
+                                <span>Memory limit</span>
+                                <input value={settings.sandbox?.memory_limit || ''} placeholder="1g" onChange={e => onUpdate({sandbox: {...settings.sandbox, memory_limit: e.target.value}})} />
+                            </label>
+                            <label>
+                                <span>Per-call timeout (seconds)</span>
+                                <input type="number" min={5} value={settings.sandbox?.timeout_seconds || 60} onChange={e => onUpdate({sandbox: {...settings.sandbox, timeout_seconds: parseInt(e.target.value, 10) || 60}})} />
+                            </label>
+                        </div>
+                        {buildLogOpen && (
+                            <div className="build-log-overlay" onClick={() => setBuildLogOpen(false)}>
+                                <div className="build-log-panel" onClick={e => e.stopPropagation()}>
+                                    <div className="build-log-header">
+                                        <span>Sandbox image build log</span>
+                                        <button onClick={() => setBuildLogOpen(false)}>&#x2715;</button>
+                                    </div>
+                                    <pre className="build-log-body">
+                                        {buildLog.join('\n')}
+                                        <div ref={buildLogEndRef} />
+                                    </pre>
+                                </div>
+                            </div>
+                        )}
                     </>)}
                 </div>
                 <div className="settings-footer">

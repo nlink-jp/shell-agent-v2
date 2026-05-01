@@ -17,6 +17,8 @@ import type {
     PinnedMemory,
     SessionInfo,
     Settings,
+    SandboxImageStatus,
+    SandboxImageInfo,
     ToolInfo,
 } from './types'
 
@@ -46,6 +48,11 @@ declare global {
                     GetObjectText(id: string): Promise<string>;
                     GetSettings(): Promise<Settings>;
                     SaveSettings(s: Settings): Promise<void>;
+                    GetSandboxImageStatus(): Promise<SandboxImageStatus>;
+                    BuildSandboxImage(): Promise<void>;
+                    ListSandboxImages(): Promise<SandboxImageInfo[]>;
+                    SetActiveSandboxImage(tag: string): Promise<void>;
+                    RemoveSandboxImage(tag: string): Promise<void>;
                     ApproveMITL(): Promise<void>;
                     RejectMITL(): Promise<void>;
                     RejectMITLWithFeedback(feedback: string): Promise<void>;

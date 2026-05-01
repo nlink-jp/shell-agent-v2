@@ -143,11 +143,12 @@ func (b ContextBudgetConfig) OutputReserveResolved() int {
 }
 
 // SandboxConfig controls the per-session container sandbox.
-// Design: docs/en/sandbox-execution.md
+// Design: docs/en/sandbox-execution.md, docs/en/sandbox-image-build.md
 type SandboxConfig struct {
 	Enabled        bool   `json:"enabled"`
 	Engine         string `json:"engine,omitempty"`          // "auto" | "podman" | "docker"
-	Image          string `json:"image,omitempty"`
+	Image          string `json:"image,omitempty"`           // active image tag (set by build / library selection)
+	Dockerfile     string `json:"dockerfile,omitempty"`      // user-edited Dockerfile body (empty = imagebuild.RecommendedDockerfile)
 	Network        bool   `json:"network,omitempty"`
 	CPULimit       string `json:"cpu_limit,omitempty"`
 	MemoryLimit    string `json:"memory_limit,omitempty"`
@@ -243,7 +244,7 @@ func Default() *Config {
 		Sandbox: SandboxConfig{
 			Enabled:        false,
 			Engine:         "auto",
-			Image:          "python:3.12-slim",
+			Image:          "", // populated after the user's first Build
 			Network:        false,
 			CPULimit:       "2",
 			MemoryLimit:    "1g",
@@ -261,9 +262,10 @@ func (c *Config) ResolvedSandbox() SandboxConfig {
 	if s.Engine == "" {
 		s.Engine = "auto"
 	}
-	if s.Image == "" {
-		s.Image = "python:3.12-slim"
-	}
+	// Image intentionally left empty when unset — the user's
+	// first Settings Build populates it. The agent's
+	// readiness gate refuses to start sandbox tools until a
+	// valid Image is set.
 	if s.CPULimit == "" {
 		s.CPULimit = "2"
 	}

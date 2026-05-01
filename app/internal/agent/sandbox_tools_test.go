@@ -62,9 +62,13 @@ func (f *fakeEngine) Info(_ context.Context, _ string) (*sandbox.Info, error) {
 // tests don't need to wire a build flow. Tests that exercise
 // the gate should override this.
 func (f *fakeEngine) ImageReady(_ context.Context, _ string) (bool, error) { return true, nil }
-func (f *fakeEngine) BuildImage(_ context.Context, _ string, _ func(string)) error {
-	return nil
+func (f *fakeEngine) BuildImage(_ context.Context, _ string, _ func(string)) (string, error) {
+	return "", nil
 }
+func (f *fakeEngine) ListImages(_ context.Context) ([]sandbox.ImageInfo, error) {
+	return nil, nil
+}
+func (f *fakeEngine) RemoveImage(_ context.Context, _ string) error { return nil }
 
 // newAgentWithSandbox returns an Agent with a fake sandbox engine and
 // a session pre-loaded so tool dispatchers can run.

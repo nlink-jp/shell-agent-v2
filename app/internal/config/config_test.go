@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -126,6 +127,24 @@ func TestOutputReserveResolved(t *testing.T) {
 	if cfg.LLM.VertexAI.ContextBudget.OutputReserve != DefaultOutputReserve {
 		t.Errorf("vertex default OutputReserve: got %d want %d", cfg.LLM.VertexAI.ContextBudget.OutputReserve, DefaultOutputReserve)
 	}
+}
+
+// TestDefault_SandboxFieldsAreSane covers the sandbox
+// section of Default(): no auto-image (the user picks
+// after their first Build), but resource limits and
+// engine still have defaults.
+func TestDefault_SandboxFieldsAreSane(t *testing.T) {
+	cfg := Default()
+	if cfg.Sandbox.Image != "" {
+		t.Errorf("Sandbox.Image default = %q, want empty (user picks after first build)", cfg.Sandbox.Image)
+	}
+	if cfg.Sandbox.Engine != "auto" {
+		t.Errorf("Sandbox.Engine default = %q, want auto", cfg.Sandbox.Engine)
+	}
+	if cfg.Sandbox.CPULimit == "" || cfg.Sandbox.MemoryLimit == "" {
+		t.Errorf("CPU/Memory limits should have defaults: %+v", cfg.Sandbox)
+	}
+	_ = strings.TrimSpace // keep strings used as imported
 }
 
 func TestMaxToolRoundsResolved(t *testing.T) {
@@ -279,8 +298,15 @@ func TestSandboxDefaults(t *testing.T) {
 func TestResolvedSandbox_FillsEmptyFields(t *testing.T) {
 	cfg := &Config{}
 	rs := cfg.ResolvedSandbox()
-	if rs.Engine != "auto" || rs.Image == "" || rs.CPULimit == "" || rs.MemoryLimit == "" || rs.TimeoutSeconds == 0 {
+	// Image is intentionally empty until the user's first Build
+	// in the Settings Sandbox tab; the agent's readiness gate
+	// refuses to start sandbox tools until it's set. The other
+	// fields still get defaults.
+	if rs.Engine != "auto" || rs.CPULimit == "" || rs.MemoryLimit == "" || rs.TimeoutSeconds == 0 {
 		t.Errorf("ResolvedSandbox missing defaults: %+v", rs)
+	}
+	if rs.Image != "" {
+		t.Errorf("Image should not auto-populate; got %q", rs.Image)
 	}
 }
 

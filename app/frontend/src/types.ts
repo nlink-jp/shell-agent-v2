@@ -97,11 +97,32 @@ export interface BackendBudget {
 export interface SandboxSettings {
     enabled: boolean;
     engine: string;
-    image: string;
+    image: string;          // active tag (set by Build / Use)
+    dockerfile: string;     // user-edited Dockerfile body (empty = recommended)
     network: boolean;
     cpu_limit: string;
     memory_limit: string;
     timeout_seconds: number;
+}
+
+// SandboxImageInfo is one entry in the built-images library
+// shown on the Sandbox Settings tab.
+export interface SandboxImageInfo {
+    tag: string;
+    created: string;     // ISO8601 (empty when unknown)
+    size_bytes: number;
+    active: boolean;
+}
+
+// SandboxImageStatus is the snapshot the Settings dialog
+// reads on open and after each build event.
+export interface SandboxImageStatus {
+    active_tag: string;
+    active_ready: boolean;
+    building: boolean;
+    recommended_dockerfile: string;
+    current_dockerfile: string;
+    images: SandboxImageInfo[];
 }
 
 export interface Settings {

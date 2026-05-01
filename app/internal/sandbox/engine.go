@@ -72,13 +72,30 @@ type Engine interface {
 	// configured Sandbox.Image is actually present.
 	ImageReady(ctx context.Context, tag string) (bool, error)
 
-	// BuildImage builds the recommended sandbox image (the
-	// embedded imagebuild bundle: python:3.12-slim + CJK fonts +
-	// analysis stack) and tags it as `tag`. Engine stdout/stderr
-	// stream line-by-line to onLine (nil-safe). Concurrent calls
-	// are serialised inside the engine; the second blocks until
-	// the first finishes.
-	BuildImage(ctx context.Context, tag string, onLine func(string)) error
+	// BuildImage writes `dockerfile` to a temp dir and runs
+	// `<engine> build -t <tag> .`. The tag is computed from
+	// the Dockerfile content (imagebuild.TagFor) and returned
+	// to the caller so the UI / config can record it. Engine
+	// stdout/stderr stream line-by-line to onLine (nil-safe).
+	// Concurrent calls are serialised inside the engine.
+	BuildImage(ctx context.Context, dockerfile string, onLine func(string)) (tag string, err error)
+
+	// ListImages returns the locally-built sandbox images
+	// (those carrying the imagebuild.TagPrefix label),
+	// newest-first.
+	ListImages(ctx context.Context) ([]ImageInfo, error)
+
+	// RemoveImage deletes the image with the given tag. A
+	// missing tag is a no-op (returns nil) so the UI can
+	// click Delete idempotently.
+	RemoveImage(ctx context.Context, tag string) error
+}
+
+// ImageInfo describes one locally-built sandbox image.
+type ImageInfo struct {
+	Tag       string
+	Created   time.Time
+	SizeBytes int64
 }
 
 // ExecArgs is the input to Exec.
