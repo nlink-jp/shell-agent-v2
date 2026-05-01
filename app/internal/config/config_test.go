@@ -112,6 +112,31 @@ func TestApplyBackendInheritance_LegacyMigration(t *testing.T) {
 	}
 }
 
+func TestOutputReserveResolved(t *testing.T) {
+	if got := (ContextBudgetConfig{}).OutputReserveResolved(); got != DefaultOutputReserve {
+		t.Errorf("zero → default: got %d want %d", got, DefaultOutputReserve)
+	}
+	if got := (ContextBudgetConfig{OutputReserve: 8192}).OutputReserveResolved(); got != 8192 {
+		t.Errorf("explicit value should be honoured, got %d", got)
+	}
+	cfg := Default()
+	if cfg.LLM.Local.ContextBudget.OutputReserve != DefaultOutputReserve {
+		t.Errorf("local default OutputReserve: got %d want %d", cfg.LLM.Local.ContextBudget.OutputReserve, DefaultOutputReserve)
+	}
+	if cfg.LLM.VertexAI.ContextBudget.OutputReserve != DefaultOutputReserve {
+		t.Errorf("vertex default OutputReserve: got %d want %d", cfg.LLM.VertexAI.ContextBudget.OutputReserve, DefaultOutputReserve)
+	}
+}
+
+func TestMaxToolRoundsResolved(t *testing.T) {
+	if got := (AgentConfig{}).MaxToolRoundsResolved(); got != DefaultMaxToolRounds {
+		t.Errorf("zero → default: got %d want %d", got, DefaultMaxToolRounds)
+	}
+	if got := (AgentConfig{MaxToolRounds: 25}).MaxToolRoundsResolved(); got != 25 {
+		t.Errorf("explicit value should be honoured, got %d", got)
+	}
+}
+
 func TestDataDir(t *testing.T) {
 	dir := DataDir()
 	if dir == "" {

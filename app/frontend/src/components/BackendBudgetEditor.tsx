@@ -1,7 +1,8 @@
-// BackendBudgetEditor renders the four numeric fields that
+// BackendBudgetEditor renders the five numeric fields that
 // configure a per-backend context budget (hot-token threshold,
-// max context, warm-summary cap, per-tool-result truncation).
-// The Settings dialog uses one instance per backend.
+// max context, warm-summary cap, per-tool-result truncation,
+// output-reserve). The Settings dialog uses one instance per
+// backend.
 
 import type {BackendBudget} from '../types'
 
@@ -29,6 +30,10 @@ export default function BackendBudgetEditor({budget, onChange}: Props) {
             <label>
                 <span>Max Tool-Result Tokens (per call)</span>
                 <input type="number" min={0} value={budget.max_tool_result_tokens} onChange={e => onChange({...budget, max_tool_result_tokens: num(e.target.value)})} />
+            </label>
+            <label>
+                <span>Output Reserve (tokens reserved for the model's reply)</span>
+                <input type="number" min={0} value={budget.output_reserve} onChange={e => onChange({...budget, output_reserve: num(e.target.value)})} />
             </label>
         </div>
     )

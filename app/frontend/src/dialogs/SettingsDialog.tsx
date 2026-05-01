@@ -71,6 +71,14 @@ export default function SettingsDialog({settings, tools, mcpStatus, onUpdate, on
                             <p className="sidebar-hint">Records stay immutable; older context is summarized on demand and cached. Time-range markers added for LLM temporal awareness. See docs/en/memory-architecture-v2.md.</p>
                         </div>
                         <div className="settings-section">
+                            <h3>Agent loop</h3>
+                            <label>
+                                <span>Max tool rounds per message</span>
+                                <input type="number" min={1} value={settings.max_tool_rounds || 10} onChange={e => onUpdate({max_tool_rounds: parseInt(e.target.value, 10) || 10})} />
+                            </label>
+                            <p className="sidebar-hint">Hard cap on tool-call rounds for one user message. Default 10. Loop detection (v0.1.16) catches stuck same-error stretches early; raise this only when a long, legitimate analysis legitimately needs more rounds.</p>
+                        </div>
+                        <div className="settings-section">
                             <h3>Sandbox (experimental)</h3>
                             <label>
                                 <input type="checkbox" checked={!!settings.sandbox?.enabled} onChange={e => onUpdate({sandbox: {...settings.sandbox, enabled: e.target.checked}})} />

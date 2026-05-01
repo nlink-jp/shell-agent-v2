@@ -55,6 +55,40 @@ gcloud auth application-default login
 # Requires roles/aiplatform.user
 ```
 
+### Settings reference
+
+Knobs exposed in the **Settings** dialog. Per-backend values
+override the legacy top-level fallbacks in `config.json`.
+
+#### Agent loop
+
+| Setting | JSON path | Default | Notes |
+|---|---|---|---|
+| Max tool rounds per message | `agent.max_tool_rounds` | 10 | Hard cap on tool-call rounds for one user message. The loop-detection ring buffer (Feature 1, v0.1.16) catches stuck same-error stretches early, so raising this is reasonably safe when a long, legitimate analysis legitimately needs more rounds. |
+
+#### Per-backend context budget (Local / Vertex AI)
+
+| Setting | JSON path | Default (Local) | Default (Vertex) | Notes |
+|---|---|---|---|---|
+| Hot Token Limit | `llm.{local,vertex_ai}.hot_token_limit` | 4096 | 65536 | Compaction trigger. When the total token count of the Hot tier exceeds this, the oldest Hot records are summarised into Warm. |
+| Max Context Tokens | `llm.{local,vertex_ai}.context_budget.max_context_tokens` | 16384 | 524288 | Total token budget sent to the model per call. 0 = unlimited. |
+| Max Warm Summary Tokens | `llm.{local,vertex_ai}.context_budget.max_warm_tokens` | 1024 | 16384 | Cap for the warm-summary block. Older summaries are dropped past this. |
+| Max Tool-Result Tokens | `llm.{local,vertex_ai}.context_budget.max_tool_result_tokens` | 2048 | 32768 | Per-tool-result truncation before insertion into the LLM message list. |
+| Output Reserve | `llm.{local,vertex_ai}.context_budget.output_reserve` | 4096 | 4096 | Tokens reserved for the model's reply. Subtracted from `max_context_tokens` before context packing, so the request stays under the model's window. |
+| Per-request timeout (s) | `llm.{local,vertex_ai}.request_timeout_seconds` | 300 | 180 | Per-attempt cap inside the retry layer. The retry loop runs up to 3 attempts with exponential backoff. |
+
+#### Sandbox (`sandbox.*`)
+
+| Setting | JSON path | Default | Notes |
+|---|---|---|---|
+| Enabled | `sandbox.enabled` | false | Master toggle. When off, the eight `sandbox-*` tools are not registered. |
+| Engine | `sandbox.engine` | `auto` | `auto` picks `podman` then `docker` from PATH. |
+| Image | `sandbox.image` | `python:3.12-slim` | Pulled on first use. |
+| Network | `sandbox.network` | false | Egress; default off. |
+| CPU limit | `sandbox.cpu_limit` | `2` | Passed to `--cpus`. |
+| Memory limit | `sandbox.memory_limit` | `1g` | Passed to `--memory`. |
+| Per-call timeout (s) | `sandbox.timeout_seconds` | 60 | Per-`exec` cap. |
+
 ## Requirements
 
 - macOS 10.15+

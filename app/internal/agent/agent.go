@@ -35,7 +35,10 @@ const (
 	StateBusy State = "busy"
 )
 
-const maxToolRounds = 10
+// maxToolRounds is now read from cfg.Agent.MaxToolRoundsResolved()
+// at agent-loop entry. The constant remains as a reference for any
+// out-of-config call site (currently none).
+const maxToolRounds = config.DefaultMaxToolRounds
 
 // ErrBusy is returned when a message is sent while the agent is busy.
 var ErrBusy = errors.New("agent is busy")
@@ -291,7 +294,7 @@ func (a *Agent) buildMessagesV2(ctx context.Context, budget config.ContextBudget
 		SystemPrompt:        systemPrompt,
 		MaxContextTokens:    budget.MaxContextTokens,
 		MaxToolResultTokens: budget.MaxToolResultTokens,
-		OutputReserve:       4096,
+		OutputReserve:       budget.OutputReserveResolved(),
 		SummarizerID:        a.backend.Name() + "/" + a.currentModelName(),
 		Summarize:           summarize,
 		WrapUserToolContent: a.chat.WrapUserToolContent,
@@ -736,8 +739,9 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 	// injectEmptyNudge is consumed in the next round.
 	var emptyRetryDone, injectEmptyNudge bool
 
-	// Step 2: Agent loop (max rounds)
-	for round := 0; round < maxToolRounds; round++ {
+	// Step 2: Agent loop (max rounds — configurable via Settings)
+	maxRounds := a.cfg.Agent.MaxToolRoundsResolved()
+	for round := 0; round < maxRounds; round++ {
 		if err := ctx.Err(); err != nil {
 			return "(Cancelled)", nil
 		}
@@ -887,7 +891,7 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 		_ = a.session.Save() // auto-save after tool execution
 	}
 
-	logger.Debug("agentLoop: max rounds (%d) reached", maxToolRounds)
+	logger.Debug("agentLoop: max rounds (%d) reached", maxRounds)
 	return "(Max tool rounds reached)", nil
 }
 

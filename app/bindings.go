@@ -397,6 +397,7 @@ type BackendBudgetData struct {
 	MaxContextTokens    int `json:"max_context_tokens"`
 	MaxWarmTokens       int `json:"max_warm_tokens"`
 	MaxToolResultTokens int `json:"max_tool_result_tokens"`
+	OutputReserve       int `json:"output_reserve"`
 }
 
 // SandboxData mirrors config.SandboxConfig for the frontend.
@@ -429,6 +430,7 @@ type SettingsData struct {
 	MITLOverrides  map[string]bool   `json:"mitl_overrides"`
 	MemoryUseV2    bool              `json:"memory_use_v2"`
 	Sandbox        SandboxData       `json:"sandbox"`
+	MaxToolRounds  int               `json:"max_tool_rounds"`
 }
 
 // GetSettings returns current settings.
@@ -443,6 +445,7 @@ func (b *Bindings) GetSettings() SettingsData {
 			MaxContextTokens:    b.MaxContextTokens,
 			MaxWarmTokens:       b.MaxWarmTokens,
 			MaxToolResultTokens: b.MaxToolResultTokens,
+			OutputReserve:       b.OutputReserveResolved(),
 		}
 	}
 	return SettingsData{
@@ -462,6 +465,7 @@ func (b *Bindings) GetSettings() SettingsData {
 		DisabledTools:  b.cfg.Tools.DisabledTools,
 		MITLOverrides:  b.cfg.Tools.MITLOverrides,
 		MemoryUseV2:    b.cfg.Memory.UseV2,
+		MaxToolRounds:  b.cfg.Agent.MaxToolRoundsResolved(),
 		Sandbox: SandboxData{
 			Enabled:        b.cfg.Sandbox.Enabled,
 			Engine:         b.cfg.Sandbox.Engine,
@@ -484,6 +488,7 @@ func (b *Bindings) SaveSettings(s SettingsData) error {
 		MaxContextTokens:    s.LocalBudget.MaxContextTokens,
 		MaxWarmTokens:       s.LocalBudget.MaxWarmTokens,
 		MaxToolResultTokens: s.LocalBudget.MaxToolResultTokens,
+		OutputReserve:       s.LocalBudget.OutputReserve,
 	}
 	b.cfg.LLM.Local.RequestTimeoutSeconds = s.LocalTimeoutSeconds
 	b.cfg.LLM.VertexAI.ProjectID = s.VertexProject
@@ -494,11 +499,13 @@ func (b *Bindings) SaveSettings(s SettingsData) error {
 		MaxContextTokens:    s.VertexBudget.MaxContextTokens,
 		MaxWarmTokens:       s.VertexBudget.MaxWarmTokens,
 		MaxToolResultTokens: s.VertexBudget.MaxToolResultTokens,
+		OutputReserve:       s.VertexBudget.OutputReserve,
 	}
 	b.cfg.LLM.VertexAI.RequestTimeoutSeconds = s.VertexTimeoutSeconds
 	b.cfg.UI.Theme = s.Theme
 	b.cfg.Location = s.Location
 	b.cfg.Memory.UseV2 = s.MemoryUseV2
+	b.cfg.Agent.MaxToolRounds = s.MaxToolRounds
 
 	// Update MCP profiles
 	profiles := make([]config.MCPProfileConfig, len(s.MCPProfiles))

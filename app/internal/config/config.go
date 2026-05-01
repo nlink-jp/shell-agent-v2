@@ -126,6 +126,20 @@ type ContextBudgetConfig struct {
 	MaxContextTokens    int `json:"max_context_tokens"`     // total token budget (0 = unlimited)
 	MaxWarmTokens       int `json:"max_warm_tokens"`        // budget for warm summaries
 	MaxToolResultTokens int `json:"max_tool_result_tokens"` // per-tool-result truncation
+	OutputReserve       int `json:"output_reserve"`         // tokens reserved for the model's reply (subtracted from MaxContextTokens before packing context). 0 = use default
+}
+
+// DefaultOutputReserve is used when ContextBudgetConfig.OutputReserve
+// is unset (0). 4096 fits a chunky tool-call + brief summary on
+// every model we support today.
+const DefaultOutputReserve = 4096
+
+// OutputReserveResolved returns OutputReserve or the default when 0.
+func (b ContextBudgetConfig) OutputReserveResolved() int {
+	if b.OutputReserve > 0 {
+		return b.OutputReserve
+	}
+	return DefaultOutputReserve
 }
 
 // SandboxConfig controls the per-session container sandbox.
@@ -140,6 +154,29 @@ type SandboxConfig struct {
 	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
 }
 
+// AgentConfig controls the agent execution loop.
+type AgentConfig struct {
+	// MaxToolRounds caps the agent loop's tool-call rounds per
+	// user message. 0 = use the package default (10). Long
+	// analyses occasionally legitimately need more; the loop-
+	// detection ring buffer (Feature 1, v0.1.16) catches stuck
+	// loops separately, so raising this is reasonably safe.
+	MaxToolRounds int `json:"max_tool_rounds,omitempty"`
+}
+
+// DefaultMaxToolRounds is the cap when AgentConfig.MaxToolRounds
+// is unset. Matches the long-time hardcoded value for backward
+// compat.
+const DefaultMaxToolRounds = 10
+
+// MaxToolRoundsResolved returns MaxToolRounds or the default when 0.
+func (a AgentConfig) MaxToolRoundsResolved() int {
+	if a.MaxToolRounds > 0 {
+		return a.MaxToolRounds
+	}
+	return DefaultMaxToolRounds
+}
+
 // Config is the root application configuration.
 type Config struct {
 	LLM            LLMConfig           `json:"llm"`
@@ -148,6 +185,7 @@ type Config struct {
 	Tools          ToolsConfig         `json:"tools"`
 	UI             UIConfig            `json:"ui"`
 	Sandbox        SandboxConfig       `json:"sandbox,omitzero"`
+	Agent          AgentConfig         `json:"agent,omitzero"`
 	Location       string              `json:"location,omitempty"`
 	LastSession    string              `json:"last_session,omitempty"`
 }
@@ -167,6 +205,7 @@ func Default() *Config {
 					MaxContextTokens:    16384,
 					MaxWarmTokens:       1024,
 					MaxToolResultTokens: 2048,
+					OutputReserve:       DefaultOutputReserve,
 				},
 			},
 			VertexAI: VertexAIConfig{
@@ -179,6 +218,7 @@ func Default() *Config {
 					MaxContextTokens:    524288,
 					MaxWarmTokens:       16384,
 					MaxToolResultTokens: 32768,
+					OutputReserve:       DefaultOutputReserve,
 				},
 			},
 		},

@@ -91,6 +91,7 @@ export interface BackendBudget {
     max_context_tokens: number;
     max_warm_tokens: number;
     max_tool_result_tokens: number;
+    output_reserve: number;
 }
 
 export interface SandboxSettings {
@@ -121,6 +122,7 @@ export interface Settings {
     mitl_overrides: Record<string, boolean>;
     memory_use_v2: boolean;
     sandbox: SandboxSettings;
+    max_tool_rounds: number;
 }
 
 export type SidebarPanel = 'sessions' | 'memory';

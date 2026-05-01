@@ -55,6 +55,40 @@ gcloud auth application-default login
 # roles/aiplatform.user が必要
 ```
 
+### 設定項目リファレンス
+
+**Settings** ダイアログから変更できる項目。per-backend 値は
+レガシーなトップレベルフォールバックを上書きする。
+
+#### Agent loop
+
+| 項目 | JSON パス | 既定値 | 備考 |
+|---|---|---|---|
+| 1 メッセージあたりの最大ツールラウンド | `agent.max_tool_rounds` | 10 | 1 つの user message に対するツール呼び出しラウンド数の上限。loop-detection ring buffer（v0.1.16 の Feature 1）が同一エラー連発を早期検出するので、長い正規分析が本当にラウンド不足になった時のみ引き上げる。 |
+
+#### per-backend コンテキスト予算（Local / Vertex AI）
+
+| 項目 | JSON パス | Local 既定 | Vertex 既定 | 備考 |
+|---|---|---|---|---|
+| Hot Token Limit | `llm.{local,vertex_ai}.hot_token_limit` | 4096 | 65536 | コンパクション発火閾値。Hot 階層の総トークンがこれを超えると古い Hot レコードが Warm へ要約される。 |
+| Max Context Tokens | `llm.{local,vertex_ai}.context_budget.max_context_tokens` | 16384 | 524288 | 1 コール毎にモデルへ送る総トークン予算。0 = 無制限。 |
+| Max Warm Summary Tokens | `llm.{local,vertex_ai}.context_budget.max_warm_tokens` | 1024 | 16384 | warm-summary ブロックの上限。これを超えた古い summary は drop される。 |
+| Max Tool-Result Tokens | `llm.{local,vertex_ai}.context_budget.max_tool_result_tokens` | 2048 | 32768 | LLM メッセージ列に投入する前にツール結果を切り詰めるサイズ。 |
+| Output Reserve | `llm.{local,vertex_ai}.context_budget.output_reserve` | 4096 | 4096 | モデル応答用に確保するトークン量。コンテキスト詰め込み前に `max_context_tokens` から差し引かれ、リクエストがモデルウィンドウを超えないようにする。 |
+| Per-request timeout (秒) | `llm.{local,vertex_ai}.request_timeout_seconds` | 300 | 180 | リトライ層内の per-attempt キャップ。リトライは最大 3 回（指数バックオフ付き）。 |
+
+#### Sandbox (`sandbox.*`)
+
+| 項目 | JSON パス | 既定値 | 備考 |
+|---|---|---|---|
+| Enabled | `sandbox.enabled` | false | マスタートグル。OFF のとき 8 個の `sandbox-*` ツールは登録されない。 |
+| Engine | `sandbox.engine` | `auto` | `auto` は PATH から `podman` → `docker` の順で選択。 |
+| Image | `sandbox.image` | `python:3.12-slim` | 初回利用時に pull。 |
+| Network | `sandbox.network` | false | 外向き通信。既定は OFF。 |
+| CPU limit | `sandbox.cpu_limit` | `2` | `--cpus` に渡す。 |
+| Memory limit | `sandbox.memory_limit` | `1g` | `--memory` に渡す。 |
+| Per-call timeout (秒) | `sandbox.timeout_seconds` | 60 | 1 回の `exec` あたりの上限。 |
+
 ## 要件
 
 - macOS 10.15+
