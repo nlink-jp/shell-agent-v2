@@ -1,7 +1,7 @@
 # Multi-Image Handling — Design Document
 
 > Date: 2026-05-01
-> Status: Draft — pending implementation
+> Status: Shipped in v0.1.16 (6c3bf8f)
 > Scope: how the agent layer and LLM backends pack
 > multi-image user messages so each image is reliably
 > correlated with its persistent object ID.

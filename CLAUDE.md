@@ -23,6 +23,10 @@ Wails v2 (Go + React) desktop application. Successor to shell-agent v1.
 - **internal/toolcall/** — Shell script registry, header parsing, MITL categories, execution
 - **internal/mcp/** — mcp-guardian stdio, JSON-RPC 2.0
 - **internal/objstore/** — Central object repository (images/blobs, 12-char hex IDs)
+- **internal/sandbox/** — Per-session container sandbox (podman/docker), `/work` mount
+- **internal/contextbuild/** — Memory v2 LLM-context builder (warm/hot/summary assembly, summarizer cache)
+- **internal/bundled/** — First-run scaffold of bundled shell-tool scripts into the user's data dir
+- **internal/pathfix/** — macOS app-launch PATH normalisation so Homebrew binaries are visible
 - **internal/config/** — JSON config with path expansion
 - **internal/logger/** — Structured logging
 - **frontend/src/** — React UI with sidebar tabs (sessions/findings/settings)

@@ -29,46 +29,13 @@ What's actually classified today:
   event union once we're confident no in-flight events still
   arrive without a `status` field.
 
-## Agent loop: get unstuck from same-error-repeat
+## Configurable max-rounds cap
 
-**Origin**: 2026-04-30 session log. Vertex (gemini-2.5-flash)
-generated Python with a multi-line string literal that wasn't
-escaped, hit `SyntaxError: unterminated string literal`, then
-re-tried the same broken pattern six rounds in a row before
-the loop hit `max rounds (10) reached`. Each retry's diff was
-trivial — the LLM clearly didn't understand the actual cause.
+**Status**: hardcoded to 10 in `agent.go:38` (`maxToolRounds`).
+Loop detection (shipped v0.1.16) catches same-error stretches
+early but a long legitimate analysis can still hit the cap.
 
-**Why this matters:** the retry / timeout / backoff layer is
-already in place for transport errors, but there's no
-equivalent for *content* errors. A model that's stuck doesn't
-know it's stuck; the loop just keeps feeding it back the same
-class of error.
-
-**Possible mitigations** (none implemented):
-
-1. Detect "same tool, same error category" 3+ rounds in a row
-   and inject a short corrective system message before the
-   next round (e.g. "your last 3 sandbox-run-python calls
-   produced SyntaxError. Try a completely different
-   approach — write the code to a /work file first and
-   inspect it, instead of inlining everything in the call.").
-2. Make the agent-loop max-rounds configurable (currently
-   hardcoded to 10).
-3. Surface "looping detected" to the user so they can abort
-   sooner, instead of waiting for round 10.
-
-Out of scope to design / pick one of these now — flagged so
-we look at it after the frontend decomposition lands and we
-have spare cycles for agent-loop work.
-
-## 429 / RESOURCE_EXHAUSTED visibility
-
-**Origin**: same session as above. Vertex returned 429 twice
-mid-conversation. The retry layer handled both correctly
-(backoff, succeeded on attempt 2), but the user had no UI
-indication that anything unusual happened — only the log
-line. A subtle "rate-limited, retrying…" badge on the
-in-flight tool-event bubble would let the user know the
-slow round isn't a hang.
-
-Low priority; the retry log is enough for diagnosis today.
+Mitigation 2 from the original "Agent loop: get unstuck"
+TODO — surface as a Settings entry, default to 10. Out of
+scope until we see a real session that legitimately needs
+more rounds.

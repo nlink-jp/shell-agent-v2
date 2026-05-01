@@ -1,7 +1,7 @@
 # Agent Loop Resilience — Design Document
 
 > Date: 2026-05-01
-> Status: Draft — pending implementation
+> Status: Shipped in v0.1.16 (Feature 2 in 8ea5db1, Feature 1 in 180911e)
 > Scope: Two adjacent observability / self-correction
 > features that share the agent-loop seam
 
