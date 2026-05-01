@@ -5,6 +5,76 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.16] - 2026-05-01
+
+Five resilience and multimodal improvements after v0.1.15. Plans
+in
+[docs/en/agent-loop-resilience.md](docs/en/agent-loop-resilience.md)
+and
+[docs/en/multi-image-handling.md](docs/en/multi-image-handling.md).
+
+### Added
+
+- **Loop detection with corrective hint** — when the LLM calls
+  the same tool with `status=error` three rounds in a row, a
+  one-shot system note is prepended to the next LLM call asking
+  the model to try a substantively different approach. Detection
+  uses a small ring buffer scoped to one agent turn; firing
+  resets it so each consecutive-error stretch fires at most
+  once.
+- **Empty-response wrap-up retry** — when Vertex returns
+  content="" with no tool calls right after a successful tool
+  call (observed: tokens=N/0 silent exits), the agent gives it
+  one chance to wrap up by injecting a system nudge asking for
+  a brief summary. Falls through to the existing silent exit if
+  the retry also returns empty.
+- **Retry-backoff badge in the footer** — when the LLM backend
+  hits a transient failure (429, 503, timeout) and is sleeping
+  before the next attempt, a small badge appears in the
+  input-status-bar (e.g. "attempt 1: rate limit (waiting
+  4.8s)") so the user knows the slow round is a backoff, not a
+  hang. The badge clears on the next `tool_start` /
+  `tool_end` / turn end.
+
+### Changed
+
+- **Multimodal user messages now anchor each image to its
+  persistent object ID.** Each image is preceded by a one-line
+  prefix `Image (object ID: x):` so the model can correlate
+  visible image content with the ID it should reference in
+  reports. Previously the LLM could see the image data but had
+  no reliable way to map "image at position N" → object ID, and
+  reports could end up referencing swapped IDs.
+- **Per-image user turns on the local backend.** With ≥2
+  images attached, llama.cpp's mmproj cache reuses slots across
+  one prompt and the positional binding between
+  `<start_of_image>` markers and embedding tensors gets
+  reordered, causing image-1 / image-3 swap on Gemma 3
+  multimodal. Workaround: split a multimodal user `Message`
+  into N image-bearing user turns plus one trailing turn with
+  the original text, so each image gets its own prompt region.
+  Vertex (which has no such bug) keeps a single Content block
+  with the same one-line ID prefix.
+- **Data disclosure refreshes immediately after each tool.**
+  Previously the panel only re-fetched at turn end, so a freshly
+  registered object wouldn't appear until the agent fully
+  finished. The frontend now bumps the refresh tick on every
+  `tool_end` activity event.
+
+### Fixed
+
+- **Image-attach order race.** `ChatInput.addImages` read each
+  selected file with its own `FileReader` and appended the
+  result inside `onload`. Bigger files finished later, so
+  `pendingImages` could end up in a different order than the
+  user actually attached. Now reads all files in parallel with
+  `Promise.all` and appends in original order.
+- **Retry badge could linger after the response finished.** If
+  the final round of a turn didn't carry a `tool_start` /
+  `tool_end` pair, the "rate limit (waiting Xs)" badge stayed
+  on screen. Cleared on `state==='idle'` and gated on the
+  busy state.
+
 ## [0.1.15] - 2026-05-01
 
 ### Added
