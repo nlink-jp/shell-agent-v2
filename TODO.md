@@ -79,6 +79,21 @@ few runs to know whether it's truly flaky or genuinely slow.
 
 ## Library / dependency
 
+### DuckDB `LoadFile` SQL parameterisation (audit M4, deferred from v0.1.18)
+
+**Where**: `internal/analysis/engine.go` (`LoadFile` and the
+nearby `escapeSQLString` helper).
+
+**What**: Paths from the LLM are interpolated directly into
+DuckDB SQL string literals. The current defence —
+`escapeSQLString` doubling single quotes — works correctly for
+today's `read_csv_auto(path)` / `read_json_auto(path)` /
+`copy ... to ...` invocations, but it is one DuckDB function
+spec change away from breakage. Move to parameterised
+queries (DuckDB Go driver bind support) when we next touch the
+analysis layer for an unrelated reason. Not urgent; flagged
+here so the design choice is captured.
+
 ### `nlk/validate` integration
 
 **Where**: tool argument parsing in `internal/agent/tools.go`,
