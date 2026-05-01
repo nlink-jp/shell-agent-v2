@@ -480,6 +480,8 @@ func (b *Bindings) GetSettings() SettingsData {
 
 // SaveSettings persists updated settings.
 func (b *Bindings) SaveSettings(s SettingsData) error {
+	prevSandbox := b.cfg.Sandbox
+
 	b.cfg.LLM.DefaultBackend = config.LLMBackend(s.DefaultBackend)
 	b.cfg.LLM.Local.Endpoint = s.LocalEndpoint
 	b.cfg.LLM.Local.Model = s.LocalModel
@@ -526,7 +528,19 @@ func (b *Bindings) SaveSettings(s SettingsData) error {
 		TimeoutSeconds: s.Sandbox.TimeoutSeconds,
 	}
 
-	return b.cfg.Save()
+	if err := b.cfg.Save(); err != nil {
+		return err
+	}
+
+	// If the sandbox config changed, tear down running containers
+	// so the next sandbox-* tool call recreates with the new
+	// settings. Without this the user could toggle Network off in
+	// Settings and an in-flight container would still have the old
+	// (allowed) network until they restarted manually.
+	if b.agent != nil && prevSandbox != b.cfg.Sandbox {
+		b.agent.RestartSandbox()
+	}
+	return nil
 }
 
 // RestartMCP restarts all MCP guardian processes from current config.

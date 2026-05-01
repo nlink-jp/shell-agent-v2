@@ -4,6 +4,8 @@ import (
 	"context"
 	"embed"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/nlink-jp/shell-agent-v2/internal/pathfix"
 	"github.com/wailsapp/wails/v2"
@@ -27,6 +29,18 @@ func main() {
 	os.Setenv("PATH", pathfix.Augment(os.Getenv("PATH"), pathfix.Candidates(os.Getenv("HOME")), nil))
 
 	bindings := NewBindings()
+
+	// Belt-and-braces shutdown for cases where the OS terminates
+	// the process before Wails's OnShutdown fires (e.g.
+	// `kill -TERM`). SIGKILL is uncatchable; the startup sweep in
+	// maybeStartSandbox covers that path.
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigCh
+		bindings.shutdown(context.Background())
+		os.Exit(0)
+	}()
 
 	err := wails.Run(&options.App{
 		Title:                    "Shell Agent v2",

@@ -165,6 +165,13 @@ func (a *Agent) maybeStartSandbox() {
 	a.sandbox = eng
 	bin, _ := eng.Detect()
 	logger.Info("sandbox: enabled (engine=%s, image=%s)", bin, rs.Image)
+
+	// Sweep any containers left behind by a previous launch that
+	// crashed or was SIGKILL'd. The label filter inside
+	// engine.StopAll keeps it scoped to our own containers.
+	if err := eng.StopAll(context.Background()); err != nil {
+		logger.Info("sandbox: startup sweep failed (non-fatal): %v", err)
+	}
 }
 
 // State returns the current agent state.
