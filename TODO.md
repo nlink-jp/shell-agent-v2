@@ -11,18 +11,6 @@ by quickest-to-touch first.
 Small features the user can already work around, but worth
 exposing.
 
-### Configurable max-rounds cap
-
-**Where**: `internal/agent/agent.go:38` (`maxToolRounds`),
-`internal/config/`, Settings UI.
-
-**What**: Hardcoded to 10. Loop detection (shipped v0.1.16)
-catches same-error stretches early but a long, legitimate
-analysis can still hit the cap. Surface as a Settings entry,
-default 10. Mitigation 2 from the original "Agent loop: get
-unstuck" TODO. Out of scope until a real session legitimately
-needs more rounds.
-
 ### Report-viewer raw HTML rendering
 
 **Where**: `frontend/src/dialogs/ReportViewer.tsx`,
@@ -98,13 +86,16 @@ Transformers) remains. Some ideas, none designed yet:
 Out of scope until someone wants to invest in local-only
 quality parity with Vertex.
 
-### Configurable Settings: more knobs
+### Per-backend retry policy in Settings
 
-Aggregate of small Settings asks that are individually too
-small to ship alone. Surface together when one of them becomes
-load-bearing.
+Currently hardcoded to 3 attempts with 5s→60s exponential
+backoff (±10% jitter) in `internal/llm/retry.go`'s
+`DefaultRetryPolicy`. The other "more knobs" candidates were
+shipped — per-backend timeouts, memory v2 toggle, sandbox
+image / CPU / memory, and per-backend `output_reserve` /
+`max_tool_rounds` are all in the Settings dialog.
 
-- Per-backend retry policy (currently `DefaultRetryPolicy(...)`)
-- Per-backend per-request timeout
-- Memory v2 budget defaults
-- Sandbox image / CPU / memory defaults
+Retry was deferred because exposing it risks user
+mis-configuration with little benefit; revisit only if a real
+session needs custom retry behaviour (e.g., a slower-quota
+GCP project that benefits from longer initial backoff).
