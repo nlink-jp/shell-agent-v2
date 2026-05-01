@@ -44,7 +44,7 @@ func analysisTools(hasData bool) []llm.ToolDef {
 		},
 		{
 			Name:        "create-report",
-			Description: "Create a structured markdown report. Use this when the user asks for a report, summary document, or formatted output. You can include images by referencing earlier conversation images with markdown syntax.",
+			Description: "Create a structured markdown report. Use this when the user asks for a report, summary document, or formatted output. Write GitHub-flavored Markdown only — do NOT emit raw HTML tags (`<br>`, `<table>`, `<details>`, `<sub>`, etc.); the renderer escapes them and they appear as plain text. Use markdown tables, lists, fenced code blocks, and headings instead. Reference images with `![alt](object:ID)`.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -54,7 +54,7 @@ func analysisTools(hasData bool) []llm.ToolDef {
 					},
 					"content": map[string]any{
 						"type":        "string",
-						"description": "Full markdown content of the report",
+						"description": "Full report body in GitHub-flavored Markdown. No raw HTML tags.",
 					},
 				},
 				"required": []string{"title", "content"},

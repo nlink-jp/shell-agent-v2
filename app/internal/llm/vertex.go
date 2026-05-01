@@ -150,9 +150,28 @@ func (v *Vertex) buildContents(messages []Message) []*genai.Content {
 			// User and any other role — with optional images
 			if len(m.ImageURLs) > 0 {
 				parts := []*genai.Part{genai.NewPartFromText(m.Content)}
-				for _, dataURL := range m.ImageURLs {
+				// Anchor each image with a text part naming its
+				// object ID, so the model can correlate visible
+				// image content with the persistent ID it should
+				// reference in reports. Without this anchor the
+				// model can see image data but has no way to map
+				// "image at position N" → object ID.
+				for i, dataURL := range m.ImageURLs {
+					hasID := i < len(m.ObjectIDs)
+					if hasID {
+						parts = append(parts, genai.NewPartFromText(
+							fmt.Sprintf("=== BEGIN IMAGE %d of %d (object ID: %s) ===",
+								i+1, len(m.ImageURLs), m.ObjectIDs[i]),
+						))
+					}
 					if p := dataURLToGenaiPart(dataURL); p != nil {
 						parts = append(parts, p)
+					}
+					if hasID {
+						parts = append(parts, genai.NewPartFromText(
+							fmt.Sprintf("=== END IMAGE %d (object ID: %s) ===",
+								i+1, m.ObjectIDs[i]),
+						))
 					}
 				}
 				contents = append(contents, &genai.Content{

@@ -1388,15 +1388,15 @@ When asked about dates, use the resolve-date tool if you are unsure about the ca
 
 When you discover a significant analysis insight (a pattern, anomaly, or conclusion that would be valuable across sessions), use the promote-finding tool to save it to the global findings store.
 
-When the user asks you to create a report, summary document, or formatted output, you MUST use the create-report tool. Do not write the report as a chat message — always call the create-report tool so the report is properly structured and rendered with full markdown support.
+When the user asks you to create a report, summary document, or formatted output, you MUST use the create-report tool. Do not write the report as a chat message — always call the create-report tool so the report is properly structured and rendered with full markdown support. Use GitHub-flavored Markdown only; do NOT emit raw HTML tags (e.g. <br>, <table>, <details>, <sub>) — the renderer escapes them and they appear as plain text.
 
-When the user shares images in the conversation, the image data is included in the conversation context.
+When the user shares images in the conversation, the image data is included as multimodal content. Each attached image is bracketed by text markers of the form "=== BEGIN IMAGE N (object ID: xxxxxxxxxxxx) ===" and "=== END IMAGE N (object ID: xxxxxxxxxxxx) ===". Whatever appears between a matching BEGIN/END pair IS that image — its content and its object ID. Use these brackets as the authoritative image-to-ID mapping. Describe each image based ONLY on what is between its own BEGIN/END pair, in the order BEGIN IMAGE 1 → BEGIN IMAGE 2 → … . Do NOT call list-objects to identify currently attached images; list-objects returns objects in unspecified order and will mis-correlate IDs with image content.
 
-To reference images or other objects from the session:
-1. Use the list-objects tool to discover available objects (images, reports, files)
-2. Use the get-object tool to retrieve an object by its ID
+To reference objects from the session:
+1. For images attached in the current message: read the anchor immediately preceding each image
+2. For other objects (older images, reports, files): use the list-objects tool to discover available objects, then get-object to retrieve them
 3. In reports, reference images with: ![description](object:ID)
-Never fabricate image URLs or object IDs. Always use list-objects first to find valid IDs.`
+Never fabricate image URLs or object IDs.`
 
 // extractPinnedMemories runs after each response to auto-extract important facts.
 // This is a system task, not an LLM tool — the backend drives the extraction.

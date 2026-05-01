@@ -63,6 +63,7 @@ func Build(ctx context.Context, session *memory.Session, cache *SummaryCache, op
 		tokens    int
 		toolName  string
 		imageURLs []string
+		objectIDs []string
 	}
 	var acc []rendered
 	used := 0
@@ -79,6 +80,7 @@ func Build(ctx context.Context, session *memory.Session, cache *SummaryCache, op
 			idx: i, role: raw[i].Role, content: content, tokens: t,
 			toolName:  raw[i].ToolName,
 			imageURLs: raw[i].ImageURLs,
+			objectIDs: raw[i].ObjectIDs,
 		}}, acc...)
 		used += t
 		splitIdx = i
@@ -105,6 +107,7 @@ func Build(ctx context.Context, session *memory.Session, cache *SummaryCache, op
 			Content:   a.content,
 			ToolName:  a.toolName,
 			ImageURLs: a.imageURLs,
+			ObjectIDs: a.objectIDs,
 		})
 	}
 

@@ -161,6 +161,7 @@ func (e *Engine) BuildMessages(session *memory.Session, pinnedContext, findingsC
 			Role:      llm.Role(r.Role),
 			Content:   content,
 			ImageURLs: r.ImageURLs,
+			ObjectIDs: r.ObjectIDs,
 			ToolName:  r.ToolName,
 		})
 	}
@@ -282,6 +283,7 @@ func (e *Engine) BuildMessagesWithBudget(session *memory.Session, pinnedContext,
 			Role:      llm.Role(r.Role),
 			Content:   content,
 			ImageURLs: r.ImageURLs,
+			ObjectIDs: r.ObjectIDs,
 			ToolName:  r.ToolName,
 		})
 		hotTokens += tokens

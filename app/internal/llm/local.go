@@ -247,12 +247,29 @@ func (l *Local) buildRequest(messages []Message, tools []ToolDef, stream bool) [
 
 		if len(m.ImageURLs) > 0 {
 			// Multimodal: content as array of parts (OpenAI Vision format)
+			// Anchor each image with a text part naming its object ID.
+			// See vertex.go for rationale.
 			parts := []contentPart{{Type: "text", Text: m.Content}}
-			for _, imgURL := range m.ImageURLs {
+			for i, imgURL := range m.ImageURLs {
+				hasID := i < len(m.ObjectIDs)
+				if hasID {
+					parts = append(parts, contentPart{
+						Type: "text",
+						Text: fmt.Sprintf("=== BEGIN IMAGE %d of %d (object ID: %s) ===",
+							i+1, len(m.ImageURLs), m.ObjectIDs[i]),
+					})
+				}
 				parts = append(parts, contentPart{
 					Type:     "image_url",
 					ImageURL: &imageURL{URL: imgURL},
 				})
+				if hasID {
+					parts = append(parts, contentPart{
+						Type: "text",
+						Text: fmt.Sprintf("=== END IMAGE %d (object ID: %s) ===",
+							i+1, m.ObjectIDs[i]),
+					})
+				}
 			}
 			req.Messages = append(req.Messages, requestMessage{
 				Role:    role,
