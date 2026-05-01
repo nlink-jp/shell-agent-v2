@@ -1,7 +1,7 @@
 # Security Hardening — Design Document
 
 > Date: 2026-05-01
-> Status: Draft — pending implementation
+> Status: Shipped in v0.1.18 (Phase 1 87252c2, Phase 2 56cddeb, Phase 3 2be166a, Phase 4 2743947). M4 deferred — see TODO.md.
 > Scope: Three HIGH-severity findings and four
 > MEDIUM-severity findings from the 2026-05-01 audit.
 > Phased into four commits so each can be reviewed and

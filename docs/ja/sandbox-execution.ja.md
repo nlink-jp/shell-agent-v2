@@ -222,8 +222,16 @@ label:  app=shell-agent-v2
 `DeleteSessionDir` カスケードで削除 (work サブツリーまでカバーする
 よう拡張)。
 
-マウント: `--volume <abs-path>:/work:Z` (`Z` ラベルは Linux ホストの
-SELinux 用、macOS では無害)。
+マウント: macOS / docker-desktop では `--volume <abs-path>:/work:rw`、
+podman かつ `runtime.GOOS == "linux"` のときのみ
+`--volume <abs-path>:/work:Z`。条件付き `:Z` は v0.1.18 で導入
+（監査 H3 — security-hardening.ja.md 参照）。`:Z` はホスト
+ディレクトリの SELinux relabel 要求であり、podman+Linux では正しい
+が、macOS の docker-desktop では拒否され、Linux+docker (no SELinux)
+ではラベルを破壊する可能性がある。さらに v0.1.18 (H1) で
+`safeWorkPath` が `/work` 配下の symlink を拒否するようになり、
+コンテナ内で作った symlink を経由してホストファイルを読み書き
+することはできない。
 
 LLM の `WORKDIR` は `/work`。`sandbox-run-shell` / `sandbox-run-python` の相対パスは
 ここで解決される。書き込まれたファイルはコンテナ再起動を跨いで生き残り、

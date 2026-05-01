@@ -226,8 +226,16 @@ The directory is created on first `EnsureContainer` call (lazy) and
 removed by the existing `DeleteSessionDir` cascade (we extend it to
 cover the work subtree).
 
-Mount: `--volume <abs-path>:/work:Z` (Z label keeps SELinux happy on
-Linux hosts; harmless on macOS).
+Mount: `--volume <abs-path>:/work:rw` on macOS / docker-desktop;
+`--volume <abs-path>:/work:Z` only when the engine is podman and
+`runtime.GOOS == "linux"`. The conditional `:Z` was introduced in
+v0.1.18 (audit H3 — see security-hardening.md): `:Z` requests an
+SELinux relabel of the host directory, which is correct on
+podman+Linux but rejected by docker-desktop on macOS and
+potentially clobbers labels on Linux+docker without SELinux.
+`safeWorkPath` (v0.1.18 H1) additionally rejects symlinks under
+`/work` so an in-container symlink can't be used to read or
+write host files via the bind mount.
 
 The LLM's `WORKDIR` is `/work`, so relative paths in
 `sandbox-run-shell` / `sandbox-run-python` resolve there. Files

@@ -1,7 +1,7 @@
 # Agent Data Flow & State Control — Design Document
 
 > Date: 2026-04-25
-> Status: Draft — addresses issues found during v2 implementation testing
+> Status: Shipped — design documents the agent loop and memory compaction as it ships in v0.1.16+ (refined further by the agent-loop-resilience design for v0.1.16)
 > Scope: Agent loop, session records, memory compaction, object repository
 
 ## 1. Problem Summary
