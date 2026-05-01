@@ -246,35 +246,34 @@ func (l *Local) buildRequest(messages []Message, tools []ToolDef, stream bool) [
 		}
 
 		if len(m.ImageURLs) > 0 {
-			// Multimodal: content as array of parts (OpenAI Vision format)
-			// Anchor each image with a text part naming its object ID.
-			// See vertex.go for rationale.
-			parts := []contentPart{{Type: "text", Text: m.Content}}
+			// Multimodal: emit one user turn per image, then a
+			// final user turn carrying the original text. This
+			// works around llama.cpp's mmproj multi-image slot
+			// reuse bug (see docs/{en,ja}/multi-image-handling
+			// {,.ja}.md): multiple image_url parts in one prompt
+			// can have their positional binding to
+			// <start_of_image> markers reordered. Splitting into
+			// separate user turns gives each image its own prompt
+			// region.
+			//
+			// For Vertex (which has no such bug) the same
+			// llm.Message is packed into a single Content block
+			// in vertex.go; the split lives only here.
 			for i, imgURL := range m.ImageURLs {
-				hasID := i < len(m.ObjectIDs)
-				if hasID {
-					parts = append(parts, contentPart{
-						Type: "text",
-						Text: fmt.Sprintf("=== BEGIN IMAGE %d of %d (object ID: %s) ===",
-							i+1, len(m.ImageURLs), m.ObjectIDs[i]),
-					})
-				}
-				parts = append(parts, contentPart{
-					Type:     "image_url",
-					ImageURL: &imageURL{URL: imgURL},
+				req.Messages = append(req.Messages, requestMessage{
+					Role: role,
+					Content: []contentPart{
+						{Type: "text", Text: imageIDPrefix(i, m.ObjectIDs)},
+						{Type: "image_url", ImageURL: &imageURL{URL: imgURL}},
+					},
 				})
-				if hasID {
-					parts = append(parts, contentPart{
-						Type: "text",
-						Text: fmt.Sprintf("=== END IMAGE %d (object ID: %s) ===",
-							i+1, m.ObjectIDs[i]),
-					})
-				}
 			}
-			req.Messages = append(req.Messages, requestMessage{
-				Role:    role,
-				Content: parts,
-			})
+			if m.Content != "" {
+				req.Messages = append(req.Messages, requestMessage{
+					Role:    role,
+					Content: m.Content,
+				})
+			}
 		} else {
 			req.Messages = append(req.Messages, requestMessage{
 				Role:    role,

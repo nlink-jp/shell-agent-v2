@@ -147,31 +147,19 @@ func (v *Vertex) buildContents(messages []Message) []*genai.Content {
 				},
 			})
 		default:
-			// User and any other role — with optional images
+			// User and any other role — with optional images.
+			// Each image is anchored with a one-line prefix naming
+			// its object ID so the model can correlate visible
+			// image content with the persistent ID it should
+			// reference in reports. Format follows Google's
+			// recommended Gemma multimodal pattern: short ID
+			// label immediately preceding the image, no wrapping.
 			if len(m.ImageURLs) > 0 {
 				parts := []*genai.Part{genai.NewPartFromText(m.Content)}
-				// Anchor each image with a text part naming its
-				// object ID, so the model can correlate visible
-				// image content with the persistent ID it should
-				// reference in reports. Without this anchor the
-				// model can see image data but has no way to map
-				// "image at position N" → object ID.
 				for i, dataURL := range m.ImageURLs {
-					hasID := i < len(m.ObjectIDs)
-					if hasID {
-						parts = append(parts, genai.NewPartFromText(
-							fmt.Sprintf("=== BEGIN IMAGE %d of %d (object ID: %s) ===",
-								i+1, len(m.ImageURLs), m.ObjectIDs[i]),
-						))
-					}
+					parts = append(parts, genai.NewPartFromText(imageIDPrefix(i, m.ObjectIDs)))
 					if p := dataURLToGenaiPart(dataURL); p != nil {
 						parts = append(parts, p)
-					}
-					if hasID {
-						parts = append(parts, genai.NewPartFromText(
-							fmt.Sprintf("=== END IMAGE %d (object ID: %s) ===",
-								i+1, m.ObjectIDs[i]),
-						))
 					}
 				}
 				contents = append(contents, &genai.Content{

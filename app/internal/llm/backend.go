@@ -5,7 +5,6 @@ package llm
 import (
 	"context"
 	"fmt"
-	"strings"
 )
 
 // Role represents an application-level message role.
@@ -70,34 +69,18 @@ type ToolCall struct {
 	Arguments string
 }
 
-// AppendImageIDLabel appends a labeled list of object IDs to a
-// message's text content so the multimodal LLM can correlate each
-// attached image with its persistent object ID. Without this the
-// model can see the image data but can't tell which ID corresponds
-// to which image, causing reports to reference swapped IDs.
+// imageIDPrefix returns the short text label that immediately
+// precedes the i-th image part in a multimodal user message.
+// Format follows Google's recommended Gemma multimodal pattern
+// — short ID label, no wrapping markers — so the model sees the
+// ID adjacent to the image with no intervening tokens that could
+// dilute the binding.
 //
-// The returned string is intended to be sent to the backend only;
-// the persisted Record.Content stays untouched so the chat UI
-// keeps the user's original text clean.
-func AppendImageIDLabel(content string, objectIDs []string) string {
-	if len(objectIDs) == 0 {
-		return content
+// When ObjectIDs is missing or shorter than ImageURLs (legacy
+// records), fall back to a positional "Image N:" label.
+func imageIDPrefix(i int, objectIDs []string) string {
+	if i < len(objectIDs) {
+		return fmt.Sprintf("Image (object ID: %s):", objectIDs[i])
 	}
-	var b strings.Builder
-	b.WriteString(content)
-	if content != "" {
-		b.WriteString("\n\n")
-	}
-	if len(objectIDs) == 1 {
-		b.WriteString("(Attached image object ID: ")
-		b.WriteString(objectIDs[0])
-		b.WriteString(")")
-		return b.String()
-	}
-	b.WriteString("(Attached images, in the order shown:\n")
-	for i, id := range objectIDs {
-		fmt.Fprintf(&b, "%d. %s\n", i+1, id)
-	}
-	b.WriteString(")")
-	return b.String()
+	return fmt.Sprintf("Image %d:", i+1)
 }
