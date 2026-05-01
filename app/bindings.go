@@ -6,6 +6,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"path/filepath"
@@ -29,8 +30,22 @@ type Bindings struct {
 	agent      *agent.Agent
 	cfg        *config.Config
 	analysis   *analysis.Engine
-	mitlChan   chan agent.MITLResponse
 	objects    *objstore.Store
+
+	// MITL response routing. Each in-flight request owns its own
+	// channel held in mitlReq; resolved by Approve/Reject*. A
+	// stray click while no request is pending finds mitlReq nil
+	// and no-ops, instead of leaving a stale value in a buffered
+	// chan that the next request would silently consume.
+	mitlMu  sync.Mutex
+	mitlReq *mitlSlot
+}
+
+// mitlSlot is the per-request state attached to b.mitlReq while
+// a tool is awaiting MITL approval.
+type mitlSlot struct {
+	req agent.MITLRequest
+	ch  chan agent.MITLResponse
 }
 
 // NewBindings creates a new Bindings instance.
@@ -93,14 +108,24 @@ func (b *Bindings) startup(ctx context.Context) {
 		}
 		wailsRuntime.EventsEmit(b.ctx, "agent:activity", payload)
 	})
-	b.mitlChan = make(chan agent.MITLResponse, 1)
 	b.agent.SetMITLHandler(func(req agent.MITLRequest) agent.MITLResponse {
+		ch := make(chan agent.MITLResponse, 1)
+		b.mitlMu.Lock()
+		b.mitlReq = &mitlSlot{req: req, ch: ch}
+		b.mitlMu.Unlock()
+
 		wailsRuntime.EventsEmit(b.ctx, "mitl:request", map[string]any{
 			"tool_name": req.ToolName,
 			"arguments": req.Arguments,
 			"category":  req.Category,
 		})
-		return <-b.mitlChan
+
+		resp := <-ch
+
+		b.mitlMu.Lock()
+		b.mitlReq = nil
+		b.mitlMu.Unlock()
+		return resp
 	})
 
 	// Restore window position and size
@@ -309,29 +334,37 @@ type MessageData struct {
 }
 
 // --- MITL bindings ---
+//
+// All three resolvers go through resolveMITL which atomically
+// consumes the in-flight slot. Stray clicks (no request
+// pending) and double-clicks on the same request are no-ops.
+
+func (b *Bindings) resolveMITL(resp agent.MITLResponse) {
+	b.mitlMu.Lock()
+	slot := b.mitlReq
+	b.mitlMu.Unlock()
+	if slot == nil {
+		return // no request in flight; UI race or stray click
+	}
+	select {
+	case slot.ch <- resp:
+	default: // already resolved (e.g. double-click); idempotent
+	}
+}
 
 // ApproveMITL approves the pending tool execution.
 func (b *Bindings) ApproveMITL() {
-	select {
-	case b.mitlChan <- agent.MITLResponse{Approved: true}:
-	default:
-	}
+	b.resolveMITL(agent.MITLResponse{Approved: true})
 }
 
 // RejectMITL rejects the pending tool execution without feedback.
 func (b *Bindings) RejectMITL() {
-	select {
-	case b.mitlChan <- agent.MITLResponse{Approved: false}:
-	default:
-	}
+	b.resolveMITL(agent.MITLResponse{Approved: false})
 }
 
 // RejectMITLWithFeedback rejects with a reason for LLM revision.
 func (b *Bindings) RejectMITLWithFeedback(feedback string) {
-	select {
-	case b.mitlChan <- agent.MITLResponse{Approved: false, Feedback: feedback}:
-	default:
-	}
+	b.resolveMITL(agent.MITLResponse{Approved: false, Feedback: feedback})
 }
 
 // --- Analysis bindings ---

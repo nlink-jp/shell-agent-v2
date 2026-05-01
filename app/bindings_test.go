@@ -324,3 +324,89 @@ func TestBindings_DeleteFindings_AndPinned(t *testing.T) {
 		t.Errorf("remaining pinned = %d, want 1", got)
 	}
 }
+
+// --- MITL slot tests (Phase 4 hardening) ---
+
+// TestMITL_StrayApproveBeforeRequest_NoOps verifies that a click
+// fired when no MITL request is pending does nothing — instead
+// of being captured by a buffered channel and silently
+// auto-approving the next prompt.
+func TestMITL_StrayApproveBeforeRequest_NoOps(t *testing.T) {
+	b := &Bindings{}
+	b.ApproveMITL()                // no panic, no goroutine leak
+	b.RejectMITL()                 // ditto
+	b.RejectMITLWithFeedback("no") // ditto
+
+	if b.mitlReq != nil {
+		t.Errorf("mitlReq should remain nil after stray clicks")
+	}
+}
+
+// TestMITL_DoubleApproveSameRequest_Idempotent verifies that
+// firing Approve twice resolves the request once and
+// ignores the second click.
+func TestMITL_DoubleApproveSameRequest_Idempotent(t *testing.T) {
+	b := &Bindings{}
+	ch := make(chan agent.MITLResponse, 1)
+	b.mitlReq = &mitlSlot{req: agent.MITLRequest{ToolName: "x"}, ch: ch}
+
+	b.ApproveMITL()
+	b.ApproveMITL() // must not block on a full channel; must not panic
+
+	select {
+	case resp := <-ch:
+		if !resp.Approved {
+			t.Errorf("first approve should have set Approved=true; got %v", resp)
+		}
+	default:
+		t.Fatal("first approve should have written to ch")
+	}
+	// Channel is drained; if a stale value were left we'd see it on
+	// the next read, but the slot's per-request ch is single-use.
+	select {
+	case extra := <-ch:
+		t.Errorf("second approve should have been a no-op; got %v", extra)
+	default:
+	}
+}
+
+// TestMITL_TwoRequestsInSeries_NoLeakBetween simulates the
+// production flow: handler 1 emits, gets resolved, then a second
+// request comes in. With a per-request channel, the second
+// request gets a fresh channel and the first one's resolved
+// value can't leak into it.
+func TestMITL_TwoRequestsInSeries_NoLeakBetween(t *testing.T) {
+	b := &Bindings{}
+
+	// First request: install slot, approve, drain.
+	ch1 := make(chan agent.MITLResponse, 1)
+	b.mitlReq = &mitlSlot{req: agent.MITLRequest{ToolName: "first"}, ch: ch1}
+	b.ApproveMITL()
+	resp1 := <-ch1
+	if !resp1.Approved {
+		t.Fatalf("first: Approved=%v", resp1.Approved)
+	}
+	// Production handler clears mitlReq after <-ch returns.
+	b.mitlReq = nil
+
+	// Stray click between requests must NOT be captured.
+	b.ApproveMITL()
+
+	// Second request: install fresh slot.
+	ch2 := make(chan agent.MITLResponse, 1)
+	b.mitlReq = &mitlSlot{req: agent.MITLRequest{ToolName: "second"}, ch: ch2}
+
+	// ch2 must be empty — the stray click between the two
+	// shouldn't have leaked into it.
+	select {
+	case extra := <-ch2:
+		t.Fatalf("ch2 should be empty before its own resolve; got %v", extra)
+	default:
+	}
+
+	b.RejectMITL()
+	resp2 := <-ch2
+	if resp2.Approved {
+		t.Errorf("second: Approved=%v, want false", resp2.Approved)
+	}
+}
