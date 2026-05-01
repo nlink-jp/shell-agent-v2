@@ -415,6 +415,12 @@ type MCPStatus struct {
 
 // startGuardians launches MCP guardian processes from config.
 func (a *Agent) startGuardians() {
+	// Take guardiansMu for the whole start sequence so concurrent
+	// readers (ListTools, buildToolDefs, executeTool) see a
+	// consistent map. Process spawning happens inside the lock —
+	// startup is a one-shot blocking phase, not a hot path.
+	a.guardiansMu.Lock()
+	defer a.guardiansMu.Unlock()
 	a.mcpStatuses = nil
 	for _, p := range a.cfg.Tools.MCPProfiles {
 		if !p.Enabled || p.Name == "" || p.Binary == "" {
@@ -527,6 +533,11 @@ func (a *Agent) RestartGuardians() {
 
 // LoadSession switches to the given session. Must be called in Idle state.
 func (a *Agent) LoadSession(session *memory.Session) error {
+	// Mirror SendWithImages: drain any in-flight post-response
+	// goroutines (compactMemoryIfNeeded / generateTitleIfNeeded
+	// / extractPinnedMemories) before reassigning a.session, so
+	// no background reader observes a torn swap.
+	a.postTasksWg.Wait()
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.state != StateIdle {

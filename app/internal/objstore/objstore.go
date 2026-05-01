@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nlink-jp/shell-agent-v2/internal/config"
@@ -39,9 +40,17 @@ type ObjectMeta struct {
 }
 
 // Store manages binary objects on disk.
+//
+// Concurrency: the index map is guarded by mu. Read methods
+// (Get, All, ListBySession, ListByType) take RLock; mutating
+// methods (Store, Delete, DeleteBySession, Save, Load) take
+// Lock. ReadData / DataPath access the filesystem directly by
+// id and don't need the lock — a file removed mid-Open
+// surfaces as a normal os error.
 type Store struct {
 	baseDir   string
 	dataDir   string
+	mu        sync.RWMutex
 	index     map[string]*ObjectMeta
 	indexPath string
 }
@@ -64,6 +73,8 @@ func NewStoreAt(baseDir string) *Store {
 
 // Load reads the index from disk.
 func (s *Store) Load() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	data, err := os.ReadFile(s.indexPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -76,6 +87,15 @@ func (s *Store) Load() error {
 
 // Save writes the index to disk.
 func (s *Store) Save() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.saveLocked()
+}
+
+// saveLocked writes the index without acquiring the lock.
+// Caller must already hold s.mu (Lock, not RLock — we are
+// reading the map but a concurrent writer would still race).
+func (s *Store) saveLocked() error {
 	if err := os.MkdirAll(s.baseDir, 0700); err != nil {
 		return err
 	}
@@ -119,9 +139,12 @@ func (s *Store) Store(reader io.Reader, objType ObjectType, mimeType, origName, 
 		SessionID: sessionID,
 		Size:      size,
 	}
-	s.index[id] = meta
 
-	if err := s.Save(); err != nil {
+	s.mu.Lock()
+	s.index[id] = meta
+	err = s.saveLocked()
+	s.mu.Unlock()
+	if err != nil {
 		return nil, err
 	}
 
@@ -130,6 +153,8 @@ func (s *Store) Store(reader io.Reader, objType ObjectType, mimeType, origName, 
 
 // Get returns metadata for an object.
 func (s *Store) Get(id string) (*ObjectMeta, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	meta, ok := s.index[id]
 	return meta, ok
 }
@@ -149,12 +174,16 @@ func (s *Store) DataPath(id string) string {
 func (s *Store) Delete(id string) error {
 	path := filepath.Join(s.dataDir, id)
 	os.Remove(path)
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	delete(s.index, id)
-	return s.Save()
+	return s.saveLocked()
 }
 
 // All returns all object metadata.
 func (s *Store) All() []*ObjectMeta {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	result := make([]*ObjectMeta, 0, len(s.index))
 	for _, m := range s.index {
 		result = append(result, m)
@@ -164,6 +193,8 @@ func (s *Store) All() []*ObjectMeta {
 
 // ListByType returns objects matching the given type.
 func (s *Store) ListByType(objType ObjectType) []*ObjectMeta {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	var result []*ObjectMeta
 	for _, m := range s.index {
 		if m.Type == objType {
@@ -175,6 +206,8 @@ func (s *Store) ListByType(objType ObjectType) []*ObjectMeta {
 
 // ListBySession returns objects created by the given session.
 func (s *Store) ListBySession(sessionID string) []*ObjectMeta {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	var result []*ObjectMeta
 	for _, m := range s.index {
 		if m.SessionID == sessionID {
@@ -186,6 +219,8 @@ func (s *Store) ListBySession(sessionID string) []*ObjectMeta {
 
 // DeleteBySession removes all objects created by the given session.
 func (s *Store) DeleteBySession(sessionID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	var toDelete []string
 	for id, m := range s.index {
 		if m.SessionID == sessionID {
@@ -198,7 +233,7 @@ func (s *Store) DeleteBySession(sessionID string) error {
 		delete(s.index, id)
 	}
 	if len(toDelete) > 0 {
-		return s.Save()
+		return s.saveLocked()
 	}
 	return nil
 }

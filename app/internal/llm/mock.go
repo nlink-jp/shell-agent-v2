@@ -3,10 +3,19 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"sync"
 )
 
 // MockBackend is a programmable LLM backend for testing.
+//
+// Concurrency: tests sometimes inspect Calls() while
+// post-response goroutines (extractPinnedMemories,
+// generateTitleIfNeeded) are still calling Chat() in the
+// background. Guard the call log with a mutex so -race stays
+// quiet; the cost on the production path is zero because the
+// mock is only used in tests.
 type MockBackend struct {
+	mu        sync.Mutex
 	responses []MockResponse
 	calls     []MockCall
 	callIdx   int
@@ -71,13 +80,19 @@ func (m *MockBackend) ChatStream(ctx context.Context, messages []Message, tools 
 	return resp, nil
 }
 
-// Calls returns all recorded calls.
+// Calls returns a snapshot of all recorded calls.
 func (m *MockBackend) Calls() []MockCall {
-	return m.calls
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]MockCall, len(m.calls))
+	copy(out, m.calls)
+	return out
 }
 
 // LastCall returns the most recent call, or an empty MockCall if none.
 func (m *MockBackend) LastCall() MockCall {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if len(m.calls) == 0 {
 		return MockCall{}
 	}
@@ -95,6 +110,8 @@ func (m *MockBackend) ToolNames() []string {
 }
 
 func (m *MockBackend) nextResponse(messages []Message, tools []ToolDef) (*Response, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.calls = append(m.calls, MockCall{Messages: messages, Tools: tools})
 
 	idx := m.callIdx

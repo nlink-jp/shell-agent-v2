@@ -1,7 +1,9 @@
 package objstore
 
 import (
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -167,6 +169,58 @@ func TestGenerateID(t *testing.T) {
 	}
 	if len(id1) != 12 {
 		t.Errorf("ID length = %d, want 12", len(id1))
+	}
+}
+
+// TestStore_ConcurrentStoreAndList exercises the index lock by
+// running many writers and readers in parallel. Without the
+// RWMutex this panics with "concurrent map writes". Run with
+// -race for the full assertion.
+func TestStore_ConcurrentStoreAndList(t *testing.T) {
+	s := NewStoreAt(t.TempDir())
+
+	const writers = 16
+	const reads = 16
+	const writesPerGoroutine = 25
+
+	var wg sync.WaitGroup
+	wg.Add(writers + reads)
+
+	for i := 0; i < writers; i++ {
+		i := i
+		go func() {
+			defer wg.Done()
+			for j := 0; j < writesPerGoroutine; j++ {
+				_, err := s.Store(
+					strings.NewReader(fmt.Sprintf("payload-%d-%d", i, j)),
+					TypeBlob, "text/plain",
+					fmt.Sprintf("name-%d-%d.txt", i, j),
+					fmt.Sprintf("sess-%d", i%4),
+				)
+				if err != nil {
+					t.Errorf("Store: %v", err)
+					return
+				}
+			}
+		}()
+	}
+
+	for i := 0; i < reads; i++ {
+		go func() {
+			defer wg.Done()
+			for j := 0; j < writesPerGoroutine; j++ {
+				_ = s.All()
+				_ = s.ListBySession("sess-0")
+				_ = s.ListByType(TypeBlob)
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	// Every write should have landed in the index.
+	if got := len(s.All()); got != writers*writesPerGoroutine {
+		t.Errorf("All() returned %d objects, want %d", got, writers*writesPerGoroutine)
 	}
 }
 
