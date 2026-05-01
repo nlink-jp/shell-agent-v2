@@ -11,20 +11,56 @@ by quickest-to-touch first.
 Small features the user can already work around, but worth
 exposing.
 
-### Report-viewer raw HTML rendering
+### HTML output as a first-class object type
 
-**Where**: `frontend/src/dialogs/ReportViewer.tsx`,
-`frontend/src/components/MessageItem.tsx`.
+**Background**: Reports are produced via `create-report`, stored
+as TypeReport, and rendered as Markdown by ReactMarkdown without
+`rehype-raw`. When the model wants richer layout
+(interactive tables, collapsible sections, embedded charts) it
+sometimes emits raw HTML inside the Markdown, which the
+renderer escapes — it appears as plain `<tag>` text. v0.1.16
+mitigates with a system-prompt warning, but the underlying need
+for richer-than-Markdown output is real.
 
-**What**: The model occasionally emits raw HTML tags inside
-report markdown (`<table>`, `<br>`, `<details>`, `<sub>`).
-ReactMarkdown without `rehype-raw` shows them as literal text.
-v0.1.16 mitigates by warning the LLM in the system prompt and
-the create-report tool description, but recurrence is possible.
-If we want to render the HTML, add `rehype-raw` *and*
-`rehype-sanitize` with a strict allowlist — model output is
-partially user-controlled and unsanitised HTML is an XSS
-surface.
+**Direction**: instead of bolting `rehype-raw` + `rehype-sanitize`
+onto the Markdown pipeline (XSS surface, mixed-mode rendering,
+sanitiser allowlist that's hard to keep tight), introduce a
+**separate "HTML document" object type**. Markdown stays pure
+Markdown; the model uses a different tool to emit a standalone
+HTML file when it wants HTML semantics.
+
+Sketch (not designed):
+
+- New object type `html` alongside `image` / `blob` / `report`
+  in `objstore`.
+- New tool `create-html-document(title, content)` or a
+  sandbox-side `sandbox-register-html` that takes a `/work` HTML
+  file and stores it as TypeHTML.
+- New viewer: open in a **sandboxed `<iframe sandbox="">`**
+  inside a dialog, with a strict CSP (`default-src 'none';
+  style-src 'unsafe-inline'; img-src data: object:;`). No script
+  execution, no network, no parent-frame access.
+- A small "Open as HTML" button on HTML object cards in the Data
+  panel, plus markdown reference syntax `[label](object:ID)`
+  for cross-references.
+- Update `create-report` tool description: keep saying "Markdown
+  only", but now point at `create-html-document` as the escape
+  hatch.
+
+Pre-design questions:
+
+- Does Wails' webview reliably enforce iframe `sandbox` on macOS?
+  (Yes per WebKit docs, but verify.)
+- Should HTML documents be editable / re-renderable, or
+  one-shot? (One-shot is simpler.)
+- How does the size limit of a stored HTML compare with how big
+  models will go? Cap at 1 MB?
+- Should we parse-and-sanitise on save (single sanitisation
+  point) or only on render (defense-in-depth)? Probably both,
+  with `rehype-sanitize`-equivalent on save and CSP at render.
+
+Out of scope until we hit a real session that genuinely needs
+the richer output and Markdown can't carry it.
 
 ## Investigation / verification needed
 
