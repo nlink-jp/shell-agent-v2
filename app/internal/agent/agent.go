@@ -705,6 +705,9 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 	// Avoid logging full user message at Info level (may contain sensitive data).
 	logger.Info("agentLoop: session=%s message_len=%d objects=%d", a.session.ID, len(userMessage), len(objectIDs))
 	logger.Debug("agentLoop: message=%s", logger.Truncate(userMessage, 100))
+	if len(objectIDs) > 0 {
+		logger.Debug("agentLoop: attached objectIDs (in order)=%v dataURL_count=%d", objectIDs, len(dataURLs))
+	}
 
 	// Step 1: Add user message to session
 	// ObjectIDs stored in record for persistence; dataURLs used for LLM context
@@ -721,6 +724,17 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 
 	// Synchronous compaction before entering the loop
 	a.compactIfOverBudget(ctx)
+
+	// Loop-detection ring buffer (Feature 1 of agent-loop-resilience).
+	// Local to one agent turn — a fresh user message starts clean.
+	var recentToolCalls []toolCallTrace
+
+	// Empty-response retry: when the LLM returns content="" with no
+	// tool calls right after a successful tool execution, give it one
+	// chance to wrap up before exiting silently. Both flags are
+	// per-turn; emptyRetryDone gates the one-shot retry,
+	// injectEmptyNudge is consumed in the next round.
+	var emptyRetryDone, injectEmptyNudge bool
 
 	// Step 2: Agent loop (max rounds)
 	for round := 0; round < maxToolRounds; round++ {
@@ -764,6 +778,26 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 			}
 		}
 
+		// Loop-detection: if the previous rounds show the same tool
+		// failing 3× in a row, prepend a one-shot corrective hint
+		// as a system message. The hint is NOT added to
+		// session.Records — it's transient and lives only for this
+		// LLM call. After firing we reset the buffer so we don't
+		// re-fire on every subsequent round.
+		if name, stuck := detectStuckLoop(recentToolCalls); stuck {
+			messages = append([]llm.Message{{Role: "system", Content: loopHintFor(name)}}, messages...)
+			logger.Info("agentLoop: loop-detection: %s hit error 3× in a row, injected corrective hint", name)
+			recentToolCalls = nil
+		}
+
+		// Empty-response wrap-up nudge — set in the previous round
+		// when Vertex returned content="" with no tool calls. The
+		// flag is consumed here so we only inject it once.
+		if injectEmptyNudge {
+			messages = append([]llm.Message{{Role: "system", Content: emptyResponseNudge}}, messages...)
+			injectEmptyNudge = false
+		}
+
 		logger.Debug("agentLoop: round=%d messages=%d tools=%d backend=%s v2=%v", round, len(messages), len(tools), a.backend.Name(), a.cfg.Memory.UseV2)
 
 		var resp *llm.Response
@@ -800,8 +834,17 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 			if resp.Content != "" {
 				a.session.AddAssistantMessage(resp.Content)
 				_ = a.session.Save()
+			} else if !emptyRetryDone {
+				// Vertex sometimes returns 0 output tokens after a
+				// tool result. Give it one chance to wrap up before
+				// the user is left staring at tool activity with no
+				// final reply.
+				emptyRetryDone = true
+				injectEmptyNudge = true
+				logger.Info("agentLoop: empty response after tool calls, retrying once with wrap-up nudge")
+				continue
 			} else {
-				logger.Debug("agentLoop: empty final response, ending loop")
+				logger.Info("agentLoop: empty response after wrap-up retry, ending loop")
 			}
 			// Post-response background tasks
 			a.postResponseTasks(ctx)
@@ -839,6 +882,7 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 			logger.Debug("agentLoop: tool_result name=%s status=%s result=%s", tc.Name, status, logger.Truncate(result, 200))
 			a.session.AddToolResult(tc.ID, tc.Name, result)
 			a.emitActivity(ActivityEvent{Type: "tool_end", Detail: tc.Name, Status: status})
+			recentToolCalls = pushToolCallTrace(recentToolCalls, toolCallTrace{Name: tc.Name, Status: status})
 		}
 		_ = a.session.Save() // auto-save after tool execution
 	}
