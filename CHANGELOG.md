@@ -5,6 +5,73 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.18] - 2026-05-01
+
+Security-hardening release. Addresses three HIGH-severity and
+four MEDIUM-severity findings from the 2026-05-01 audit. Plan
+in [docs/en/security-hardening.md](docs/en/security-hardening.md).
+
+### Fixed
+
+- **(HIGH) Symlink traversal through `/work`.** `safeWorkPath`
+  now resolves symlinks on the parent directory and rejects
+  any symlink leaf, including ones pointing inside `/work`.
+  Combined with `--user $UID`, the previous lexical-only
+  check let an attacker LLM `ln -s ~/.ssh/authorized_keys
+  /work/foo` from inside the container, then write through
+  the symlink via `sandbox-write-file path=foo` — host file
+  modified. `sandbox-register-object` and
+  `sandbox-load-into-analysis` had the symmetric read
+  vulnerability. Both closed.
+- **(HIGH) `objstore.Store` concurrent map writes.** The map
+  was accessed without a mutex from the agent's
+  post-response goroutines and from the next tool call
+  on the main path; the Go runtime panics with
+  `concurrent map writes` under realistic agent activity.
+  Added `sync.RWMutex`.
+- **(HIGH) `:Z` SELinux mount label always appended.** Only
+  correct on podman + Linux. Docker-desktop on macOS rejects
+  it as invalid; Linux + docker without SELinux can clobber
+  labels on shared parents. `buildRunArgs` now takes a
+  `selinuxRelabel bool`; `useSELinuxRelabel(binary)` returns
+  true only when `runtime.GOOS == "linux"` and the binary
+  basename is `podman`.
+- **(MED) MITL channel could silently auto-approve a future
+  prompt.** A click while no request was pending pushed a
+  value into a long-lived buffered channel; the next request
+  consumed that buffered value instead of waiting for fresh
+  input. Replaced with a per-request slot — stray clicks
+  no-op, double-clicks are idempotent.
+- **(MED) `agent.guardians` map written without
+  `guardiansMu.Lock()`** in `startGuardians`. Lock now held
+  for the whole start sequence.
+- **(MED) Sandbox containers leaked across launches.**
+  `maybeStartSandbox` now sweeps stray containers (label-
+  scoped) at startup. `main.go` installs a SIGINT/SIGTERM
+  handler that runs the shutdown hook before `os.Exit`.
+- **(MED) Settings change to sandbox config didn't restart a
+  running container.** `SaveSettings` snapshots
+  `cfg.Sandbox` before applying changes; if the new struct
+  differs, it calls `agent.RestartSandbox` so the next
+  sandbox-* tool recreates with the new settings.
+- **(MED) `LoadSession` reassigned `a.session` while
+  post-response goroutines were still reading it.** Drains
+  `postTasksWg` before the swap, mirroring `Send`.
+
+### Hardening
+
+- `MockBackend` now uses a mutex around `Calls()` /
+  `nextResponse()` so test inspection during in-flight
+  background calls doesn't race with `-race`.
+
+### Notes
+
+`M4` (DuckDB `LoadFile` SQL string-concat with single-quote
+doubling) is not addressed in this release. The current
+defence works; parameterising would require an
+analysis-package restructuring better tackled when DuckDB's
+bind API is more battle-tested in our stack.
+
 ## [0.1.17] - 2026-05-01
 
 Settings surface improvements and a round of dead-code cleanup
