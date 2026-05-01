@@ -5,6 +5,55 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.17] - 2026-05-01
+
+Settings surface improvements and a round of dead-code cleanup
+on top of v0.1.16's resilience and multimodal work.
+
+### Added
+
+- **Configurable max tool rounds.** `agent.max_tool_rounds`
+  (default 10) now appears in the Settings dialog under "Agent
+  loop". Loop detection (Feature 1, v0.1.16) catches stuck
+  same-error stretches early, so raising this is reasonably
+  safe when a long, legitimate analysis legitimately needs more
+  rounds.
+- **Configurable output reserve.** New `output_reserve` field
+  on each per-backend context budget (default 4096). Tokens
+  reserved for the model's reply, subtracted from
+  `max_context_tokens` before context packing so the request
+  stays under the model's window. Was previously hardcoded
+  inside `agentLoop.buildMessagesV2`.
+- **Settings reference in the README.** Both `README.md` and
+  `README.ja.md` gained a full table covering agent-loop knobs,
+  per-backend context budgets (5 fields), per-request
+  timeouts, and the seven sandbox knobs.
+
+### Changed
+
+- **Tool description wording.** "Central object repository"
+  rephrased to "session object store" in
+  `sandbox-copy-object` / `sandbox-register-object`. Less
+  internal-sounding for the LLM and humans.
+- **Multi-image scaling closed.** v0.1.16's per-image-turn fix
+  for the local backend has now been manually verified at N=3,
+  N=5, and N=8 — the upper bound of Gemma 3's multi-image
+  training. No additional mitigation needed.
+
+### Removed
+
+- **Dead `'done'` status.** The `ChatMessage.status` union
+  dropped the legacy `'done'` member; the backend has only
+  emitted `'success'` / `'error'` since v0.1.13.
+- **Dead `.object-item` CSS family.** ~130 lines orphaned by
+  the info-display redesign Phase 3 (replaced by
+  `.data-object-*`). No remaining className users in the
+  codebase.
+- **Unused `ObjectReferences` Wails binding.** Go function +
+  TypeScript declaration + two tests + auto-generated wailsjs
+  entries. The frontend stopped calling it after the Objects
+  panel was removed.
+
 ## [0.1.16] - 2026-05-01
 
 Five resilience and multimodal improvements after v0.1.15. Plans
