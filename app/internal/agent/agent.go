@@ -894,20 +894,20 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 		}
 
 		// --- Tool calls present ---
-		// Record assistant's tool call request in session.
-		// This is REQUIRED for valid conversation history — LM Studio expects
-		// an assistant message with tool_call info before tool result messages.
-		// Without this, the LLM doesn't know tools were already called and
-		// tries to call them again.
-		toolNames := make([]string, len(resp.ToolCalls))
+		// Record the assistant's tool calls structurally so the
+		// next LLM turn replays them in the protocol-correct shape
+		// (Vertex FunctionCall part / OpenAI tool_calls). The
+		// chat UI substitutes a "Calling: foo" placeholder at
+		// render time when Content is empty.
+		callRecords := make([]memory.ToolCallRecord, len(resp.ToolCalls))
 		for i, tc := range resp.ToolCalls {
-			toolNames[i] = tc.Name
+			callRecords[i] = memory.ToolCallRecord{
+				ID:        tc.ID,
+				Name:      tc.Name,
+				Arguments: tc.Arguments,
+			}
 		}
-		assistantContent := resp.Content
-		if assistantContent == "" {
-			assistantContent = fmt.Sprintf("[Calling: %s]", strings.Join(toolNames, ", "))
-		}
-		a.session.AddAssistantMessage(assistantContent)
+		a.session.AddAssistantMessageWithToolCalls(resp.Content, callRecords)
 
 		// Emit thinking activity for LLM explanation text (transient, not a chat message)
 		if resp.Content != "" {

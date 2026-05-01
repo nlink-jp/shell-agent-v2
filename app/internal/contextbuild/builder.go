@@ -18,6 +18,20 @@ import (
 //     desired.
 //   - Persist the cache via SummaryCache.Save after Build returns when
 //     UsedCache is false (a new entry was added).
+// toLLMToolCalls mirrors chat.toLLMToolCalls — converts persisted
+// Record.ToolCalls into the llm.ToolCall shape backends emit on
+// the wire. Returns nil for an empty slice.
+func toLLMToolCalls(rec []memory.ToolCallRecord) []llm.ToolCall {
+	if len(rec) == 0 {
+		return nil
+	}
+	out := make([]llm.ToolCall, len(rec))
+	for i, r := range rec {
+		out[i] = llm.ToolCall{ID: r.ID, Name: r.Name, Arguments: r.Arguments}
+	}
+	return out
+}
+
 func Build(ctx context.Context, session *memory.Session, cache *SummaryCache, opts BuildOptions) BuildResult {
 	res := BuildResult{}
 
@@ -57,13 +71,15 @@ func Build(ctx context.Context, session *memory.Session, cache *SummaryCache, op
 
 	// Walk newest → oldest, accumulate raw rendered records until budget.
 	type rendered struct {
-		idx       int
-		role      string
-		content   string
-		tokens    int
-		toolName  string
-		imageURLs []string
-		objectIDs []string
+		idx        int
+		role       string
+		content    string
+		tokens     int
+		toolName   string
+		toolCallID string
+		toolCalls  []llm.ToolCall
+		imageURLs  []string
+		objectIDs  []string
 	}
 	var acc []rendered
 	used := 0
@@ -78,9 +94,11 @@ func Build(ctx context.Context, session *memory.Session, cache *SummaryCache, op
 		}
 		acc = append([]rendered{{
 			idx: i, role: raw[i].Role, content: content, tokens: t,
-			toolName:  raw[i].ToolName,
-			imageURLs: raw[i].ImageURLs,
-			objectIDs: raw[i].ObjectIDs,
+			toolName:   raw[i].ToolName,
+			toolCallID: raw[i].ToolCallID,
+			toolCalls:  toLLMToolCalls(raw[i].ToolCalls),
+			imageURLs:  raw[i].ImageURLs,
+			objectIDs:  raw[i].ObjectIDs,
 		}}, acc...)
 		used += t
 		splitIdx = i
@@ -103,11 +121,13 @@ func Build(ctx context.Context, session *memory.Session, cache *SummaryCache, op
 
 	for _, a := range acc {
 		msgs = append(msgs, llm.Message{
-			Role:      llm.Role(a.role),
-			Content:   a.content,
-			ToolName:  a.toolName,
-			ImageURLs: a.imageURLs,
-			ObjectIDs: a.objectIDs,
+			Role:       llm.Role(a.role),
+			Content:    a.content,
+			ToolName:   a.toolName,
+			ToolCallID: a.toolCallID,
+			ToolCalls:  a.toolCalls,
+			ImageURLs:  a.imageURLs,
+			ObjectIDs:  a.objectIDs,
 		})
 	}
 

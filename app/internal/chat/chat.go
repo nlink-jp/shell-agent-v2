@@ -22,6 +22,22 @@ type Engine struct {
 }
 
 // New creates a new chat Engine.
+// toLLMToolCalls converts persisted Record.ToolCalls into the
+// llm.ToolCall shape that backends emit on the wire (Vertex
+// FunctionCall part / OpenAI tool_calls). Returns nil for an
+// empty slice so the JSON `omitempty` on Message.ToolCalls
+// drops the key for non-tool-calling assistant turns.
+func toLLMToolCalls(rec []memory.ToolCallRecord) []llm.ToolCall {
+	if len(rec) == 0 {
+		return nil
+	}
+	out := make([]llm.ToolCall, len(rec))
+	for i, r := range rec {
+		out[i] = llm.ToolCall{ID: r.ID, Name: r.Name, Arguments: r.Arguments}
+	}
+	return out
+}
+
 func New(systemPrompt string) *Engine {
 	return &Engine{
 		systemPrompt: systemPrompt,
@@ -158,11 +174,13 @@ func (e *Engine) BuildMessages(session *memory.Session, pinnedContext, findingsC
 			}
 		}
 		messages = append(messages, llm.Message{
-			Role:      llm.Role(r.Role),
-			Content:   content,
-			ImageURLs: r.ImageURLs,
-			ObjectIDs: r.ObjectIDs,
-			ToolName:  r.ToolName,
+			Role:       llm.Role(r.Role),
+			Content:    content,
+			ImageURLs:  r.ImageURLs,
+			ObjectIDs:  r.ObjectIDs,
+			ToolName:   r.ToolName,
+			ToolCallID: r.ToolCallID,
+			ToolCalls:  toLLMToolCalls(r.ToolCalls),
 		})
 	}
 
@@ -280,11 +298,13 @@ func (e *Engine) BuildMessagesWithBudget(session *memory.Session, pinnedContext,
 		}
 
 		selectedHot = append(selectedHot, llm.Message{
-			Role:      llm.Role(r.Role),
-			Content:   content,
-			ImageURLs: r.ImageURLs,
-			ObjectIDs: r.ObjectIDs,
-			ToolName:  r.ToolName,
+			Role:       llm.Role(r.Role),
+			Content:    content,
+			ImageURLs:  r.ImageURLs,
+			ObjectIDs:  r.ObjectIDs,
+			ToolName:   r.ToolName,
+			ToolCallID: r.ToolCallID,
+			ToolCalls:  toLLMToolCalls(r.ToolCalls),
 		})
 		hotTokens += tokens
 	}

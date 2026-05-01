@@ -23,11 +23,13 @@ const (
 // Message represents a chat message with application-level roles.
 // Backends are responsible for mapping roles to their API format.
 type Message struct {
-	Role      Role     `json:"role"`
-	Content   string   `json:"content"`
-	ImageURLs []string `json:"image_urls,omitempty"` // data URLs for VLM
-	ObjectIDs []string `json:"object_ids,omitempty"` // parallel to ImageURLs; backend uses these to anchor each image to its persistent ID
-	ToolName  string   `json:"tool_name,omitempty"`  // for RoleTool: which tool produced this
+	Role       Role       `json:"role"`
+	Content    string     `json:"content"`
+	ImageURLs  []string   `json:"image_urls,omitempty"`  // data URLs for VLM
+	ObjectIDs  []string   `json:"object_ids,omitempty"`  // parallel to ImageURLs; backend uses these to anchor each image to its persistent ID
+	ToolName   string     `json:"tool_name,omitempty"`   // for RoleTool: which tool produced this
+	ToolCallID string     `json:"tool_call_id,omitempty"` // for RoleTool: id of the matching call
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`  // for RoleAssistant: function calls the model issued
 }
 
 // StreamCallback is called for each streaming token.

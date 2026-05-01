@@ -47,8 +47,22 @@ type chatRequest struct {
 }
 
 type requestMessage struct {
-	Role    string `json:"role"`
-	Content any    `json:"content"` // string or []contentPart for multimodal
+	Role       string            `json:"role"`
+	Content    any               `json:"content"` // string or []contentPart for multimodal
+	ToolName   string            `json:"name,omitempty"`         // for role="tool"
+	ToolCallID string            `json:"tool_call_id,omitempty"` // for role="tool"
+	ToolCalls  []requestToolCall `json:"tool_calls,omitempty"`   // for role="assistant"
+}
+
+type requestToolCall struct {
+	ID       string                  `json:"id"`
+	Type     string                  `json:"type"` // always "function"
+	Function requestToolCallFunction `json:"function"`
+}
+
+type requestToolCallFunction struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
 }
 
 type contentPart struct {
@@ -234,15 +248,58 @@ func (l *Local) buildRequest(messages []Message, tools []ToolDef, stream bool) [
 	}
 	for _, m := range messages {
 		// Map application-level roles to LM Studio/OpenAI API roles.
-		// Design: docs/en/llm-abstraction.md Section 3.3
+		// Design: docs/en/llm-abstraction.md, docs/en/tool-call-roundtrip.md
 		role := string(m.Role)
 		switch m.Role {
 		case RoleTool:
-			role = "user" // gemma-4 stays in tool-calling mode with role="tool"
+			role = "tool" // canonical OpenAI tool-result role
 		case RoleReport:
 			role = "assistant"
 		case RoleSummary:
 			role = "system"
+		}
+
+		// Tool-result message: role=tool, content=<result>, plus
+		// the matching tool_call_id (OpenAI Cookbook + LM Studio
+		// docs). Verified empirically with cmd/tooltest-local
+		// proper-mode against gemma-4.
+		if m.Role == RoleTool {
+			req.Messages = append(req.Messages, requestMessage{
+				Role:       role,
+				Content:    m.Content,
+				ToolName:   m.ToolName,
+				ToolCallID: m.ToolCallID,
+			})
+			continue
+		}
+
+		// Assistant turn that issued tool calls: emit
+		// `tool_calls` array with id/type/function. Content may
+		// be empty (model emitted no narrative) — pass nil to
+		// drop the key, matching OpenAI's null content semantics
+		// for tool-call-only assistant messages.
+		if m.Role == RoleAssistant && len(m.ToolCalls) > 0 {
+			calls := make([]requestToolCall, len(m.ToolCalls))
+			for i, tc := range m.ToolCalls {
+				calls[i] = requestToolCall{
+					ID:   tc.ID,
+					Type: "function",
+					Function: requestToolCallFunction{
+						Name:      tc.Name,
+						Arguments: tc.Arguments,
+					},
+				}
+			}
+			var content any = m.Content
+			if m.Content == "" {
+				content = nil
+			}
+			req.Messages = append(req.Messages, requestMessage{
+				Role:      role,
+				Content:   content,
+				ToolCalls: calls,
+			})
+			continue
 		}
 
 		if len(m.ImageURLs) > 0 {

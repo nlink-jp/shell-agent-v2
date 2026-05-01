@@ -277,7 +277,17 @@ func (b *Bindings) LoadSession(sessionID string) ([]MessageData, error) {
 		case "tool":
 			continue
 		case "assistant":
+			// Skip tool-call-only assistant turns from the chat
+			// pane — the activity events (tool_start/tool_end)
+			// already show the tool call inline.
+			//   - Old format (pre-r3): Content="[Calling: foo]"
+			//   - New format (post-r3): Content="" and ToolCalls
+			//     non-empty (tracked via ToolCalls field on the
+			//     persisted Record).
 			if strings.HasPrefix(r.Content, "[Calling:") {
+				continue
+			}
+			if r.Content == "" && len(r.ToolCalls) > 0 {
 				continue
 			}
 			msgs = append(msgs, MessageData{

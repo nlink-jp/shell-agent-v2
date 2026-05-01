@@ -21,15 +21,27 @@ const (
 
 // Record is a single memory entry in a session.
 type Record struct {
-	Timestamp    time.Time  `json:"timestamp"`
-	Role         string     `json:"role"`
-	Content      string     `json:"content"`
-	Tier         Tier       `json:"tier"`
-	ToolCallID   string     `json:"tool_call_id,omitempty"`
-	ToolName     string     `json:"tool_name,omitempty"`
-	ObjectIDs    []string   `json:"object_ids,omitempty"`   // references to objstore
-	ImageURLs    []string   `json:"image_urls,omitempty"`   // deprecated: use ObjectIDs
-	SummaryRange *TimeRange `json:"summary_range,omitempty"`
+	Timestamp    time.Time        `json:"timestamp"`
+	Role         string           `json:"role"`
+	Content      string           `json:"content"`
+	Tier         Tier             `json:"tier"`
+	ToolCallID   string           `json:"tool_call_id,omitempty"`
+	ToolName     string           `json:"tool_name,omitempty"`
+	ToolCalls    []ToolCallRecord `json:"tool_calls,omitempty"`   // populated when assistant emits function calls
+	ObjectIDs    []string         `json:"object_ids,omitempty"`   // references to objstore
+	ImageURLs    []string         `json:"image_urls,omitempty"`   // deprecated: use ObjectIDs
+	SummaryRange *TimeRange       `json:"summary_range,omitempty"`
+}
+
+// ToolCallRecord persists one function call the assistant
+// issued, so it can be replayed verbatim on subsequent agent-loop
+// runs. Without this, Vertex's FunctionResponse and OpenAI's
+// `role:"tool"` end up "orphaned" — the spec requires the prior
+// assistant turn to carry the matching FunctionCall / tool_call.
+type ToolCallRecord struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"` // raw JSON string the LLM emitted
 }
 
 // TimeRange represents a time span for Warm/Cold summaries.
@@ -61,6 +73,24 @@ func (s *Session) AddAssistantMessage(content string) {
 		Timestamp: time.Now(),
 		Role:      "assistant",
 		Content:   content,
+		Tier:      TierHot,
+	})
+}
+
+// AddAssistantMessageWithToolCalls appends an assistant message
+// that issued one or more function calls. content may be empty
+// (when the model emitted only tool calls and no narrative); in
+// that case the chat UI substitutes a "Calling: foo" placeholder
+// at render time. The persisted record stays clean (empty
+// content + structured ToolCalls), and build pipelines reproduce
+// the proper FunctionCall / tool_calls wire format on the next
+// LLM turn.
+func (s *Session) AddAssistantMessageWithToolCalls(content string, calls []ToolCallRecord) {
+	s.Records = append(s.Records, Record{
+		Timestamp: time.Now(),
+		Role:      "assistant",
+		Content:   content,
+		ToolCalls: calls,
 		Tier:      TierHot,
 	})
 }

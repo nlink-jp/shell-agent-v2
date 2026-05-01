@@ -135,7 +135,34 @@ func (v *Vertex) buildContents(messages []Message) []*genai.Content {
 		case RoleSystem, RoleSummary:
 			continue // handled by SystemInstruction
 		case RoleAssistant, RoleReport:
-			contents = append(contents, genai.NewContentFromText(m.Content, genai.RoleModel))
+			// When the assistant turn carries tool calls, emit
+			// FunctionCall parts on the model role so the next
+			// FunctionResponse pairs correctly. Documented round-
+			// trip per ai.google.dev/gemini-api/docs/function-calling
+			// Step 4. Without this, the FunctionResponse becomes
+			// orphaned and Gemini can re-issue the same call.
+			if len(m.ToolCalls) > 0 {
+				var parts []*genai.Part
+				if m.Content != "" {
+					parts = append(parts, genai.NewPartFromText(m.Content))
+				}
+				for _, tc := range m.ToolCalls {
+					var args map[string]any
+					if tc.Arguments != "" {
+						_ = json.Unmarshal([]byte(tc.Arguments), &args)
+					}
+					if args == nil {
+						args = map[string]any{}
+					}
+					parts = append(parts, genai.NewPartFromFunctionCall(tc.Name, args))
+				}
+				contents = append(contents, &genai.Content{
+					Role:  genai.RoleModel,
+					Parts: parts,
+				})
+			} else {
+				contents = append(contents, genai.NewContentFromText(m.Content, genai.RoleModel))
+			}
 		case RoleTool:
 			// Native FunctionResponse for tool results
 			contents = append(contents, &genai.Content{
