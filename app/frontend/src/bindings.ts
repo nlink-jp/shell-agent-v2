@@ -42,7 +42,6 @@ declare global {
                     ListObjects(): Promise<ObjectInfo[]>;
                     DeleteObject(id: string): Promise<void>;
                     DeleteObjects(ids: string[]): Promise<number>;
-                    ObjectReferences(ids: string[]): Promise<Record<string, number>>;
                     ExportObject(id: string): Promise<void>;
                     GetObjectText(id: string): Promise<string>;
                     GetSettings(): Promise<Settings>;

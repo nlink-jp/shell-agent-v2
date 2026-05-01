@@ -6,52 +6,6 @@ is too large to fit into the current release stream. Items are
 grouped by what kind of effort they need; within a group ordered
 by quickest-to-touch first.
 
-## Cleanup (small, low-risk)
-
-These are one- or two-file edits with obvious correctness — they
-just need a session where someone confirms the precondition still
-holds and lands the change.
-
-### Drop the `'done'` soft-fallback in the frontend tool-event union
-
-**Where**: `frontend/src/types.ts` (the `ChatMessage`
-status field) and the receiver in `frontend/src/App.tsx`'s
-`agent:activity` listener.
-
-**What**: Phase A of the tool-bubble success/failure work
-introduced `'success' | 'error'` as the canonical statuses; the
-listener still falls back to a synthetic `'success'` when an
-older payload arrives without a `status` field. After v0.1.16
-no in-flight payload should be missing the field — confirm
-against a fresh session log, then drop the fallback so the type
-stays honest.
-
-### Dead `.object-item` CSS
-
-**Where**: `frontend/src/App.css`.
-
-**What**: The Objects panel was removed in the info-display
-redesign Phase 3 and the styles for `.object-item*` are no longer
-referenced. Verify nothing else (including the report viewer)
-inherits them, then delete.
-
-### `ObjectReferences` binding usage review
-
-**Where**: `bindings.go` and `frontend/src/bindings.ts`.
-
-**What**: The `ObjectReferences` Wails binding may be unused on
-the frontend after the Objects panel removal. Search for
-callers; if none, remove the binding.
-
-### LLM tool description: "central object repository"
-
-**Where**: `internal/agent/tools.go` `buildToolDefs`, the
-`list-objects` / `get-object` descriptions.
-
-**What**: Wording reads "central object repository", which is
-internal jargon. Rephrase to something a model and a human can
-both follow ("session-wide object store" or similar).
-
 ## Configurable / UX
 
 Small features the user can already work around, but worth

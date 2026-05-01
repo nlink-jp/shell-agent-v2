@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -264,63 +263,6 @@ func TestBindings_DeleteObject_AndDeleteObjects(t *testing.T) {
 	}
 }
 
-// writeSession creates a chat.json on disk for ObjectReferences to scan.
-func writeSession(t *testing.T, home, id string, records []memory.Record) {
-	t.Helper()
-	dir := filepath.Join(home, "Library", "Application Support", "shell-agent-v2", "sessions", id)
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		t.Fatal(err)
-	}
-	s := memory.Session{ID: id, Title: id, Records: records}
-	data, err := json.Marshal(s)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "chat.json"), data, 0600); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestBindings_ObjectReferences_DetectsBothChannels(t *testing.T) {
-	b, home := newTestBindings(t)
-	id1 := saveTestObject(t, b, objstore.TypeImage, "image/png", "x", "")
-	id2 := saveTestObject(t, b, objstore.TypeImage, "image/png", "y", "")
-	id3 := saveTestObject(t, b, objstore.TypeImage, "image/png", "z", "") // unreferenced
-
-	// Session A: references id1 via Record.ObjectIDs
-	writeSession(t, home, "sessA", []memory.Record{
-		{Role: "user", Content: "look", ObjectIDs: []string{id1}},
-	})
-	// Session B: references id2 via "object:<id>" string in Content
-	writeSession(t, home, "sessB", []memory.Record{
-		{Role: "report", Content: "see ![](object:" + id2 + ")"},
-	})
-
-	refs, err := b.ObjectReferences([]string{id1, id2, id3})
-	if err != nil {
-		t.Fatalf("ObjectReferences: %v", err)
-	}
-	if refs[id1] != 1 {
-		t.Errorf("id1 refs = %d, want 1", refs[id1])
-	}
-	if refs[id2] != 1 {
-		t.Errorf("id2 refs = %d, want 1", refs[id2])
-	}
-	if refs[id3] != 0 {
-		t.Errorf("id3 refs = %d, want 0", refs[id3])
-	}
-}
-
-func TestBindings_ObjectReferences_EmptyInput(t *testing.T) {
-	b, _ := newTestBindings(t)
-	refs, err := b.ObjectReferences(nil)
-	if err != nil {
-		t.Fatalf("nil input: %v", err)
-	}
-	if len(refs) != 0 {
-		t.Errorf("expected empty map, got %v", refs)
-	}
-}
 
 func TestBindings_DeleteFindings_AndPinned(t *testing.T) {
 	// Seed findings.json and pinned.json on disk before agent.New so the

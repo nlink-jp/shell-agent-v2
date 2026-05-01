@@ -781,55 +781,6 @@ func (b *Bindings) DeleteObjects(ids []string) (int, error) {
 	return deleted, nil
 }
 
-// ObjectReferences scans all sessions and returns, for each given ID, the
-// number of distinct sessions that still reference it. A reference is a
-// record in the session whose ObjectIDs list contains the ID, or whose
-// Content contains the textual marker "object:<ID>" (markdown image refs
-// in reports).
-//
-// Used to warn the user before deleting an object that is still in use.
-func (b *Bindings) ObjectReferences(ids []string) (map[string]int, error) {
-	out := make(map[string]int, len(ids))
-	if len(ids) == 0 {
-		return out, nil
-	}
-	wanted := make(map[string]struct{}, len(ids))
-	for _, id := range ids {
-		out[id] = 0
-		wanted[id] = struct{}{}
-	}
-
-	sessions, err := memory.ListSessions()
-	if err != nil {
-		return out, err
-	}
-	for _, si := range sessions {
-		s, err := memory.LoadSession(si.ID)
-		if err != nil {
-			continue
-		}
-		seen := make(map[string]bool)
-		for _, r := range s.Records {
-			for _, oid := range r.ObjectIDs {
-				if _, ok := wanted[oid]; ok {
-					seen[oid] = true
-				}
-			}
-			if r.Content != "" {
-				for id := range wanted {
-					if strings.Contains(r.Content, "object:"+id) {
-						seen[id] = true
-					}
-				}
-			}
-		}
-		for id := range seen {
-			out[id]++
-		}
-	}
-	return out, nil
-}
-
 // GetObjectText returns the object's stored bytes as a string. Intended
 // for previewing TypeReport (markdown) and other text-like types in the
 // UI; the caller is responsible for size sanity.

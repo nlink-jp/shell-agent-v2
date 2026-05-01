@@ -11,12 +11,11 @@ export interface ChatMessage {
     content: string;
     timestamp: string;
     imageUrls?: string[];
-    // 'running' while a tool is in flight; on completion the
-    // backend now reports 'success' or 'error' (Phase A — wired
-    // up but every tool currently reports 'success' until Phase
-    // B classification per tool family lands). 'done' is kept as
-    // a backward-compat fallback for older event payloads.
-    status?: 'running' | 'success' | 'error' | 'done';
+    // 'running' while a tool is in flight; the backend reports
+    // 'success' or 'error' on completion. Tool-family-specific
+    // classification was finalised in v0.1.13 (sandbox via
+    // ExecResult, MCP via result.isError, etc.).
+    status?: 'running' | 'success' | 'error';
 }
 
 export interface SessionInfo {

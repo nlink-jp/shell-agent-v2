@@ -55,7 +55,7 @@ func sandboxToolDefs() []llm.ToolDef {
 		},
 		{
 			Name:        "sandbox-copy-object",
-			Description: "Copy a stored object (image / blob / report) from the central object repository into /work/<path> inside this session's sandbox. Use to bring user-uploaded images or earlier reports into the sandbox for analysis. Use list-objects to find a valid object_id.",
+			Description: "Copy a stored object (image / blob / report) from the session object store into /work/<path> inside this session's sandbox. Use to bring user-uploaded images or earlier reports into the sandbox for analysis. Use list-objects to find a valid object_id.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -67,7 +67,7 @@ func sandboxToolDefs() []llm.ToolDef {
 		},
 		{
 			Name:        "sandbox-register-object",
-			Description: "Register a file from /work (typically an output from sandbox-run-python — chart, generated CSV, etc.) into the central object repository. Returns the object ID, which can be referenced in reports as ![alt](object:ID).",
+			Description: "Register a file from /work (typically an output from sandbox-run-python — chart, generated CSV, etc.) into the session object store. Returns the object ID, which can be referenced in reports as ![alt](object:ID).",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
