@@ -30,21 +30,6 @@ surface.
 
 These have a hypothesis but need evidence before any code change.
 
-### Multi-image scaling above 5
-
-**Context**: v0.1.16 adds per-image user turns on the local
-backend to work around llama.cpp's mmproj multi-image slot
-reuse bug. Manual verification has confirmed correct image↔ID
-binding on Vertex at N=3 and on the local backend at N=3 and
-N=5. Gemma 3's training caps multi-image attention around 8.
-
-**What**: Run a manual session with N=8 images on the local
-backend; confirm descriptions still bind to the correct ID.
-If degradation reappears past N=5, the per-turn split isn't
-enough on its own — the next layer of mitigation is chunking
-the conversation into multiple agent rounds, one image group
-per round.
-
 ### Sandbox integration tests sometimes timeout
 
 **Where**: `internal/sandbox/integration_test.go`.
