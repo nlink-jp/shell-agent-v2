@@ -1,12 +1,31 @@
 # Sandbox Image Build — Design Document
 
 > Date: 2026-05-01
-> Status: Draft — pending implementation
+> Status: Draft — pending implementation (Revision 3)
 > Scope: Embed a recommended sandbox image (Python + CJK
 > fonts + analysis stack) and a build mechanism so users
 > can build it from the Settings dialog. Sandbox tools
-> become available only when **both** the image is built
-> and `Sandbox.Enabled` is true.
+> become available only when **all three** of: (a) an
+> active image is selected, (b) the active image is
+> present locally, (c) `Sandbox.Enabled` is true.
+>
+> Revision history:
+>   - r1: separate "Image tag" config field plus an
+>     opaque "Build recommended image" button. Fragile —
+>     implicit coupling between user-settable Image and
+>     always-recommended Build target; arbitrary
+>     `Image=alpine:3.20` would still build the embedded
+>     recipe; build-time package installs assume `apt`.
+>   - r2: expose the Dockerfile text directly; Build uses
+>     exactly what's in the textarea; tag is
+>     content-addressed.
+>   - r3 (current): keep r2's Dockerfile-text approach,
+>     **add a built-images library** (list with Active /
+>     Use / Delete actions) so users can keep multiple
+>     recipes coexisting and switch between them without
+>     rebuilding, and **move the whole sandbox UI into
+>     its own Settings tab** since the section grew past
+>     the "single dropdown" budget.
 
 ## 1. Problem
 
@@ -72,48 +91,32 @@ recipes.
 
 ## 3. Detailed design
 
-### 3.1 Embedded Dockerfile bundle
+### 3.1 Embedded recommended Dockerfile
 
 New package `internal/sandbox/imagebuild`:
-
-```
-internal/sandbox/imagebuild/
-├── bundle.go         // go:embed all:bundle/*  + version const
-└── bundle/
-    ├── Dockerfile
-    └── matplotlibrc
-```
-
-`bundle.go`:
 
 ```go
 package imagebuild
 
-import "embed"
+import (
+    "crypto/sha256"
+    "encoding/hex"
+)
 
-//go:embed all:bundle
-var Bundle embed.FS
+// TagPrefix is the namespace under which all sandbox
+// images live. ListImages filters by this prefix; user
+// builds get tags of the form "<TagPrefix>:<sha[:12]>".
+const TagPrefix = "shell-agent-v2-sandbox"
 
-// BundleVersion is bumped whenever any file under bundle/
-// changes in a way that should invalidate previously-built
-// images. The image tag is "shell-agent-v2-sandbox:<BundleVersion>"
-// so a new BundleVersion forces a fresh build the next time
-// the user clicks Build.
-const BundleVersion = "0.1"
-
-// CanonicalTag is the image tag that "Build" produces and
-// that ImageReady() expects to find on the engine.
-const CanonicalTag = "shell-agent-v2-sandbox:" + BundleVersion
-```
-
-`bundle/Dockerfile`:
-
-```dockerfile
-FROM python:3.12-slim
+// RecommendedDockerfile is the default Dockerfile body
+// shown in the Settings textarea on first open and
+// restored by the "Reset to recommended" button. Self-
+// contained: matplotlibrc is created inline so we don't
+// need a multi-file build context.
+const RecommendedDockerfile = `FROM python:3.12-slim
 
 # CJK fonts — matplotlib renders Japanese / Chinese /
-# Korean labels as □□ without these. fonts-noto-cjk
-# ships full coverage; -extra adds variants.
+# Korean labels as □□ without these.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         fonts-noto-cjk \
@@ -129,244 +132,241 @@ RUN pip install --no-cache-dir \
         scipy \
         scikit-learn
 
-# matplotlib config: ship a default rcParams that puts
-# Noto Sans CJK JP in the font fallback chain so charts
-# with Japanese labels render correctly even when the
-# user / model doesn't explicitly set rcParams.
-COPY matplotlibrc /etc/matplotlib/matplotlibrc
+# matplotlib rcParams: put Noto Sans CJK JP into the font
+# fallback chain so charts with Japanese labels render
+# correctly even when the script doesn't set rcParams.
+RUN mkdir -p /etc/matplotlib && \
+    printf 'font.family: sans-serif\nfont.sans-serif: DejaVu Sans, Noto Sans CJK JP, Arial, Liberation Sans\naxes.unicode_minus: False\n' > /etc/matplotlib/matplotlibrc
 ENV MATPLOTLIBRC=/etc/matplotlib/matplotlibrc
 
 WORKDIR /work
-```
+`
 
-`bundle/matplotlibrc`:
-
-```
-font.family: sans-serif
-font.sans-serif: DejaVu Sans, Noto Sans CJK JP, Arial, Liberation Sans
-axes.unicode_minus: False
-```
-
-### 3.2 `Engine.BuildImage`
-
-Add to the `Engine` interface (`internal/sandbox/engine.go`):
-
-```go
-// BuildImage builds the image described by the embedded
-// imagebuild bundle and tags it as `tag`. Stdout/stderr
-// from the engine are streamed line by line to onLine
-// (nil-safe).
-//
-// The build context is a temp dir where the bundle's
-// files are written; cleaned up on return.
-//
-// Concurrent calls are serialised inside the engine: the
-// second call blocks until the first finishes.
-BuildImage(ctx context.Context, tag string, onLine func(string)) error
-```
-
-`cliEngine.BuildImage` implementation:
-
-```go
-func (e *cliEngine) BuildImage(ctx context.Context, tag string, onLine func(string)) error {
-    e.buildMu.Lock()
-    defer e.buildMu.Unlock()
-
-    bin, ok := e.Detect()
-    if !ok {
-        return ErrEngineNotAvailable
-    }
-
-    // Materialise the embedded bundle into a temp dir.
-    workDir, err := os.MkdirTemp("", "shell-agent-v2-build-*")
-    if err != nil {
-        return fmt.Errorf("temp dir: %w", err)
-    }
-    defer os.RemoveAll(workDir)
-
-    if err := writeBundle(workDir); err != nil {
-        return fmt.Errorf("write bundle: %w", err)
-    }
-
-    // podman/docker build accepts -f and a context dir.
-    cmd := exec.CommandContext(ctx, bin, "build", "-t", tag, workDir)
-    stdout, _ := cmd.StdoutPipe()
-    stderr, _ := cmd.StderrPipe()
-
-    if err := cmd.Start(); err != nil {
-        return fmt.Errorf("start: %w", err)
-    }
-
-    // Two scanners so stdout / stderr both reach onLine
-    // in arrival order.
-    var wg sync.WaitGroup
-    wg.Add(2)
-    go streamLines(stdout, onLine, &wg)
-    go streamLines(stderr, onLine, &wg)
-    wg.Wait()
-
-    if err := cmd.Wait(); err != nil {
-        return fmt.Errorf("build: %w", err)
-    }
-    return nil
+// TagFor returns the content-addressed image tag for a
+// given Dockerfile body. Edits to the Dockerfile change
+// the tag, so a previous build of a different recipe stays
+// on the engine under its own tag.
+func TagFor(dockerfile string) string {
+    sum := sha256.Sum256([]byte(dockerfile))
+    return TagPrefix + ":" + hex.EncodeToString(sum[:6])
 }
 ```
 
-`writeBundle` walks `imagebuild.Bundle` (`embed.FS`) and
-copies entries under the workDir, preserving the filename.
+The `bundle/` directory and `embed.FS` are gone — the
+Dockerfile is a single string. The image build label
+that ListImages filters on is also `TagPrefix`.
 
-### 3.3 `Engine.ImageReady`
+### 3.2 `Engine.BuildImage`
+
+Engine method takes the Dockerfile **body** instead of a
+hard-coded bundle reference, and returns the tag it
+produced (so the caller doesn't have to re-compute it):
 
 ```go
-// ImageReady reports whether `tag` exists locally on the
-// engine. Used by the agent to decide whether to expose
-// the sandbox tools.
-ImageReady(ctx context.Context, tag string) (bool, error)
+// BuildImage writes dockerfile to a temp dir, runs
+// `<engine> build -t <tag> .`, streams stdout/stderr
+// to onLine. Returns the computed tag (TagFor(dockerfile))
+// and any build error. Concurrent calls are serialised
+// inside the engine.
+BuildImage(ctx context.Context, dockerfile string, onLine func(string)) (tag string, err error)
 ```
 
-Implementation: `podman image exists tag` (already used
-internally by `ensureImage`); returns `(true, nil)` on
-exit 0, `(false, nil)` on the documented "image missing"
-exit, `(false, err)` for actual engine errors.
+Implementation writes `dockerfile` to
+`<tempdir>/Dockerfile` and runs
+`<bin> build -t <TagFor(...)> --label <TagPrefix>=1 .`.
+The label lets ListImages enumerate ours.
+
+### 3.3 `Engine.ImageReady` / `ListImages` / `RemoveImage`
+
+```go
+// ImageReady reports whether `tag` exists locally.
+ImageReady(ctx context.Context, tag string) (bool, error)
+
+// ListImages enumerates locally-built sandbox images
+// (those with the TagPrefix label). Sorted newest-first.
+ListImages(ctx context.Context) ([]ImageInfo, error)
+
+// RemoveImage deletes the image with the given tag.
+// No-op (not error) when the tag doesn't exist.
+RemoveImage(ctx context.Context, tag string) error
+```
+
+`ImageInfo`:
+
+```go
+type ImageInfo struct {
+    Tag       string    // shell-agent-v2-sandbox:<sha>
+    Created   time.Time
+    SizeBytes int64
+}
+```
+
+`ListImages` runs
+`<bin> images --filter label=<TagPrefix>=1 --format '{{.Repository}}:{{.Tag}}|{{.CreatedAt}}|{{.Size}}'`
+and parses; `RemoveImage` runs `<bin> image rm <tag>` and
+ignores "no such image" errors.
 
 ### 3.4 Agent / sandbox enablement gating
 
-`agent.maybeStartSandbox`:
+`agent.maybeStartSandbox` now needs an "active" image —
+the one the user picked from the library. The active image
+lives in `cfg.Sandbox.Image` (already there). Gate logic:
 
 ```go
 if !cfg.Sandbox.Enabled {
     return
 }
+if cfg.Sandbox.Image == "" {
+    logger.Info("sandbox: no active image selected; pick one in Settings")
+    return
+}
 eng, err := sandbox.NewCLI(...)
 if err != nil { ... }
 
-// New: image-ready check.
-ready, err := eng.ImageReady(ctx, cfg.Sandbox.Image)
-if err != nil {
-    logger.Info("sandbox: image readiness probe failed: %v — tools will stay hidden", err)
-    return
-}
+ready, _ := eng.ImageReady(ctx, cfg.Sandbox.Image)
 if !ready {
-    logger.Info("sandbox: image %q not built; click 'Build sandbox image' in Settings — tools will stay hidden", cfg.Sandbox.Image)
+    logger.Info("sandbox: active image %q is not present locally", cfg.Sandbox.Image)
     return
 }
 a.sandbox = eng
-// startup sweep, etc.
 ```
 
-`buildToolDefs` already gates on `a.sandbox != nil`. The
-gate now also implicitly requires image readiness.
+After a successful Build the bindings call
+`agent.RestartSandbox` so the gate re-evaluates
+immediately.
 
-`SaveSettings` calls `RestartSandbox` when `cfg.Sandbox`
-diffs (already in v0.1.18). After a build, the bindings
-also need to call `RestartSandbox` so the agent re-checks
-readiness. We add `Bindings.RebindSandbox()` (private to
-the build flow) that triggers the same path without
-requiring a config diff.
-
-### 3.5 Bindings + Wails events
+### 3.5 Bindings
 
 ```go
-// BuildSandboxImage starts a build of the canonical
-// embedded image. Returns immediately; progress is sent
-// via Wails events:
-//   - "sandbox:build:line"  payload {line string}
-//   - "sandbox:build:done"  payload {tag string, error string}
-// Only one build at a time per process; concurrent calls
-// receive ErrBuildInProgress.
+// BuildSandboxImage builds an image from the Dockerfile
+// the user has in their config (or imagebuild.RecommendedDockerfile
+// when empty). Returns immediately; progress streams via
+// Wails events. The completion event carries the
+// computed tag.
+//
+//   "sandbox:build:line"  payload {"line": <stdout|stderr>}
+//   "sandbox:build:done"  payload {"tag": <tag>, "error": <"" on success>}
+//
+// Concurrent calls return ErrBuildInProgress. On success,
+// the new tag is set as cfg.Sandbox.Image, the config is
+// saved, and the agent's sandbox is restarted so the
+// readiness gate re-evaluates.
 func (b *Bindings) BuildSandboxImage() error
-```
 
-Single-build invariant via `b.buildMu sync.Mutex` +
-`b.buildInFlight bool`. `defer` clears the flag.
+// ListSandboxImages returns the locally-built sandbox
+// images, newest first.
+func (b *Bindings) ListSandboxImages() []SandboxImageInfo
 
-```go
-// SandboxImageStatus is a snapshot for the Settings UI.
+// SetActiveSandboxImage sets cfg.Sandbox.Image to tag
+// (which must be one of ListSandboxImages's results),
+// saves config, and triggers RestartSandbox.
+func (b *Bindings) SetActiveSandboxImage(tag string) error
+
+// RemoveSandboxImage deletes the image with the given
+// tag from the engine. If it was the active image,
+// cfg.Sandbox.Image is cleared and the sandbox tools
+// unregister on the next RestartSandbox.
+func (b *Bindings) RemoveSandboxImage(tag string) error
+
+// SandboxImageStatus snapshot for the dialog.
 type SandboxImageStatus struct {
-    Tag      string `json:"tag"`        // cfg.Sandbox.Image
-    Ready    bool   `json:"ready"`      // engine has the tag
-    Building bool   `json:"building"`   // a build is in flight
-    Recommended string `json:"recommended"` // imagebuild.CanonicalTag
+    ActiveTag         string                `json:"active_tag"`
+    ActiveReady       bool                  `json:"active_ready"`
+    Building          bool                  `json:"building"`
+    RecommendedDockerfile string            `json:"recommended_dockerfile"`
+    CurrentDockerfile     string            `json:"current_dockerfile"` // cfg or recommended
+    Images            []SandboxImageInfo    `json:"images"`
 }
-
-func (b *Bindings) GetSandboxImageStatus() SandboxImageStatus
 ```
 
-The Settings dialog reads `GetSandboxImageStatus()` once
-on open and after each build event.
+### 3.6 Settings UI — separate "Sandbox" tab
 
-### 3.6 Settings UI
-
-Inside the existing **Sandbox** subsection (`SettingsDialog.tsx`):
+The Settings dialog grows a 4th tab. The current Sandbox
+subsection moves out of "General" into a dedicated
+**Sandbox** tab.
 
 ```
-Sandbox (experimental)
-[ ] Enable container sandbox  ← disabled until image is ready
-    Hint: tools register only when the image below is built AND
-    this checkbox is on.
+[ General | Tools | MCP | Sandbox ]
 
-Image: [shell-agent-v2-sandbox:0.1                    ▾]
-       Status: ✓ Ready  /  ⚠ Not built — click Build below  /  ⏳ Building…
-       [ Build recommended image ]   [ View build log ]
+Sandbox tab
+───────────────────────────────────────────────────────
+Built images
+  ● shell-agent-v2-sandbox:a1b2c3d4e5f6   [Active]   [Delete]
+  ○ shell-agent-v2-sandbox:7890abcdef12   [Use]     [Delete]
+  ○ shell-agent-v2-sandbox:fedcba987654   [Use]     [Delete]
+  (none yet — build one below)
 
-[ Engine, Network, CPU, Memory, Timeout — same as today ]
+[x] Enable container sandbox
+    (greyed out until an active image exists & is ready)
+
+Dockerfile
+┌──────────────────────────────────────────────────────┐
+│ FROM python:3.12-slim                                  │
+│ RUN apt-get update && \                               │
+│     apt-get install -y --no-install-recommends ...    │
+│ ...                                                   │
+└──────────────────────────────────────────────────────┘
+[Reset to recommended]   [Build]    Status: ⏳ Building…
+
+Engine: [auto ▾]
+[ ] Allow network egress (default off)
+CPU limit:        [2     ]
+Memory limit:     [1g    ]
+Per-call timeout: [60    ]
 ```
 
 Behaviour:
 
-- "Build recommended image" calls
-  `Bindings.BuildSandboxImage()`, opens a modal that
-  streams `sandbox:build:line` events into a scrollback.
-  On `sandbox:build:done`, the modal shows result + close.
-- The Image input is editable. When the user types a
-  custom tag, status check re-fires; if that tag isn't
-  on the engine, status shows "Not built" and Build
-  remains disabled (Build only targets the canonical
-  embedded tag, not arbitrary user tags).
-- The "Enable" checkbox stays disabled when status is
-  "Not built". A tooltip explains why.
-- A small note: "Building takes a few minutes — apt-get
-  + pip install. The build runs on your local
-  podman/docker."
+- The textarea initial value comes from
+  `cfg.Sandbox.Dockerfile` (empty → recommended).
+- "Reset to recommended" overwrites the textarea with
+  `imagebuild.RecommendedDockerfile`.
+- "Build" sends the textarea's *current* value to
+  `BuildSandboxImage` (which also persists it to
+  `cfg.Sandbox.Dockerfile`).
+- Build-log overlay (modal) streams progress; same
+  pattern as r2.
+- After build success, the new tag appears in the list
+  and is auto-selected as Active.
+- "Use" radio sets active; "Delete" removes after a
+  one-step confirm.
+- "Enable container sandbox" disabled when active is
+  empty or not ready.
 
 ### 3.7 Default config
 
-Bump `cfg.Sandbox.Image` default in `config.Default()` from
-`python:3.12-slim` to `imagebuild.CanonicalTag` (currently
-`shell-agent-v2-sandbox:0.1`). Existing user configs are
-preserved by JSON-load (the Image field is set) — only fresh
-installs see the new default.
+`cfg.Sandbox.Image` default is **empty** on fresh
+installs. The user picks an image after their first
+Build. Existing configs (with a tag set) keep the value;
+ImageReady probes it; if the engine has it, sandbox
+tools register, no migration needed.
 
-For users on `python:3.12-slim`, the readiness check still
-passes if they've pulled it; sandbox tools register; no
-forced migration. The Settings UI "Build" button only ever
-produces the canonical tag, so users who want the bundled
-fonts must set the Image field to the canonical tag.
+`cfg.Sandbox.Dockerfile string` is added (empty = use
+recommended). Persisted so the textarea retains user
+edits across sessions.
 
-### 3.8 Versioning & rebuild trigger
+### 3.8 Versioning
 
-`imagebuild.BundleVersion` is bumped whenever the
-Dockerfile or matplotlibrc changes. The image tag includes
-the version, so after an app update the previous build is
-still on the engine but the new canonical tag is "Not
-built" until the user clicks Build again. Dialog text:
-"A newer image is available — rebuild?".
+The image tag is content-addressed
+(`sha256[:12]` of the Dockerfile body). Edits to the
+recommended Dockerfile in a future release produce a new
+hash; the user's existing-active tag survives until they
+explicitly Delete it. No `BundleVersion` constant — the
+hash itself is the version.
 
 ## 4. Touched files
 
 | File | Change |
 |---|---|
-| `internal/sandbox/imagebuild/bundle.go` | new — embed.FS + version + canonical tag |
-| `internal/sandbox/imagebuild/bundle/Dockerfile` | new |
-| `internal/sandbox/imagebuild/bundle/matplotlibrc` | new |
-| `internal/sandbox/engine.go` | add `BuildImage`, `ImageReady` to Engine interface |
-| `internal/sandbox/cli.go` | implement `BuildImage`, `ImageReady`, `buildMu` |
-| `internal/agent/agent.go` | `maybeStartSandbox` gates on `eng.ImageReady` |
-| `bindings.go` | `BuildSandboxImage`, `GetSandboxImageStatus`, build-flow lock |
-| `internal/config/config.go` | default `Sandbox.Image` → `imagebuild.CanonicalTag` |
-| `frontend/src/types.ts` | `SandboxImageStatus` interface |
-| `frontend/src/dialogs/SettingsDialog.tsx` | Image status row + Build button + log modal |
-| `frontend/src/App.tsx` (or new component) | build-log overlay listening on `sandbox:build:*` |
+| `internal/sandbox/imagebuild/bundle.go` | RecommendedDockerfile const, TagPrefix, TagFor() — replaces the embed.FS approach from r1/r2 |
+| `internal/sandbox/imagebuild/bundle/` | **deleted** — single string replaces the multi-file build context |
+| `internal/sandbox/engine.go` | Engine gains BuildImage(ctx, dockerfile, onLine) (tag, error) + ListImages + RemoveImage; ImageReady stays |
+| `internal/sandbox/cli.go` | implementations + buildMu |
+| `internal/agent/agent.go` | maybeStartSandbox gates on cfg.Sandbox.Image being non-empty AND ImageReady |
+| `internal/config/config.go` | new field `Sandbox.Dockerfile string`; default `Sandbox.Image` becomes "" (no auto-build, user picks after first Build) |
+| `bindings.go` | BuildSandboxImage / ListSandboxImages / SetActiveSandboxImage / RemoveSandboxImage / GetSandboxImageStatus |
+| `frontend/src/types.ts` | SandboxImageStatus, SandboxImageInfo |
+| `frontend/src/dialogs/SettingsDialog.tsx` | new Sandbox tab (4th); built-images list + Dockerfile textarea + Reset/Build + log overlay; old General-tab Sandbox section removed |
 
 ## 5. Test plan
 
@@ -419,10 +419,14 @@ built" until the user clicks Build again. Dialog text:
 
 ## 7. Phasing
 
-Two commits, in order:
+The r1 Phase-1 commit (`da5307f`) shipped an `embed.FS`
+bundle and `CanonicalTag` constant that this revision
+deletes. We treat the pivot as a single compensating
+commit (no need to revert da5307f separately — git history
+shows the evolution):
 
-1. **feat(sandbox): embed image build bundle + Engine.BuildImage / ImageReady.** Pure backend; no UI surface yet. Tests assert build-arg shape and concurrent-build lock. The default `Sandbox.Image` stays at `python:3.12-slim` for now.
-2. **feat(ui): Settings sandbox image build flow + readiness gating.** Wires `BuildSandboxImage` / `GetSandboxImageStatus` into the dialog, adds the build-log modal, swaps the default `Sandbox.Image` to the canonical bundled tag, and changes `maybeStartSandbox` to gate on `ImageReady`.
+1. **refactor(sandbox): pivot image build to user-editable Dockerfile + image library.** Drops the bundle FS in favour of `RecommendedDockerfile` const + `TagFor()` + `TagPrefix`. Adds `ListImages` / `RemoveImage`. Adds `cfg.Sandbox.Dockerfile`. Removes `cfg.Sandbox.Image` default.
+2. **feat(ui): dedicated Sandbox tab with library + Dockerfile editor.** Adds the 4th Settings tab; built-images list with Active radio + Delete; Dockerfile textarea + Reset + Build; log overlay. Old Sandbox section in General tab removed.
 
 v0.1.19 release after Phase 2.
 

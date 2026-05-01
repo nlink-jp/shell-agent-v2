@@ -1,12 +1,29 @@
 # Sandbox イメージビルド — 設計ドキュメント
 
 > 日付: 2026-05-01
-> ステータス: ドラフト（実装未着手）
+> ステータス: ドラフト（実装未着手、Revision 3）
 > 範囲: 推奨 sandbox image (Python + CJK フォント + 解析
 > スタック) と、Settings からビルド可能なビルド機構を
-> 内蔵する。sandbox ツールは「イメージがビルド済み」かつ
-> `Sandbox.Enabled = true` の **両方** が満たされたときに
-> 初めて有効化される。
+> 内蔵する。sandbox ツールは (a) アクティブな image が
+> 選択されていて、(b) その image がローカルに存在し、
+> (c) `Sandbox.Enabled = true` — の **3 つすべて** が
+> 満たされたときに初めて有効化される。
+>
+> リビジョン履歴:
+>   - r1: Image タグ設定欄と「Build recommended image」
+>     ボタンを別フィールドで持つ案。レビューで脆弱と判明
+>     — ユーザ入力の Image と常に内蔵レシピをビルドする
+>     Build ボタンの暗黙的結合、`Image=alpine:3.20` でも
+>     embedded レシピがビルドされる、apt 前提の install
+>     などが噛み合わない
+>   - r2: Dockerfile テキストを直接公開、Build はその
+>     テキストをそのまま使う、タグは content-addressed
+>   - r3 (現行): r2 の Dockerfile-text 方式を維持しつつ、
+>     **ビルド済み image のライブラリ** (Active / Use /
+>     Delete 操作) を追加してユーザが複数レシピを並存・
+>     切替できるようにし、**sandbox UI 全体を Settings
+>     の専用タブ** に移す（"単一ドロップダウン" の予算
+>     を超えたため）
 
 ## 1. 問題
 
@@ -66,7 +83,24 @@ mojibake を許容。どれも発見性が低い。
 
 ## 3. 詳細設計
 
-### 3.1 内蔵 Dockerfile bundle
+> 注: r3 の本文（§3.1〜§3.8）は EN 版
+> [docs/en/sandbox-image-build.md](../en/sandbox-image-build.md) に
+> 完全な記述があります。以下は要点の日本語サマリ。
+> r1/r2 から大きく変わったのは:
+>   - bundle の `embed.FS` 経路を撤廃、Dockerfile は単一
+>     文字列定数 (`RecommendedDockerfile`)
+>   - image タグは Dockerfile 内容の SHA256[:12] で
+>     content-addressed
+>   - `cfg.Sandbox.Dockerfile string` を追加（空 = recommended）
+>   - `Engine.ListImages` / `RemoveImage` 追加
+>   - Settings に専用「Sandbox」タブ（4 番目）を新設、
+>     ビルド済み image ライブラリ + Dockerfile エディタ +
+>     Reset / Build を配置
+
+### 3.1 内蔵 recommended Dockerfile
+
+(以下は r1 を r3 に書き換える前の旧記述。完全な r3 内容
+は EN 版を参照。本セクションは backend 振り返り用に残す。)
 
 新パッケージ `internal/sandbox/imagebuild`:
 
