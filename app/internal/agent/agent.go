@@ -80,6 +80,15 @@ type Agent struct {
 	mu      sync.Mutex
 	cancel  context.CancelFunc
 
+	// postCancel cancels the in-flight post-response task group
+	// (generateTitleIfNeeded / compactMemoryIfNeeded /
+	// extractPinnedMemories). Held separately from cancel so that
+	// after SendWithImages returns and the user clicks Abort, we
+	// can still terminate background goroutines that haven't
+	// finished. CancelFunc is safe to call multiple times and on
+	// already-finished contexts, so we don't bother clearing it.
+	postCancel context.CancelFunc
+
 	backend  llm.Backend
 	chat     *chat.Engine
 	session  *memory.Session
@@ -379,6 +388,30 @@ func (a *Agent) Send(ctx context.Context, message string) (string, error) {
 // SendWithImages processes a user message with optional images.
 // objectIDs are stored in session records; dataURLs are used for LLM context.
 func (a *Agent) SendWithImages(ctx context.Context, message string, objectIDs, dataURLs []string) (string, error) {
+	// Handle chat commands BEFORE waiting on the previous post-
+	// response task group. Slash commands don't go through the
+	// agent loop or LLM call path, so they shouldn't be held
+	// hostage by a 429-retry sleep happening in
+	// extractPinnedMemories. We still respect the busy state so
+	// /model can't race with an in-flight chat turn.
+	if strings.HasPrefix(message, "/") {
+		parts := strings.Fields(message)
+		switch parts[0] {
+		case "/model", "/finding", "/findings", "/help":
+			a.mu.Lock()
+			busy := a.state != StateIdle
+			a.mu.Unlock()
+			if busy {
+				return "", ErrBusy
+			}
+			result, err := a.handleCommand(message)
+			if err != nil {
+				return "", err
+			}
+			return "[CMD]" + result, nil
+		}
+	}
+
 	// Wait for any previous post-response tasks to complete
 	a.postTasksWg.Wait()
 
@@ -398,28 +431,22 @@ func (a *Agent) SendWithImages(ctx context.Context, message string, objectIDs, d
 		a.mu.Unlock()
 	}()
 
-	// Handle chat commands (only known commands, not arbitrary /paths)
-	if strings.HasPrefix(message, "/") {
-		parts := strings.Fields(message)
-		switch parts[0] {
-		case "/model", "/finding", "/findings", "/help":
-			result, err := a.handleCommand(message)
-			if err != nil {
-				return "", err
-			}
-			return "[CMD]" + result, nil
-		}
-	}
-
 	return a.agentLoop(ctx, message, objectIDs, dataURLs)
 }
 
-// Abort cancels the current task.
+// Abort cancels the current task and any in-flight post-response
+// goroutines. Cancel funcs are safe to call repeatedly and on
+// already-finished contexts, so we don't bother clearing them.
 func (a *Agent) Abort() {
 	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.cancel != nil {
-		a.cancel()
+	cancel := a.cancel
+	postCancel := a.postCancel
+	a.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	if postCancel != nil {
+		postCancel()
 	}
 }
 
@@ -937,7 +964,19 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 // Tasks run concurrently in background. The next Send() call waits
 // for completion via postTasksWg before proceeding.
 // Design: docs/en/agent-data-flow.md Section 4.1
-func (a *Agent) postResponseTasks(ctx context.Context) {
+//
+// The tasks run under a context derived from parentCtx; the cancel
+// is stashed on a.postCancel so Abort can interrupt them even after
+// SendWithImages has returned. Without this, a 429 retry inside
+// extractPinnedMemories could block the next Send for minutes with
+// no way to bail out (Abort previously only cancelled the
+// in-flight Send's ctx, which had already been released).
+func (a *Agent) postResponseTasks(parentCtx context.Context) {
+	ctx, cancel := context.WithCancel(parentCtx)
+	a.mu.Lock()
+	a.postCancel = cancel
+	a.mu.Unlock()
+
 	a.postTasksWg.Add(3)
 	go func() { defer a.postTasksWg.Done(); a.generateTitleIfNeeded(ctx) }()
 	go func() { defer a.postTasksWg.Done(); a.compactMemoryIfNeeded(ctx) }()
