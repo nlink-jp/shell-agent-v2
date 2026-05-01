@@ -128,9 +128,33 @@ func (v *Vertex) buildSystemInstruction(messages []Message) *genai.Content {
 }
 
 // buildContents maps application-level messages to genai Content.
+//
+// Special handling: when the assistant turn issued multiple
+// FunctionCall parts (parallel tool calls), Gemini requires the
+// matching FunctionResponse parts to be packed into a single
+// user Content block. Sending one user Content per tool result
+// triggers HTTP 400:
+//   "Please ensure that the number of function response parts is
+//    equal to the number of function call parts of the function
+//    call turn."
+// We coalesce consecutive RoleTool messages into one Content.
 func (v *Vertex) buildContents(messages []Message) []*genai.Content {
 	var contents []*genai.Content
+	flushTools := func(parts []*genai.Part) []*genai.Part {
+		if len(parts) > 0 {
+			contents = append(contents, &genai.Content{
+				Role:  genai.RoleUser,
+				Parts: parts,
+			})
+		}
+		return nil
+	}
+	var pendingToolParts []*genai.Part
 	for _, m := range messages {
+		// Any non-tool message flushes the pending tool batch.
+		if m.Role != RoleTool {
+			pendingToolParts = flushTools(pendingToolParts)
+		}
 		switch m.Role {
 		case RoleSystem, RoleSummary:
 			continue // handled by SystemInstruction
@@ -164,15 +188,15 @@ func (v *Vertex) buildContents(messages []Message) []*genai.Content {
 				contents = append(contents, genai.NewContentFromText(m.Content, genai.RoleModel))
 			}
 		case RoleTool:
-			// Native FunctionResponse for tool results
-			contents = append(contents, &genai.Content{
-				Role: genai.RoleUser,
-				Parts: []*genai.Part{
-					genai.NewPartFromFunctionResponse(m.ToolName, map[string]any{
-						"result": m.Content,
-					}),
-				},
-			})
+			// Coalesce: append the FunctionResponse part to the
+			// pending batch instead of emitting its own Content.
+			// The batch flushes when the next non-tool message
+			// arrives (or at end-of-loop, below).
+			pendingToolParts = append(pendingToolParts,
+				genai.NewPartFromFunctionResponse(m.ToolName, map[string]any{
+					"result": m.Content,
+				}),
+			)
 		default:
 			// User and any other role — with optional images.
 			// Each image is anchored with a one-line prefix naming
@@ -198,6 +222,10 @@ func (v *Vertex) buildContents(messages []Message) []*genai.Content {
 			}
 		}
 	}
+	// Flush any trailing tool batch — this is the common case when
+	// the agent loop hands us [..., assistant(tool_calls), tool, tool]
+	// and re-invokes the model immediately for the next round.
+	pendingToolParts = flushTools(pendingToolParts)
 	return contents
 }
 
