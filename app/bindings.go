@@ -150,6 +150,8 @@ func (b *Bindings) startup(ctx context.Context) {
 		wailsRuntime.WindowSetSize(ctx, w.Width, w.Height)
 		wailsRuntime.WindowSetPosition(ctx, w.X, w.Y)
 	}
+
+	logger.Info("bindings: startup complete (agent=%v)", b.agent != nil)
 }
 
 func (b *Bindings) shutdown(_ context.Context) {
@@ -186,6 +188,9 @@ func (b *Bindings) IsBusy() bool {
 
 // Send sends a user message to the agent.
 func (b *Bindings) Send(message string) (string, error) {
+	if b.agent == nil {
+		return "", fmt.Errorf("agent not initialised yet")
+	}
 	return b.agent.Send(b.ctx, message)
 }
 
@@ -261,6 +266,9 @@ func (b *Bindings) NewSession() (string, error) {
 
 // LoadSession switches to an existing session and returns its messages.
 func (b *Bindings) LoadSession(sessionID string) ([]MessageData, error) {
+	if b.agent == nil {
+		return nil, fmt.Errorf("agent not initialised yet")
+	}
 	if b.IsBusy() {
 		return nil, fmt.Errorf("agent is busy")
 	}
@@ -1283,6 +1291,11 @@ type LLMStatusData struct {
 
 // GetLLMStatus returns the current LLM and memory status.
 func (b *Bindings) GetLLMStatus() LLMStatusData {
+	if b.agent == nil {
+		// Frontend polls this from useEffect; if startup is still
+		// in flight, return zero values rather than panicking.
+		return LLMStatusData{}
+	}
 	s := b.agent.LLMStatus()
 	return LLMStatusData{
 		Backend:       s.Backend,
