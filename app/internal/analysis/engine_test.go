@@ -314,6 +314,39 @@ func TestRefreshTableMeta_TableNameSQLEscape(t *testing.T) {
 	}
 }
 
+// TestValidateFilePath_ExpandsTilde covers the v0.1.20 verification
+// follow-up: load-data was rejecting paths like "~/Desktop/foo.csv"
+// because filepath.Abs alone left the literal "~" in place. LLMs
+// pass tilde-prefixed paths through verbatim when the user types
+// them, so the validator now expands ~ via config.ExpandPath before
+// resolving.
+func TestValidateFilePath_ExpandsTilde(t *testing.T) {
+	dir := t.TempDir()
+	// Drop a CSV inside an *unrelated* dir so we can compare the
+	// resolved path to the canonical form. Then set HOME to the
+	// tempdir parent so "~/<relative>/foo.csv" should expand
+	// correctly.
+	csvName := "expand_tilde_test.csv"
+	csvAbs := filepath.Join(dir, csvName)
+	if err := os.WriteFile(csvAbs, []byte("a,b\n1,2\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("HOME", dir)
+	resolved, err := validateFilePath("~/" + csvName)
+	if err != nil {
+		t.Fatalf("validateFilePath(~/...): %v", err)
+	}
+	// On macOS, t.TempDir() may live under /private/var/... while
+	// HOME-relative resolution may pass through /var/... — compare
+	// with EvalSymlinks for a fair check.
+	wantAbs, _ := filepath.EvalSymlinks(csvAbs)
+	gotAbs, _ := filepath.EvalSymlinks(resolved)
+	if wantAbs != gotAbs {
+		t.Errorf("resolved path = %q (eval %q), want canonical %q", resolved, gotAbs, wantAbs)
+	}
+}
+
 // TestValidateFilePath_RejectsSymlink covers security-hardening-2.md
 // H14 — an attacker who can plant a symlink in a path the LLM might
 // pass to load-data should not be able to redirect ingest to a host

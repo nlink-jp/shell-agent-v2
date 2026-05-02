@@ -14,6 +14,7 @@ import (
 
 	_ "github.com/marcboeker/go-duckdb"
 
+	"github.com/nlink-jp/shell-agent-v2/internal/config"
 	"github.com/nlink-jp/shell-agent-v2/internal/memory"
 )
 
@@ -235,6 +236,11 @@ func validateFilePath(path string) (string, error) {
 	if path == "" {
 		return "", fmt.Errorf("empty file path")
 	}
+	// Expand ~/ before resolving — LLMs often pass user-typed paths
+	// like "~/Desktop/foo.csv" verbatim, and filepath.Abs alone leaves
+	// the literal "~" in place and the subsequent Lstat fails. Mirrors
+	// what config.ExpandPath does for MCP profile paths.
+	path = config.ExpandPath(path)
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return "", fmt.Errorf("invalid path: %w", err)
