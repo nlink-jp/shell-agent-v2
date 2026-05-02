@@ -118,6 +118,12 @@ func (b *Bindings) startup(ctx context.Context) {
 		}
 		wailsRuntime.EventsEmit(b.ctx, "agent:activity", payload)
 	})
+	b.agent.SetBgTaskHandler(func(e agent.BgTaskEvent) {
+		wailsRuntime.EventsEmit(b.ctx, "bg-task:"+e.Phase, map[string]any{
+			"name":  e.Name,
+			"error": e.Error,
+		})
+	})
 	b.agent.SetMITLHandler(func(req agent.MITLRequest) agent.MITLResponse {
 		ch := make(chan agent.MITLResponse, 1)
 		b.mitlMu.Lock()

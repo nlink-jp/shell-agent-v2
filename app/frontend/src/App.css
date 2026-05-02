@@ -423,6 +423,37 @@ input, textarea {
     opacity: 0.85;
 }
 
+/* Post-response background task indicators (title generation,
+   memory compaction, pinned-memory extraction). The grey badge
+   marks active work; the red badge flashes for 5 s on failure. */
+.bg-task-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    background: var(--bg-hover);
+    color: var(--text-secondary);
+    opacity: 0.85;
+}
+
+.bg-task-failure {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    background: var(--bg-msg-error);
+    color: var(--text-error);
+    animation: bg-task-fade 5s ease-out forwards;
+}
+
+@keyframes bg-task-fade {
+    0%   { opacity: 1; }
+    80%  { opacity: 1; }
+    100% { opacity: 0; }
+}
+
 /* Findings */
 .finding-card {
     background: var(--bg-hover);

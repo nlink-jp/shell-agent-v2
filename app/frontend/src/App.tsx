@@ -103,6 +103,12 @@ function App() {
     // backend is between attempts (retry-backoff). Cleared as soon
     // as the next tool_start / tool_end arrives.
     const [retryStatus, setRetryStatus] = useState('')
+    // Post-response background tasks (title generation, memory
+    // compaction, pinned-fact extraction). bgTasks is the set of
+    // names currently running; bgFailure is the most recent task
+    // that returned an error and is still being flashed (5 s).
+    const [bgTasks, setBgTasks] = useState<string[]>([])
+    const [bgFailure, setBgFailure] = useState<{name: string; error: string} | null>(null)
     const messagesEndRef = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
@@ -167,9 +173,41 @@ function App() {
                     s.id === data.session_id ? {...s, title: data.title} : s
                 ))
             })
-            return () => { cleanupStream(); cleanupActivity(); cleanupPinned(); cleanupReport(); cleanupMitl(); cleanupTitle() }
+            const cleanupBgStart = window.runtime.EventsOn('bg-task:start', (data: any) => {
+                const name = String(data.name || '')
+                if (!name) return
+                setBgTasks(prev => prev.includes(name) ? prev : [...prev, name])
+            })
+            const cleanupBgEnd = window.runtime.EventsOn('bg-task:end', (data: any) => {
+                const name = String(data.name || '')
+                const error = String(data.error || '')
+                if (!name) return
+                setBgTasks(prev => prev.filter(n => n !== name))
+                if (error) {
+                    setBgFailure({name, error})
+                    // Clear the same failure 5 s later. Guarded by
+                    // name comparison so a newer failure isn't
+                    // wiped by an older timer.
+                    setTimeout(() => {
+                        setBgFailure(f => (f && f.name === name && f.error === error) ? null : f)
+                    }, 5000)
+                }
+            })
+            return () => { cleanupStream(); cleanupActivity(); cleanupPinned(); cleanupReport(); cleanupMitl(); cleanupTitle(); cleanupBgStart(); cleanupBgEnd() }
         }
     }, [])
+
+    // Friendly label for each background task code. Centralised so
+    // a future i18n pass can swap to a hook without hunting through
+    // JSX. The codes match agent.BgTaskEvent.Name.
+    const bgTaskLabel = (code: string): string => {
+        switch (code) {
+            case 'title': return 'Title generation'
+            case 'memory-compaction': return 'Memory compaction'
+            case 'pinned-extraction': return 'Pinned-memory extraction'
+            default: return code
+        }
+    }
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({behavior: 'smooth'})
@@ -539,6 +577,16 @@ function App() {
                         </>
                     )}
                     {state === 'busy' && <span className="tool-progress">{progressTool || 'Thinking...'}</span>}
+                    {bgTasks.length > 0 && (
+                        <span className="bg-task-badge" title="Background work running after the previous reply. The next message will auto-cancel any unfinished task.">
+                            Background: {bgTasks.map(bgTaskLabel).join(', ')}
+                        </span>
+                    )}
+                    {bgFailure && (
+                        <span className="bg-task-failure" title={bgFailure.error}>
+                            Failed: {bgTaskLabel(bgFailure.name)}
+                        </span>
+                    )}
                 </div>
                 {state === 'busy' ? (
                     <div className="input-area">
