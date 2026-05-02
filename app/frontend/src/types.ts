@@ -48,6 +48,11 @@ export interface ToolInfo {
     description: string;
     category: string;
     source: string;
+    /** Backend-computed default for the MITL gate, ignoring any
+     *  current MITLOverrides entry. The Settings UI uses this so
+     *  the toggle's "default" state matches what the dispatcher
+     *  will actually do. */
+    mitl_default: boolean;
 }
 
 export interface PinnedMemory {

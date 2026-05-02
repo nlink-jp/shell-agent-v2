@@ -1251,11 +1251,20 @@ func (b *Bindings) resolveObjectRefsForExport(content string) string {
 // --- Tools bindings ---
 
 // ToolInfo describes a tool for the frontend.
+//
+// MITLDefault is the gate's default for this tool ignoring any
+// MITLOverrides entry. The Settings UI uses it so the toggle's
+// "default" state matches the dispatcher's actual default — see
+// security-hardening-2.md follow-up: prior to wiring this through,
+// the UI computed the default locally from category/source and
+// went out of sync after the analysisToolMITLDefault map was
+// introduced.
 type ToolInfo struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	Category    string `json:"category"`
 	Source      string `json:"source"` // "builtin", "analysis", "shell", "mcp"
+	MITLDefault bool   `json:"mitl_default"`
 }
 
 // GetTools returns all available tools.
@@ -1263,7 +1272,7 @@ func (b *Bindings) GetTools() []ToolInfo {
 	items := b.agent.ListTools()
 	result := make([]ToolInfo, len(items))
 	for i, item := range items {
-		result[i] = ToolInfo{Name: item.Name, Description: item.Description, Category: item.Category, Source: item.Source}
+		result[i] = ToolInfo{Name: item.Name, Description: item.Description, Category: item.Category, Source: item.Source, MITLDefault: item.MITLDefault}
 	}
 	return result
 }

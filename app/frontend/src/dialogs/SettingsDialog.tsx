@@ -188,7 +188,13 @@ export default function SettingsDialog({settings, tools, mcpStatus, onUpdate, on
                             ) : tools.map(t => {
                                 const disabled = (settings.disabled_tools || []).includes(t.name)
                                 const mitlOverride = (settings.mitl_overrides || {})[t.name]
-                                const mitlDefault = t.category === 'write' || t.category === 'execute' || t.source === 'mcp'
+                                // Backend supplies the per-tool MITL default
+                                // (analysisToolMITLDefault for analysis tools,
+                                // category/source rules for shell/mcp/sandbox).
+                                // Computing it here from category/source went
+                                // out of sync after Phase B's analysis-tool
+                                // MITL routing change.
+                                const mitlDefault = !!t.mitl_default
                                 const mitlActive = mitlOverride !== undefined ? mitlOverride : mitlDefault
                                 return (
                                     <div key={t.name} className={`tool-item ${disabled ? 'tool-disabled' : ''}`}>

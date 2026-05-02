@@ -143,6 +143,23 @@ func TestSplitMCPName_EmptyToolNameRejected(t *testing.T) {
 	}
 }
 
+// TestListTools_MITLDefaultMatchesGate confirms ListTools surfaces a
+// MITLDefault that agrees with IsToolMITLRequired's resolution rules
+// (with no MITLOverrides). Without this contract the Settings UI's
+// toggle renders out of sync with the dispatcher — the live bug
+// observed during v0.1.20 verification: Settings showed load-data
+// MITL OFF (computed locally from category="read") while the
+// dispatcher prompted (analysisToolMITLDefault["load-data"]=true).
+func TestListTools_MITLDefaultMatchesGate(t *testing.T) {
+	a := New(config.Default())
+	for _, item := range a.ListTools() {
+		got := a.IsToolMITLRequired(item.Name)
+		if item.MITLDefault != got {
+			t.Errorf("ListTools(%q).MITLDefault = %v, IsToolMITLRequired = %v", item.Name, item.MITLDefault, got)
+		}
+	}
+}
+
 // TestValidGuardianName covers the registration-time regex. The set
 // of allowed characters is intentionally narrow so the
 // `mcp__<guardian>__<tool>` flat namespace stays unambiguous.

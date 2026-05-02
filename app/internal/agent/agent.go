@@ -714,44 +714,64 @@ func (a *Agent) DeleteFindingsBySession(sessionID string) {
 }
 
 // ToolInfoItem describes a tool for listing.
+//
+// MITLDefault carries the gate's default for *this* tool, ignoring
+// any current MITLOverrides entry. The Settings UI uses it to
+// render the toggle in its "as-shipped" state and decides whether
+// to persist an override (toggle differs from default → write
+// override; toggle equals default → delete override). Surfacing
+// this from the backend keeps the UI in sync after Phase B's
+// IsToolMITLRequired routing change (security-hardening-2.md
+// follow-up — the UI used to compute the default locally from
+// category/source and that calculation was stale).
 type ToolInfoItem struct {
 	Name        string
 	Description string
 	Category    string
 	Source      string
+	MITLDefault bool
 }
 
 // ListTools returns all available tools with metadata.
+//
+// MITLDefault on each item reflects the gate's intrinsic default
+// (ignoring any user MITLOverrides). The Settings UI relies on this
+// to render the toggle correctly — see ToolInfoItem doc.
 func (a *Agent) ListTools() []ToolInfoItem {
 	var items []ToolInfoItem
 
+	add := func(item ToolInfoItem) {
+		item.MITLDefault = a.toolMITLDefault(item.Name, item.Category, item.Source)
+		items = append(items, item)
+	}
+
 	// Builtin tools
-	items = append(items, ToolInfoItem{Name: "resolve-date", Description: "Resolve relative date expressions", Category: "read", Source: "builtin"})
+	add(ToolInfoItem{Name: "resolve-date", Description: "Resolve relative date expressions", Category: "read", Source: "builtin"})
 
 	// Analysis tools
 	hasData := a.analysis != nil && a.analysis.HasData()
-	items = append(items, ToolInfoItem{Name: "load-data", Description: "Load CSV/JSON/JSONL file", Category: "read", Source: "analysis"})
-	items = append(items, ToolInfoItem{Name: "reset-analysis", Description: "Drop all tables", Category: "write", Source: "analysis"})
-	items = append(items, ToolInfoItem{Name: "create-report", Description: "Create markdown report", Category: "read", Source: "analysis"})
+	add(ToolInfoItem{Name: "load-data", Description: "Load CSV/JSON/JSONL file", Category: "read", Source: "analysis"})
+	add(ToolInfoItem{Name: "reset-analysis", Description: "Drop all tables", Category: "write", Source: "analysis"})
+	add(ToolInfoItem{Name: "create-report", Description: "Create markdown report", Category: "read", Source: "analysis"})
 	if hasData {
-		items = append(items, ToolInfoItem{Name: "describe-data", Description: "Show table metadata", Category: "read", Source: "analysis"})
-		items = append(items, ToolInfoItem{Name: "query-sql", Description: "Execute SQL query", Category: "read", Source: "analysis"})
-		items = append(items, ToolInfoItem{Name: "query-preview", Description: "NL to SQL generation", Category: "read", Source: "analysis"})
-		items = append(items, ToolInfoItem{Name: "suggest-analysis", Description: "Suggest analysis perspectives", Category: "read", Source: "analysis"})
-		items = append(items, ToolInfoItem{Name: "quick-summary", Description: "Query + LLM summary", Category: "read", Source: "analysis"})
-		items = append(items, ToolInfoItem{Name: "list-tables", Description: "List all tables", Category: "read", Source: "analysis"})
-		items = append(items, ToolInfoItem{Name: "promote-finding", Description: "Save insight to findings", Category: "write", Source: "analysis"})
+		add(ToolInfoItem{Name: "describe-data", Description: "Show table metadata", Category: "read", Source: "analysis"})
+		add(ToolInfoItem{Name: "query-sql", Description: "Execute SQL query", Category: "read", Source: "analysis"})
+		add(ToolInfoItem{Name: "query-preview", Description: "NL to SQL generation", Category: "read", Source: "analysis"})
+		add(ToolInfoItem{Name: "suggest-analysis", Description: "Suggest analysis perspectives", Category: "read", Source: "analysis"})
+		add(ToolInfoItem{Name: "quick-summary", Description: "Query + LLM summary", Category: "read", Source: "analysis"})
+		add(ToolInfoItem{Name: "list-tables", Description: "List all tables", Category: "read", Source: "analysis"})
+		add(ToolInfoItem{Name: "promote-finding", Description: "Save insight to findings", Category: "write", Source: "analysis"})
 	}
 
 	// Shell script tools
 	for _, t := range a.toolRegistry.All() {
-		items = append(items, ToolInfoItem{Name: t.Name, Description: t.Description, Category: string(t.Category), Source: "shell"})
+		add(ToolInfoItem{Name: t.Name, Description: t.Description, Category: string(t.Category), Source: "shell"})
 	}
 
 	// Sandbox tools (all treated as "execute")
 	if a.sandbox != nil {
 		for _, td := range sandboxToolDefs() {
-			items = append(items, ToolInfoItem{Name: td.Name, Description: td.Description, Category: "execute", Source: "sandbox"})
+			add(ToolInfoItem{Name: td.Name, Description: td.Description, Category: "execute", Source: "sandbox"})
 		}
 	}
 
@@ -759,7 +779,7 @@ func (a *Agent) ListTools() []ToolInfoItem {
 	a.guardiansMu.RLock()
 	for name, g := range a.guardians {
 		for _, t := range g.Tools() {
-			items = append(items, ToolInfoItem{
+			add(ToolInfoItem{
 				Name:        "mcp__" + name + "__" + t.Name,
 				Description: "[" + name + "] " + t.Description,
 				Category:    "execute",
@@ -770,6 +790,30 @@ func (a *Agent) ListTools() []ToolInfoItem {
 	a.guardiansMu.RUnlock()
 
 	return items
+}
+
+// toolMITLDefault is the per-tool MITL default ignoring any
+// MITLOverrides entry. Mirrors the resolution rules in
+// IsToolMITLRequired so the Settings UI can render the toggle in
+// its as-shipped state. Centralising the resolution here would be
+// cleaner — leave that for a follow-up; for now, keep the rules in
+// sync between this and IsToolMITLRequired.
+func (a *Agent) toolMITLDefault(name, category, source string) bool {
+	if strings.HasPrefix(name, "mcp__") || source == "mcp" {
+		return true
+	}
+	if strings.HasPrefix(name, "sandbox-") || source == "sandbox" {
+		return true
+	}
+	if def, ok := analysisToolMITLDefault[name]; ok {
+		return def
+	}
+	// Shell tools: write/execute categories require MITL by default.
+	switch toolcall.Category(category) {
+	case toolcall.CategoryWrite, toolcall.CategoryExecute:
+		return true
+	}
+	return false
 }
 
 // PinnedAll returns all pinned facts.
@@ -1331,12 +1375,12 @@ func (a *Agent) executeTool(ctx context.Context, tc llm.ToolCall) (string, Activ
 
 		// Check shell script tool registry
 		if tool, ok := a.toolRegistry.Get(tc.Name); ok {
-			// MITL check for write/execute tools
-			needsMITL := tool.NeedsMITL() // category-based default
-			if override, ok := a.cfg.Tools.MITLOverrides[tc.Name]; ok {
-				needsMITL = override
-			}
-			if needsMITL {
+			// MITL routing matches every other tool source by going
+			// through IsToolMITLRequired (which itself consults
+			// MITLOverrides → mcp/sandbox prefix → analysisToolMITLDefault
+			// → tool.NeedsMITL). Single source of truth keeps the
+			// Settings UI's per-tool toggle accurate.
+			if a.IsToolMITLRequired(tc.Name) {
 				result := a.requestMITL(tc.Name, tc.Arguments, string(tool.Category))
 				if result != "" {
 					return result, ActivityStatusError
@@ -1483,6 +1527,15 @@ func (a *Agent) IsToolMITLRequired(toolName string) bool {
 	}
 	if def, ok := analysisToolMITLDefault[toolName]; ok {
 		return def
+	}
+	// Shell tools — consult the registry's own category. Without this
+	// branch, the dispatcher's shell path used to compute MITL via
+	// tool.NeedsMITL() directly; that left IsToolMITLRequired
+	// disagreeing with the actual gate for shell tools, breaking the
+	// Settings UI's per-tool default and the contract test
+	// (TestListTools_MITLDefaultMatchesGate).
+	if tool, ok := a.toolRegistry.Get(toolName); ok {
+		return tool.NeedsMITL()
 	}
 	return false
 }

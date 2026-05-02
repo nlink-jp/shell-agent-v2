@@ -111,6 +111,21 @@ for the full design and finding inventory.
   what the UI used to imply (`load-data`, `reset-analysis`,
   `promote-finding`, `query-sql`, `analyze-data` default ON;
   metadata reads default OFF).
+- **Settings → Tools toggle reflects the dispatcher's actual
+  default.** Discovered during v0.1.20 verification: the toggle's
+  rendered "default" state was computed locally in the frontend
+  from `category`/`source`, which silently went out of sync with
+  Phase B's `analysisToolMITLDefault` table. Result: the user
+  saw `load-data` MITL toggle as OFF, toggling it had no effect
+  (the value already equalled the locally-computed default so no
+  override was persisted), and the dispatcher prompted anyway
+  because its true default was ON. Backend now exposes
+  `mitl_default` per tool via `GetTools` and the frontend uses
+  it directly. `IsToolMITLRequired` is also the single source of
+  truth across all tool sources (analysis / shell / sandbox /
+  mcp) — the dispatcher's shell branch used to call
+  `tool.NeedsMITL()` directly. New regression test
+  `TestListTools_MITLDefaultMatchesGate` pins the contract.
 - `TestSandboxDefaults` was asserting that the default
   `Sandbox.Image` is populated, but the actual default is empty
   on purpose (the readiness gate hides sandbox tools until the
