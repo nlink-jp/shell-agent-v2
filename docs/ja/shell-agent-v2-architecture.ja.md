@@ -3,38 +3,52 @@
 ## システム概要
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    Wails v2 App                         │
-│  ┌──────────────┐    ┌─────────────────────────────┐    │
-│  │  React UI    │◄──►│  bindings.go (薄い委譲層)    │    │
-│  │  App.tsx     │    │  EventsEmit (ストリーミング) │    │
-│  └──────────────┘    └──────────┬──────────────────┘    │
-│                                 │                       │
-│                      ┌──────────▼──────────┐            │
-│                      │   agent/ パッケージ  │            │
-│                      │   Idle ◄──► Busy    │            │
-│                      └──────────┬──────────┘            │
-│              ┌──────────┬───────┼───────┬────────┐      │
-│              ▼          ▼       ▼       ▼        ▼      │
-│          ┌──────┐  ┌────────┐ ┌─────┐ ┌──────┐ ┌────┐  │
-│          │chat/ │  │analysis│ │llm/ │ │tools/│ │mcp/│  │
-│          │      │  │DuckDB  │ │     │ │      │ │    │  │
-│          └──────┘  └────────┘ └──┬──┘ └──────┘ └────┘  │
-│                                  │                      │
-│                         ┌────────┴────────┐             │
-│                         ▼                 ▼             │
-│                    ┌─────────┐      ┌──────────┐        │
-│                    │  Local  │      │ Vertex AI│        │
-│                    │LM Studio│      │ Gemini   │        │
-│                    └─────────┘      └──────────┘        │
-│                                                         │
-│  ┌──────────────────────────────────────────────────┐   │
-│  │              永続化ストレージ                      │   │
-│  │  sessions/{id}/chat.json + analysis.duckdb       │   │
-│  │  findings.json    pinned.json    config.json     │   │
-│  │  objects/data/{hex-id}                           │   │
-│  └──────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                         Wails v2 App                             │
+│  ┌──────────────┐    ┌─────────────────────────────────────┐     │
+│  │  React UI    │◄──►│  bindings.go (薄い委譲層)            │     │
+│  │  App.tsx     │    │  EventsEmit  (ストリーミング、       │     │
+│  │  components/ │    │   activity, bg-task, mitl, sandbox  │     │
+│  │  dialogs/    │    │   ビルド進捗 等)                     │     │
+│  │  sidebar/    │    └────────────────────┬────────────────┘     │
+│  └──────────────┘                         │                      │
+│                                ┌──────────▼──────────┐           │
+│                                │   agent/ パッケージ  │           │
+│                                │ Idle / Busy +        │          │
+│                                │ post-task ゲート     │          │
+│                                └──────────┬──────────┘           │
+│         ┌────────┬────────┬─────────┬─────┴──────┬───────┐       │
+│         ▼        ▼        ▼         ▼            ▼       ▼       │
+│      ┌─────┐ ┌─────────┐ ┌──┐ ┌──────────┐ ┌────────┐ ┌────┐    │
+│      │chat/│ │analysis/│ │llm│ │ toolcall │ │ sandbox│ │ mcp│    │
+│      └──┬──┘ │  DuckDB │ │   │ │ + bundled│ │  /work │ │    │    │
+│         │    └─────────┘ └─┬─┘ └──────────┘ └────────┘ └────┘    │
+│         │                  │                                      │
+│  ┌──────▼──────┐    ┌──────▼─────────┐                           │
+│  │ contextbuild│    │  Local         │                           │
+│  │ (memory v2) │    │  Vertex AI     │                           │
+│  └──────┬──────┘    └────────────────┘                           │
+│         │                                                         │
+│  ┌──────▼──────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐       │
+│  │  memory/    │  │  pinned  │  │ findings │  │ objstore │       │
+│  │  Hot tier   │  │ 永続事実  │  │  分析知見 │  │ 画像 /    │      │
+│  │  + summaries│  │          │  │          │  │ blob /    │      │
+│  └─────────────┘  └──────────┘  └──────────┘  │ レポート  │      │
+│                                                └──────────┘       │
+│                                                                   │
+│  ヘルパ: pathfix/ (.app 起動時の Homebrew PATH 補正)              │
+│         bundled/  (シェルツールスクリプトの初回展開)               │
+│                                                                   │
+│  ┌─────────────────────────────────────────────────────────────┐  │
+│  │                   永続化ストレージ                            │  │
+│  │  sessions/{id}/chat.json + analysis.duckdb +                 │  │
+│  │                summaries.json + work/ (sandbox ホスト側)     │  │
+│  │  objects/data/{hex-id} + objects/index.json                  │  │
+│  │  findings.json    pinned.json    config.json                 │  │
+│  │  app.log          tools/ (ユーザー編集のシェルツール)         │  │
+│  │  sandbox イメージキャッシュ (podman/docker 管理)              │  │
+│  └─────────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
 ## エージェント状態マシン
@@ -44,54 +58,80 @@
               │
               ▼
         ┌───────────┐
-        │   Idle    │◄──────────────────┐
-        └─────┬─────┘                   │
-              │ Send()                  │
-              ▼                         │
-        ┌───────────┐    Abort()   ┌────┴────┐
-        │   Busy    │─────────────►│クリーンアップ│
-        └─────┬─────┘              └─────────┘
-              │
-       ┌──────┼──────┐
-       ▼      ▼      ▼
-    Chat   Analysis  Tool
-    LLM    DuckDB    Shell/MCP
-       │      │      │
-       └──────┼──────┘
-              │ 完了 / 最大ラウンド
-              ▼
-        ┌───────────┐
-        │   Idle    │
-        └───────────┘
+        │   Idle    │◄──────────────────────────┐
+        └─────┬─────┘                           │
+              │ Send() / SendWithImages         │
+              ▼                                 │
+        ┌───────────┐                           │
+        │   Busy    │                           │
+        │(agentLoop)│                           │
+        └─────┬─────┘                           │
+              │ ツールラウンド (max N) /         │
+              │ 最終応答 / Cancelled             │
+              ▼                                 │
+        ┌───────────────────────────┐           │
+        │ Busy (post-response tasks)│           │
+        │  • タイトル生成             │          │
+        │  • メモリ圧縮               │          │
+        │  • pinned-fact 抽出         │          │
+        └─────┬───────────────────┬─┘           │
+              │                   │             │
+              │ 全 3 件完了        │ Abort()     │
+              │ (success/error/   │ → postCancel│
+              │  canceled)         │             │
+              ▼                   ▼             │
+        ┌──────────────────────────────────┐    │
+        │ trailing goroutine: state = Idle ├────┘
+        │ (cancel / postCancel もクリア)    │
+        └──────────────────────────────────┘
 ```
 
 **不変条件:**
-- Busy 中はチャット入力ブロック
-- セッション切替は Idle が必要 (または abort で Idle に戻す)
-- `/model` 切替は Idle が必要
+- Busy 中はチャット入力欄、Sidebar の New / Load / Delete、
+  スラッシュコマンドすべて操作不可。これは post-response の
+  期間も含む — pinned-fact 抽出は直近 hot 4 件しか見ないので、
+  途中で次メッセージが入ると cancel 扱いになり pinned が
+  欠損するため。
+- セッション切替・`/model` 切替は Idle のみ。
+- `Abort` は `cancel` (in-flight agentLoop) と `postCancel`
+  (post-response tasks) の両方を発火、trailing goroutine が
+  Idle に戻す。「次の Send で auto-cancel」案は試行 → 撤回。
+  詳細は
+  [`background-task-indicator.ja.md`](./background-task-indicator.ja.md)。
 
 ## セッションスコープ分析
 
-各セッションが独立した DuckDB インスタンスを所有:
+各セッションが独立した DuckDB インスタンスとサンドボックス
+コンテナがマウントするプライベートな `/work` ディレクトリを所有:
 
 ```
 sessions/
 ├── sess-1713945600000/
 │   ├── chat.json          # 会話記録 (Hot/Warm/Cold)
-│   └── analysis.duckdb    # セッション所有 DB (遅延作成)
+│   ├── analysis.duckdb    # セッション所有 DB (遅延作成)
+│   ├── summaries.json     # contextbuild サマリーキャッシュ (memory v2)
+│   └── work/              # サンドボックスコンテナの /work にマウント
+│       └── …              # LLM 生成物 (CSV / グラフ等)
 └── sess-1713952800000/
-    ├── chat.json
-    └── analysis.duckdb
+    └── …
 ```
 
 **ライフサイクル:**
 1. `NewSession()` — ディレクトリ + 空 `chat.json` 作成
-2. 最初の `load-data` ツール呼び出し — `analysis.duckdb` 作成
-3. `LoadSession()` — 現在の DuckDB を閉じ、対象セッションの DB を開く
-4. `DeleteSession()` — セッションディレクトリ全体を削除
+2. 最初の `load-data` または `sandbox-load-into-analysis` —
+   `analysis.duckdb` を遅延生成
+3. 最初のサンドボックス `Exec` — `work/` を作りセッション専用
+   コンテナ (`shell-agent-v2-<sessionID>`) を起動
+4. `LoadSession()` — 走行中の post-response goroutine をドレイン、
+   現在の DuckDB を閉じて対象セッションを開く。サンドボックス
+   コンテナはセッション単位なので置換は自然にクリーン
+5. `DeleteSession()` — セッションディレクトリ削除 + コンテナ
+   stop+rm。当該セッションに紐づく objstore エントリも
+   `objects.DeleteBySession` で除去
 
-**データ分離:** Session A でロードしたテーブルは Session B から見えない。
-セッション間の知識共有はグローバル Findings のみ。
+**データ分離:** Session A のテーブルは Session B から不可視、
+サンドボックス `/work` もセッション単位のホスト側別ディレクトリ。
+セッション横断の知識共有はグローバル Findings または Pinned Memory のみ。
 
 ## メモリアーキテクチャ
 
@@ -176,17 +216,28 @@ type Backend interface {
 
 ## ツールシステム
 
-3つのツールソースをエージェントループで統合:
+5つのツールソースをエージェントループで統合:
 
 | ソース | 例 | MITL |
 |--------|------|------|
-| **ビルトイン** | resolve-date | 不要 |
-| **分析** | load-data, query-sql, promote-finding | 不要 |
-| **シェルスクリプト** | 内蔵 (file-info, preview-file, list-files, weather, get-location, write-note) + ユーザ追加スクリプト | read: 不要, write/execute: 必要 |
-| **MCP** | mcp-guardian ツール | 委譲 |
+| **ビルトイン** | `resolve-date`, `create-report` | 不要 |
+| **分析** | `load-data`, `query-sql`, `describe-data`, `promote-finding`, `reset` | 不要 |
+| **サンドボックス** (opt-in、セッション専用コンテナ) | `sandbox-run-shell`, `sandbox-run-python`, `sandbox-write-file`, `sandbox-copy-object`, `sandbox-register-object`, `sandbox-info`, `sandbox-load-into-analysis`, `sandbox-export-sql` | execute (8 種すべて) |
+| **シェルスクリプト** | 内蔵 (`file-info`, `preview-file`, `list-files`, `weather`, `get-location`, `write-note`) + ユーザ追加スクリプト | read: 不要, write/execute: 必要 |
+| **MCP** | `mcp__<server>__<tool>` を mcp-guardian でプロキシ | 委譲 |
 
-**動的フィルタリング:** 分析ツールはデータの有無に基づいて条件付き公開。
-ローカルLLMでのツール数を管理可能に保つ。
+**動的フィルタリング.** 分析ツールはデータの有無に基づいて条件付き
+公開、ローカル LLM のツール数を抑える。サンドボックスツールは
+`sandbox.enabled` ON **かつ** 設定イメージがローカルエンジンに存在
+する場合のみ登録される。両条件は agent 構築時に判定し、不成立なら
+ツールが見えない状態にして 1) ターン中のクラッシュ防止 2) 動かない
+ツールを LLM が呼んでしまう誘惑を排除している。
+
+**ツールコールタイムライン.** 各 `tool_start` / `tool_end` 活動
+イベントはチャット内で一時ピル表示される。さらに `memory.Record`
+の各ツール結果には success/error ステータスが永続化される
+(v0.1.19 から)。これによりセッション再読み込み時もバブルが復活する
+— [`tool-event-restore.ja.md`](./tool-event-restore.ja.md) 参照。
 
 ### 内蔵シェルツール
 
