@@ -11,51 +11,6 @@ by quickest-to-touch first.
 Small features the user can already work around, but worth
 exposing.
 
-### Analysis-tool visibility before data load (planning vs. tool count)
-
-**Background**: `agent.analysisTools(hasData bool)` exposes only
-`load-data`, `reset-analysis`, `create-report`, `list-objects`,
-`get-object` to the LLM until `HasData()` becomes true; the
-SQL/analyze/describe/preview/summary/promote tools are hidden
-until data is loaded. The original rationale (comment in
-`internal/agent/tools.go:14-16`) was "keep tool count low for
-local LLMs" — defensive against the early gemma2 / early gemma3
-tool-calling failure modes.
-
-**Why revisit**: the standard local model is now gemma-4-26b-a4b
-(MoE, ~4B active). Modern locals comfortably handle 30–40 tools,
-and the round-by-round tool re-evaluation only papers over the
-fact that the LLM cannot **plan** a load-then-query workflow upfront —
-it has to load blind, see new tools appear, then react. This:
-
-- prevents accurate up-front user-facing plans ("I'll load this
-  CSV and run a SQL grouping by month");
-- can cause false declines ("I don't have a SQL tool") when the
-  user phrases a query without attaching data first;
-- invites name hallucination on weaker models ("I'll call
-  `query-sql`" → `unknown tool` round-trip);
-- leaves `load-data`'s description silent on what becomes
-  available after success.
-
-**Direction (sketch, not designed)**:
-
-1. Drop the dynamic filter — expose all analysis tools every
-   round.
-2. Keep an escape hatch as a config flag (default off):
-   `Tools.HideAnalysisToolsUntilDataLoaded bool` for users on
-   weaker models / older LM Studio runtimes.
-3. Rewrite `load-data`'s description to advertise the
-   downstream pipeline: "After load, use `query-sql` /
-   `analyze-data` / `describe-data` / `quick-summary` against
-   the loaded table."
-4. Verification before merge: gemma-4-26b-a4b regression on
-   (a) tool selection accuracy at 30+ tools, (b) "summarise the
-   data" with no attachment → does the model now propose
-   `load-data` instead of declining.
-
-Out of scope for the v0.1.20 security round; will land in a
-later release with its own design doc (`agent-tool-visibility.md`).
-
 ### HTML output as a first-class object type
 
 **Background**: Reports are produced via `create-report`, stored
