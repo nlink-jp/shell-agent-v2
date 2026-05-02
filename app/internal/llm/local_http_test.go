@@ -282,6 +282,48 @@ func TestLocal_ChatStream_HTTP500(t *testing.T) {
 	}
 }
 
+// TestLocal_Chat_RejectsOversizedResponse confirms doRequest's
+// LimitReader cap (security-hardening-2.md H12). A misbehaving
+// endpoint streaming a body larger than MaxLocalResponseBytes would
+// otherwise OOM the app — the cap turns it into an error.
+func TestLocal_Chat_RejectsOversizedResponse(t *testing.T) {
+	if testing.Short() {
+		t.Skip("allocates >MaxLocalResponseBytes in tests")
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		// Write MaxLocalResponseBytes + 1 KiB of a long string field
+		// inside a JSON envelope, so we definitely cross the cap.
+		header := []byte(`{"choices":[{"message":{"role":"assistant","content":"`)
+		_, _ = w.Write(header)
+		chunk := make([]byte, 64*1024)
+		for i := range chunk {
+			chunk[i] = 'a'
+		}
+		written := int64(len(header))
+		flusher, _ := w.(http.Flusher)
+		for written < int64(MaxLocalResponseBytes)+1024 {
+			_, _ = w.Write(chunk)
+			written += int64(len(chunk))
+			if flusher != nil {
+				flusher.Flush()
+			}
+		}
+		_, _ = w.Write([]byte(`"}}]}`))
+	}))
+	defer srv.Close()
+
+	l := newLocalAgainst(srv)
+	_, err := l.Chat(context.Background(), []Message{{Role: RoleUser, Content: "x"}}, nil)
+	if err == nil {
+		t.Fatal("expected error for oversized response")
+	}
+	if !strings.Contains(err.Error(), "exceeds") {
+		t.Errorf("err = %v, want it to mention size exceedance", err)
+	}
+}
+
 func TestLocal_doRequest_RespectsContext(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Don't reply; rely on context cancellation.

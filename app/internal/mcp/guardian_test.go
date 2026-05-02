@@ -157,6 +157,110 @@ func TestGuardian_StopReleasesResources(t *testing.T) {
 	}
 }
 
+// TestGuardian_DrainsStderrWithoutDeadlock writes ~1 MB to stderr from
+// the guardian during initialize before responding on stdout. Without
+// the stderr drain (security-hardening-2.md C2) the kernel pipe buffer
+// fills around 64 KB, the child blocks on its next stderr write, and
+// the parent's stdout.Scan never sees the response — the whole agent
+// hangs until StartTimeout fires. The test asserts Start returns
+// successfully well within timeout.
+func TestGuardian_DrainsStderrWithoutDeadlock(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "noisy-guardian")
+	src := `#!/usr/bin/env python3
+import sys, json
+# Flood stderr before the first stdout write. Larger than the
+# kernel pipe buffer (~64 KB on Linux/macOS) so a non-draining
+# parent will deadlock here.
+for _ in range(2000):
+    sys.stderr.write("noise " * 100 + "\n")
+sys.stderr.flush()
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        req = json.loads(line)
+    except Exception:
+        continue
+    method = req.get("method", "")
+    rid = req.get("id", 0)
+    if method == "initialize":
+        resp = {"jsonrpc":"2.0","id":rid,"result":{}}
+    elif method == "tools/list":
+        resp = {"jsonrpc":"2.0","id":rid,"result":{"tools":[]}}
+    else:
+        resp = {"jsonrpc":"2.0","id":rid,"error":{"code":-32601,"message":"nope"}}
+    print(json.dumps(resp), flush=True)
+`
+	if err := os.WriteFile(path, []byte(src), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	g := NewGuardian(path)
+	g.SetName("noisy")
+	done := make(chan error, 1)
+	go func() { done <- g.Start() }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Start: %v", err)
+		}
+		g.Stop()
+	case <-time.After(StartTimeout - 1*time.Second):
+		g.Stop()
+		t.Fatal("Start deadlocked — stderr drain regression")
+	}
+}
+
+// TestGuardian_RejectsResponseIdMismatch verifies that a guardian
+// returning an unexpected response id is treated as a transport error
+// rather than silently routing one call's body to another caller
+// (security-hardening-2.md H4).
+func TestGuardian_RejectsResponseIdMismatch(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "lying-guardian")
+	src := `#!/usr/bin/env python3
+import sys, json
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        req = json.loads(line)
+    except Exception:
+        continue
+    method = req.get("method", "")
+    # Always respond with id=999 regardless of what was sent.
+    if method == "initialize":
+        resp = {"jsonrpc":"2.0","id":999,"result":{}}
+    else:
+        resp = {"jsonrpc":"2.0","id":999,"result":{}}
+    print(json.dumps(resp), flush=True)
+`
+	if err := os.WriteFile(path, []byte(src), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	g := NewGuardian(path)
+	// initialize itself sends id=1 and the stub answers id=999, so
+	// Start should fail with the mismatch error.
+	err := g.Start()
+	if err == nil {
+		g.Stop()
+		t.Fatal("Start succeeded despite response id mismatch")
+	}
+	if !strings.Contains(err.Error(), "id mismatch") {
+		t.Errorf("error = %v, want 'id mismatch'", err)
+	}
+}
+
 // TestGuardian_StartTimesOutOnSilentBinary verifies that a guardian
 // binary which never produces stdout output is reaped within
 // StartTimeout. Regression test for the original locking bug where

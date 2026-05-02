@@ -181,7 +181,13 @@ func (l *Local) ChatStream(ctx context.Context, messages []Message, tools []Tool
 	var toolCalls []ToolCall
 	toolCallArgs := map[int]*strings.Builder{}
 
-	scanner := bufio.NewScanner(resp.Body)
+	// Cap streaming bytes too — tag the body with a LimitReader so a
+	// runaway endpoint can't stream forever. +1 lets us detect that
+	// we hit the cap rather than a clean EOF
+	// (security-hardening-2.md H12).
+	limitedBody := io.LimitReader(resp.Body, MaxLocalResponseBytes+1)
+	scanner := bufio.NewScanner(limitedBody)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024) // 1 MiB max line; LM Studio JSON-line chunks are small
 	for scanner.Scan() {
 		line := scanner.Text()
 		if !strings.HasPrefix(line, "data: ") {
@@ -352,6 +358,13 @@ func (l *Local) buildRequest(messages []Message, tools []ToolDef, stream bool) [
 	return data
 }
 
+// MaxLocalResponseBytes caps the success-path response body the
+// local backend will read. A misconfigured / hostile endpoint
+// returning a multi-gigabyte body would otherwise OOM the app —
+// real LM Studio responses sit comfortably under a few MiB even
+// with large tool-call args (security-hardening-2.md H12).
+const MaxLocalResponseBytes = 16 * 1024 * 1024
+
 func (l *Local) doRequest(ctx context.Context, body []byte) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, l.cfg.Endpoint+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
@@ -368,9 +381,15 @@ func (l *Local) doRequest(ctx context.Context, body []byte) ([]byte, error) {
 	}
 	defer resp.Body.Close()
 
-	data, err := io.ReadAll(resp.Body)
+	// Cap at MaxLocalResponseBytes+1 so we can detect overflow:
+	// reading exactly cap+1 means the body is at least cap+1 long.
+	limited := io.LimitReader(resp.Body, MaxLocalResponseBytes+1)
+	data, err := io.ReadAll(limited)
 	if err != nil {
 		return nil, fmt.Errorf("read body: %w", err)
+	}
+	if int64(len(data)) > MaxLocalResponseBytes {
+		return nil, fmt.Errorf("response body exceeds %d bytes", MaxLocalResponseBytes)
 	}
 	if resp.StatusCode != http.StatusOK {
 		truncated := string(data)

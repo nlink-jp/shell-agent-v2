@@ -287,8 +287,12 @@ func TestSandboxDefaults(t *testing.T) {
 	if cfg.Sandbox.Engine != "auto" {
 		t.Errorf("Engine = %q, want auto", cfg.Sandbox.Engine)
 	}
-	if cfg.Sandbox.Image == "" {
-		t.Error("default Image should be populated")
+	// Image is intentionally empty until the user's first Build in
+	// the Sandbox tab — the readiness gate keeps sandbox-* tools
+	// hidden until then. This used to assert non-empty, which
+	// matched a removed default.
+	if cfg.Sandbox.Image != "" {
+		t.Errorf("default Image should stay empty until user builds, got %q", cfg.Sandbox.Image)
 	}
 	if cfg.Sandbox.TimeoutSeconds != 60 {
 		t.Errorf("TimeoutSeconds = %d, want 60", cfg.Sandbox.TimeoutSeconds)

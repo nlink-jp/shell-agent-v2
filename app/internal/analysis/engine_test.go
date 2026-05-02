@@ -261,6 +261,58 @@ func TestSetTableDescription(t *testing.T) {
 	}
 }
 
+// TestRefreshTableMeta_TableNameSQLEscape feeds adversarial table names
+// through the SetTableDescription → refreshTableMeta path to verify the
+// duckdb_tables() comment lookup is parameterised (security-hardening-2.md C1).
+// Without parameterisation, a name like t'OR'1'='1 would alter the WHERE
+// clause and either error out or match the wrong row.
+func TestRefreshTableMeta_TableNameSQLEscape(t *testing.T) {
+	cases := []struct {
+		name string
+		tbl  string
+	}{
+		{"single_quote", "weird'name"},
+		{"double_single_quote", "x''y"},
+		{"or_injection", "t' OR '1'='1"},
+		{"comment_injection", "t'--"},
+		{"percent", "wild%card"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			e, cleanup := setupTestEngine(t)
+			defer cleanup()
+
+			csvPath := filepath.Join(t.TempDir(), "test.csv")
+			os.WriteFile(csvPath, []byte("a,b\n1,2\n"), 0644)
+			if err := e.LoadCSV(tc.tbl, csvPath); err != nil {
+				// DuckDB itself may reject unusual identifiers — that's
+				// fine, we only care about the metadata path being safe
+				// when it does accept them.
+				t.Skipf("LoadCSV rejected name %q: %v", tc.tbl, err)
+			}
+
+			if err := e.SetTableDescription(tc.tbl, "round-trip"); err != nil {
+				t.Fatalf("SetTableDescription(%q): %v", tc.tbl, err)
+			}
+
+			// Force the comment lookup path
+			e.tables = make(map[string]*TableMeta)
+			if err := e.refreshTableMeta(tc.tbl); err != nil {
+				t.Fatalf("refreshTableMeta(%q): %v", tc.tbl, err)
+			}
+
+			meta := e.tables[tc.tbl]
+			if meta == nil {
+				t.Fatalf("table %q not refreshed", tc.tbl)
+			}
+			if meta.Description != "round-trip" {
+				t.Errorf("description = %q, want %q", meta.Description, "round-trip")
+			}
+		})
+	}
+}
+
 func TestReset(t *testing.T) {
 	e, cleanup := setupTestEngine(t)
 	defer cleanup()

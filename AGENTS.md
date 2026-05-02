@@ -194,3 +194,8 @@ All implementation must follow these design documents:
 - Reports have dedicated UI (report-container), not regular chat bubbles
 - MCP paths support ~ expansion via config.ExpandPath()
 - Tool chaining verified: gemma-4 does not loop with tools always available
+- MCP guardian stderr is drained into the app log so a noisy guardian can't deadlock the parent's stdout scan (security-hardening-2.md C2)
+- MCP `call()` validates the response `id` matches the request `id` — a mismatched response is rejected as a transport error (H4)
+- Sandbox `Exec` caps each of stdout/stderr at `Sandbox.MaxOutputBytes` (default 8 MiB); excess is dropped with a trailing marker (C3)
+- Local-backend `Chat` / `ChatStream` reject response bodies above 16 MiB (`MaxLocalResponseBytes`) (H12)
+- `analysis.refreshTableMeta` uses parameter binding for the `duckdb_tables()` lookup — never string-concatenate LLM-supplied table names into SQL (C1)

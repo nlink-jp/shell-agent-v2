@@ -523,9 +523,10 @@ func (e *cliEngine) Exec(ctx context.Context, sessionID string, args ExecArgs) (
 	execArgs := buildExecArgs(name, args.Language)
 	cmd := exec.CommandContext(execCtx, bin, execArgs...)
 	cmd.Stdin = strings.NewReader(args.Code)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	stdout := newLimitedBuffer(e.cfg.MaxOutputBytes)
+	stderr := newLimitedBuffer(e.cfg.MaxOutputBytes)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 
 	err = cmd.Run()
 	res := &ExecResult{

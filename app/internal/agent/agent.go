@@ -180,6 +180,7 @@ func (a *Agent) maybeStartSandbox() {
 		CPULimit:       rs.CPULimit,
 		MemoryLimit:    rs.MemoryLimit,
 		TimeoutSeconds: rs.TimeoutSeconds,
+		MaxOutputBytes: rs.MaxOutputBytes,
 		SessionsDir:    filepath.Join(config.DataDir(), "sessions"),
 	})
 	if err != nil {
@@ -556,6 +557,9 @@ func (a *Agent) startGuardians() {
 			continue
 		}
 		g := mcp.NewGuardian(binary, "--profile", profile)
+		// Tag the guardian so its drained stderr lines (and any
+		// future log lines) carry the profile name.
+		g.SetName(p.Name)
 		if err := g.Start(); err != nil {
 			logger.Error("MCP guardian %q start failed: %v", p.Name, err)
 			a.mcpStatuses = append(a.mcpStatuses, MCPStatus{Name: p.Name, Status: "error", Error: err.Error()})

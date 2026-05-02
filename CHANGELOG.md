@@ -5,6 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased] - v0.1.20 in progress
+
+Second-round security hardening on top of v0.1.18 / v0.1.19. Phased
+into five commits — see [docs/en/security-hardening-2.md](docs/en/security-hardening-2.md)
+for the full design and finding inventory.
+
+### Security
+
+- **MCP / sandbox / local-LLM I/O bounded.** A misbehaving MCP
+  guardian, sandbox command, or local LLM endpoint can no longer
+  hang or OOM the app:
+  - MCP guardian stderr is now drained concurrently into the app
+    log; previously, more than ~64 KB of stderr deadlocked the
+    parent's stdout scan (security-hardening-2.md C2).
+  - Sandbox `Exec` stdout/stderr capped per call at
+    `Sandbox.MaxOutputBytes` (default 8 MiB). Excess bytes are
+    discarded with a trailing `[output truncated at N bytes]`
+    marker so the LLM still sees what happened (C3).
+  - Local-backend `Chat` / `ChatStream` reject success-path bodies
+    larger than 16 MiB (H12).
+- **MCP response IDs are now validated.** A guardian that returns a
+  response with the wrong `id` is rejected as a transport error
+  rather than silently routing one call's body back to a different
+  caller (H4).
+- **DuckDB metadata lookup parameterised.** `refreshTableMeta` no
+  longer string-concatenates the table name into the
+  `duckdb_tables()` `WHERE` clause; LLM-supplied names with quote
+  characters or SQL meta-syntax can no longer perturb the query
+  (C1).
+
+### Fixed
+
+- `TestSandboxDefaults` was asserting that the default
+  `Sandbox.Image` is populated, but the actual default is empty
+  on purpose (the readiness gate hides sandbox tools until the
+  user picks an image in Settings → Sandbox). Test updated to
+  match the documented intent.
+
 ## [0.1.19] - 2026-05-02
 
 User-experience and protocol-correctness release on top of v0.1.18's

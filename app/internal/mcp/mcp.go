@@ -10,6 +10,8 @@ import (
 	"os/exec"
 	"sync"
 	"time"
+
+	"github.com/nlink-jp/shell-agent-v2/internal/logger"
 )
 
 // StartTimeout is the deadline for guardian initialization.
@@ -54,7 +56,12 @@ type ToolDef struct {
 //     It is intentionally NEVER held across blocking I/O so Stop can preempt
 //     a blocked call() — Stop closes stdin and kills the process, which
 //     unblocks the Scan in call() with a read error.
+//
+// Stderr is drained by a background goroutine into the app log so the
+// child's pipe never fills (which would deadlock the parent's stdout
+// scan when the child blocks on stderr write — security-hardening-2.md C2).
 type Guardian struct {
+	name    string // optional, set via SetName for log prefixes
 	cmd     *exec.Cmd
 	stdin   io.WriteCloser
 	stdout  *bufio.Scanner
@@ -70,6 +77,25 @@ func NewGuardian(binaryPath string, args ...string) *Guardian {
 	return &Guardian{
 		cmd: exec.Command(binaryPath, args...),
 	}
+}
+
+// SetName attaches a human-readable label to the guardian so log lines
+// (especially the drained stderr stream) can be attributed to the right
+// upstream profile. Optional; safe to leave empty.
+func (g *Guardian) SetName(name string) {
+	g.stateMu.Lock()
+	g.name = name
+	g.stateMu.Unlock()
+}
+
+func (g *Guardian) guardianLabel() string {
+	g.stateMu.Lock()
+	n := g.name
+	g.stateMu.Unlock()
+	if n == "" {
+		return "?"
+	}
+	return n
 }
 
 // Start spawns the guardian process, initializes the MCP session,
@@ -88,9 +114,29 @@ func (g *Guardian) Start() error {
 	g.stdout = bufio.NewScanner(stdoutPipe)
 	g.stdout.Buffer(make([]byte, 0, 1024*1024), 1024*1024) // 1MB buffer
 
+	// Drain stderr concurrently into the app log. Without this, a
+	// guardian that produces more than the kernel pipe buffer (~64 KB)
+	// of stderr — even verbose dependency-resolution noise — blocks
+	// on its next stderr write while the parent is blocked on
+	// stdout.Scan, deadlocking the chat session
+	// (security-hardening-2.md C2).
+	stderrPipe, err := g.cmd.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("stderr pipe: %w", err)
+	}
+
 	if err := g.cmd.Start(); err != nil {
 		return fmt.Errorf("start guardian: %w", err)
 	}
+
+	go func() {
+		s := bufio.NewScanner(stderrPipe)
+		s.Buffer(make([]byte, 0, 64*1024), 256*1024)
+		name := g.guardianLabel()
+		for s.Scan() {
+			logger.Debug("mcp[%s] stderr: %s", name, s.Text())
+		}
+	}()
 
 	done := make(chan error, 1)
 	go func() {
@@ -259,6 +305,16 @@ func (g *Guardian) call(method string, params any) (*Response, error) {
 	var resp Response
 	if err := json.Unmarshal(g.stdout.Bytes(), &resp); err != nil {
 		return nil, fmt.Errorf("unmarshal response: %w", err)
+	}
+
+	// JSON-RPC 2.0 mandates that the response id matches the request id.
+	// We serialise calls per Guardian (callMu), so a mismatch implies
+	// the upstream is misbehaving (or stdout is being shared with
+	// unsolicited notifications it shouldn't be sending). Better to
+	// fail the call than route someone else's body back to the LLM
+	// (security-hardening-2.md H4).
+	if resp.ID != id {
+		return nil, fmt.Errorf("response id mismatch: sent %d, got %d", id, resp.ID)
 	}
 
 	if resp.Error != nil {

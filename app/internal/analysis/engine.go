@@ -568,9 +568,16 @@ func (e *Engine) refreshTableMeta(tableName string) error {
 		meta.RowCount = count
 	}
 
-	// Get description from comment
-	commentRow := e.db.QueryRow(fmt.Sprintf(
-		"SELECT comment FROM duckdb_tables() WHERE table_name = '%s'", tableName))
+	// Get description from comment.
+	// Parameterised — duckdb_tables() is a function, so the usual
+	// sanitizeIdentifier double-quote escape doesn't apply to a
+	// value-position match. Bound parameter avoids the SQL-injection
+	// risk that arises when an LLM-supplied table name reaches here
+	// via SetTableDescription (security-hardening-2.md C1).
+	commentRow := e.db.QueryRow(
+		"SELECT comment FROM duckdb_tables() WHERE table_name = $1",
+		tableName,
+	)
 	var comment sql.NullString
 	if err := commentRow.Scan(&comment); err == nil && comment.Valid {
 		meta.Description = comment.String

@@ -162,11 +162,22 @@ type Config struct {
 	MemoryLimit    string
 	TimeoutSeconds int
 
+	// MaxOutputBytes caps each of stdout / stderr captured per Exec
+	// call. Beyond the cap, further bytes are dropped and a marker is
+	// appended. 0 → applyDefaults sets it to 8 MiB. The cap exists to
+	// stop a single LLM-issued command from OOMing the app via
+	// `cat /dev/zero` or similar (security-hardening-2.md C3).
+	MaxOutputBytes int
+
 	// SessionsDir is the host-side root under which per-session work
 	// directories live. The full path for a session is:
 	//   <SessionsDir>/<sessionID>/work
 	SessionsDir string
 }
+
+// DefaultMaxOutputBytes is the default cap for sandbox stdout/stderr
+// when SandboxConfig.MaxOutputBytes is left at zero.
+const DefaultMaxOutputBytes = 8 * 1024 * 1024
 
 // applyDefaults fills empty fields with the documented defaults.
 func (c *Config) applyDefaults() {
@@ -184,5 +195,8 @@ func (c *Config) applyDefaults() {
 	}
 	if c.MemoryLimit == "" {
 		c.MemoryLimit = "1g"
+	}
+	if c.MaxOutputBytes <= 0 {
+		c.MaxOutputBytes = DefaultMaxOutputBytes
 	}
 }

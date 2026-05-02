@@ -153,6 +153,10 @@ type SandboxConfig struct {
 	CPULimit       string `json:"cpu_limit,omitempty"`
 	MemoryLimit    string `json:"memory_limit,omitempty"`
 	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
+	// MaxOutputBytes caps stdout / stderr per Exec call. Default 8 MiB
+	// when 0; not surfaced in the Settings UI (config-file edit only)
+	// since most users never need to change it (security-hardening-2.md C3).
+	MaxOutputBytes int `json:"max_output_bytes,omitempty"`
 }
 
 // AgentConfig controls the agent execution loop.
