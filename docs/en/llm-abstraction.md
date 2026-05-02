@@ -1,8 +1,13 @@
 # LLM Abstraction Layer — Design Document
 
-> Date: 2026-04-26
-> Status: Draft
-> Related: [Agent Data Flow](agent-data-flow.md), [Object Storage](object-storage.md)
+> Date: 2026-04-26 (initial), 2026-05-02 (v0.1.19 reality sweep)
+> Status: Shipped — all four phases below are merged. Phase 2's
+> tool-calling round-trip was tightened in v0.1.19 (parallel
+> FunctionResponse coalescing, Gemini Thought-Part filtering, and
+> the ToolCalls round-trip on persisted Records).
+> Related: [Agent Data Flow](agent-data-flow.md),
+> [Object Storage](object-storage.md),
+> [Tool-call round-trip](tool-call-roundtrip.md).
 
 ## 1. Problem
 
@@ -85,15 +90,17 @@ Each backend is responsible for:
 
 | Concern | Local (LM Studio) | Vertex AI (Gemini) |
 |---------|-------------------|-------------------|
-| System prompt | First message, role="system" | `GenerateContentConfig.SystemInstruction` |
-| User message | role="user" | `genai.RoleUser` |
-| Assistant message | role="assistant" | `genai.RoleModel` |
-| Tool result | **role="user"** (gemma-4 workaround) | `genai.Part{FunctionResponse}` |
-| Report | role="assistant" | `genai.RoleModel` |
-| Summary | role="system" | `SystemInstruction` (appended) |
-| Images | OpenAI Vision content array | `genai.NewPartFromBytes()` |
-| Tool definitions | OpenAI `tools` parameter | `genai.Tool{FunctionDeclarations}` |
-| Tool calls in response | `response.choices[0].message.tool_calls` | `response.Candidates[0].Content.Parts[].FunctionCall` |
+| System prompt | First message, `role="system"` | `GenerateContentConfig.SystemInstruction` |
+| User message | `role="user"` | `genai.RoleUser` |
+| Assistant message | `role="assistant"` (with `tool_calls` array when calling tools) | `genai.RoleModel` (with `FunctionCall` Parts when calling tools) |
+| Tool result | `role="tool"` + `tool_call_id` (canonical OpenAI shape; verified empirically with gemma-4 in `cmd/tooltest-local`) | `genai.Part{FunctionResponse{Name, Response}}` — parallel calls in one assistant turn must be packed into a **single** user `Content` (Vertex 400 otherwise) |
+| Report | `role="assistant"` | `genai.RoleModel` |
+| Summary | `role="system"` | `SystemInstruction` (appended) |
+| Images | OpenAI Vision content array; one image per user turn for ≥2 images (mmproj slot reuse fix) | `genai.NewPartFromBytes()` packed into a single Content with the text |
+| Tool definitions | OpenAI `tools` parameter | `genai.Tool{FunctionDeclarations}` (Parameters as raw JSON Schema via `ParametersJsonSchema`) |
+| Tool calls in response | `response.choices[0].message.tool_calls` | `response.Candidates[0].Content.Parts[].FunctionCall` (Parts where `Thought == true` are dropped before content concatenation; see §6 below) |
+| Streaming | Available via `ChatStream`, not currently invoked from `agentLoop` (tool chaining precludes knowing the final round) | Same |
+| Round-trip persistence | `assistant.tool_calls` reconstructed from `memory.Record.ToolCalls` | `genai.Part{FunctionCall}` reconstructed from the same field — see [tool-call-roundtrip.md](./tool-call-roundtrip.md) |
 
 ### 3.3 Conversion Layer
 
@@ -238,25 +245,43 @@ content := &genai.Content{
 
 ## 7. Implementation Checklist
 
-### Phase 1: Remove role mapping from chat.go
-- [ ] Define Role constants in llm package
-- [ ] Add ToolName field to Message
-- [ ] BuildMessages passes roles as-is (no switch/case mapping)
-- [ ] Move tool→user mapping into Local backend `convertMessages()`
-- [ ] Move report→assistant, summary→system into Local backend
+### Phase 1: Remove role mapping from chat.go (shipped, v0.1.13)
+- [x] Define Role constants in llm package
+- [x] Add ToolName field to Message
+- [x] BuildMessages passes roles as-is (no switch/case mapping)
+- [x] Move tool-result handling into Local backend `convertMessages()`
+- [x] Move report→assistant, summary→system into Local backend
 
-### Phase 2: Vertex AI tool calling
-- [ ] Implement `convertTools()` → `genai.FunctionDeclaration`
-- [ ] Implement tool call parsing from `Part.FunctionCall`
-- [ ] Implement `FunctionResponse` for tool results
-- [ ] Add Vertex AI integration tests
+### Phase 2: Vertex AI tool calling (shipped; tightened v0.1.19)
+- [x] Implement `convertTools()` → `genai.FunctionDeclaration`
+- [x] Implement tool call parsing from `Part.FunctionCall`
+- [x] Implement `FunctionResponse` for tool results
+- [x] **v0.1.18**: persist `assistant.ToolCalls` so the next round
+      can reconstruct the protocol-correct prior-turn FunctionCall
+      / `tool_calls` (without this, gemma-4 drops the linkage and
+      Vertex sometimes re-issues the same call)
+- [x] **v0.1.19**: coalesce parallel FunctionResponse Parts into a
+      single user Content — Gemini rejects N responses for N
+      parallel calls otherwise
+- [x] **v0.1.19**: pass `ThinkingConfig{IncludeThoughts: false}`
+      and filter `Part.Thought == true` in `parseResponse` /
+      `extractText` so chain-of-thought never leaks into
+      assistant content
+- [x] **v0.1.18**: empirical verification harnesses
+      `app/cmd/tooltest-vertex` and `app/cmd/tooltest-local`
+      (proper / hack / loop modes) confirm the docs-compliant
+      shape works on both backends
 
-### Phase 3: Vertex AI multimodal
-- [ ] Implement `dataURLToGenaiPart()` conversion
-- [ ] Handle mixed text+image Content building
-- [ ] Reuse gem-cli's `detectMIME()` pattern
+### Phase 3: Vertex AI multimodal (shipped, v0.1.16)
+- [x] Implement `dataURLToGenaiPart()` conversion
+- [x] Handle mixed text+image Content building
+- [x] **v0.1.16**: image ID anchor lines (`Image (object ID: x):`)
+      so the model can correlate visible image content with the
+      object ID it should reference in reports — works around the
+      llama.cpp mmproj multi-image slot-reuse bug on Local
 
-### Phase 4: Testing
-- [ ] Vertex AI integration tests (requires ADC + project)
-- [ ] Backend-switching test (same conversation, different backends)
-- [ ] Multimodal test with both backends
+### Phase 4: Testing (shipped)
+- [x] Vertex AI integration tests
+- [x] Backend-switching test (same conversation, different backends)
+- [x] Multimodal test with both backends (verified up to N=8 on
+      Gemma 3 multimodal in v0.1.17)
