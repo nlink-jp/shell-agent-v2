@@ -1,7 +1,15 @@
 # RFP: shell-agent v2
 
 > Generated: 2026-04-24
-> Status: Draft
+> Status: Historical — drafted to scope shell-agent v2 before
+> coding began. Kept as the canonical reference for *intent*;
+> the architecture, agent loop, memory, sandbox, and object
+> repository have all been implemented and refined since
+> (see linked design docs and CHANGELOG.md for the as-shipped
+> reality through v0.1.19). This RFP is not updated as features
+> ship — read it for "why was v2 built this way", read the
+> per-feature design docs and the changelog for "what does it
+> do today".
 > Predecessor: shell-agent v0.7.9 (util-series)
 
 ## 1. Problem Statement
