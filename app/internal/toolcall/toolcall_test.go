@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 const testScript = `#!/bin/bash
@@ -130,6 +131,131 @@ func TestExecute(t *testing.T) {
 	}
 	if result != `{"message":"hello"}` {
 		t.Errorf("result = %q, want JSON input echoed back", result)
+	}
+}
+
+// --- @timeout header (docs/en/tool-execution-timeout.md) ---
+
+func writeScriptWithHeader(t *testing.T, body string) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tool.sh")
+	if err := os.WriteFile(path, []byte(body), 0755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// TestParseToolHeader_TimeoutHonoured: a valid `@timeout: N` header
+// produces tool.Timeout == N seconds.
+func TestParseToolHeader_TimeoutHonoured(t *testing.T) {
+	const src = `#!/bin/bash
+# @tool: long-poll
+# @description: Slow external poll
+# @param: url string "URL"
+# @category: read
+# @timeout: 90
+
+echo ok
+`
+	tool, err := parseToolHeader(writeScriptWithHeader(t, src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tool == nil {
+		t.Fatal("tool nil")
+	}
+	if got, want := tool.Timeout, 90*time.Second; got != want {
+		t.Errorf("Timeout = %v, want %v", got, want)
+	}
+}
+
+// TestParseToolHeader_TimeoutMissing_LeavesZero: no @timeout line
+// → Timeout == 0 (Execute will fall back to DefaultTimeout).
+func TestParseToolHeader_TimeoutMissing_LeavesZero(t *testing.T) {
+	tool, err := parseToolHeader(writeScriptWithHeader(t, testScript))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tool.Timeout != 0 {
+		t.Errorf("Timeout = %v, want 0 (Execute should default)", tool.Timeout)
+	}
+}
+
+// TestParseToolHeader_TimeoutInvalid_FallsBack: malformed values
+// (non-numeric, zero, negative, Go duration string) all leave
+// Timeout == 0 — the script still loads, Execute uses
+// DefaultTimeout. logger.Error is a no-op without logger.Init in
+// unit tests.
+func TestParseToolHeader_TimeoutInvalid_FallsBack(t *testing.T) {
+	cases := []string{
+		"# @timeout: abc",
+		"# @timeout: 0",
+		"# @timeout: -10",
+		"# @timeout: 90s", // Go duration string not supported in v1
+		"# @timeout:",     // empty value
+	}
+	for _, line := range cases {
+		t.Run(line, func(t *testing.T) {
+			src := "#!/bin/bash\n# @tool: t\n# @description: d\n# @category: read\n" + line + "\n\necho ok\n"
+			tool, err := parseToolHeader(writeScriptWithHeader(t, src))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tool == nil {
+				t.Fatal("tool nil — invalid @timeout should not block registration")
+			}
+			if tool.Timeout != 0 {
+				t.Errorf("Timeout = %v, want 0 (fall through to DefaultTimeout)", tool.Timeout)
+			}
+		})
+	}
+}
+
+// TestExecute_HonoursToolTimeout: tool.Timeout > 0 actually wins
+// over DefaultTimeout. Use a bash-builtin busy loop (no `sleep`
+// child) so SIGKILL on cancellation actually terminates the
+// process and CombinedOutput returns promptly — `sleep` would be
+// orphaned by bash's death and keep the pipes open until it
+// completes.
+func TestExecute_HonoursToolTimeout(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "spin.sh")
+	if err := os.WriteFile(script, []byte("#!/bin/bash\nwhile true; do :; done\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	tool := &Tool{Name: "spin", ScriptPath: script, Timeout: 500 * time.Millisecond}
+
+	start := time.Now()
+	_, err := Execute(context.Background(), tool, "{}")
+	elapsed := time.Since(start)
+	if err == nil {
+		t.Fatal("expected timeout error from an infinite loop capped at 500ms")
+	}
+	// SIGKILL on the bash builtin loop kills it immediately;
+	// CombinedOutput returns straight after.
+	if elapsed >= 3*time.Second {
+		t.Errorf("elapsed %v ≥ 3s — per-tool timeout did not preempt", elapsed)
+	}
+}
+
+// TestExecute_FallsBackToDefaultTimeout: when tool.Timeout is 0,
+// DefaultTimeout (30s) is used. A short sleep should complete
+// normally without hitting the cap.
+func TestExecute_FallsBackToDefaultTimeout(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "quick.sh")
+	if err := os.WriteFile(script, []byte("#!/bin/bash\necho hi\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	tool := &Tool{Name: "quick", ScriptPath: script /* Timeout: 0 */}
+
+	out, err := Execute(context.Background(), tool, "{}")
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if out == "" {
+		t.Error("empty output")
 	}
 }
 

@@ -134,6 +134,12 @@ shell-agent-v2/
   excluded.
 - Defaults: `file-info`, `preview-file`, `list-files`, `weather`,
   `get-location`, `write-note`.
+- Each script declares its execution timeout via `@timeout: N`
+  (positive integer of seconds). Default is 30 if omitted; bundled
+  scripts spell out `30` for discoverability and `examples/web-search`
+  + `examples/generate-image` use `120` because `gem-search` /
+  `gem-image` round-trips routinely exceed 30s. See
+  [docs/en/tool-execution-timeout.md](docs/en/tool-execution-timeout.md).
 
 ### UI
 - Sidebar: icon navigation with two panels — **Sessions**

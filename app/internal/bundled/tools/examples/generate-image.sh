@@ -4,6 +4,7 @@
 # @param: prompt string "Image generation prompt describing what to create"
 # @param: filename string "Output filename (e.g. sunset.png)"
 # @category: execute
+# @timeout: 120
 #
 # REQUIRES: gem-image (https://github.com/nlink-jp/gem-image)
 #   Build: cd gem-image && make build

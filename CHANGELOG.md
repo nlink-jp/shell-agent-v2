@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Per-tool execution timeout (`@timeout: N` script header).**
+  Shell-tool scripts can now declare their own timeout in the
+  header, overriding the package default of 30 seconds for that
+  tool only. Useful for legitimately long-running tools such as
+  `web-search` (which calls `gem-search` via Vertex AI Gemini
+  grounded search) and `generate-image` (image generation
+  round-trip) — both example scripts ship with `@timeout: 120`.
+  The bundled six (`weather`, `get-location`, `list-files`,
+  `file-info`, `preview-file`, `write-note`) get an explicit
+  `@timeout: 30` declaration too, matching the package default
+  but making the option discoverable. Invalid values
+  (non-numeric, zero, negative, Go duration string like `90s`)
+  surface as `[ERROR]` in `app.log` and the script falls back to
+  the default — registration still succeeds. Design:
+  [docs/en/tool-execution-timeout.md](docs/en/tool-execution-timeout.md).
+
 ## [0.1.23] - 2026-05-02
 
 Hygiene + small-feature batch.

@@ -9,8 +9,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/nlink-jp/shell-agent-v2/internal/logger"
 )
 
 // DefaultTimeout for tool execution.
@@ -33,12 +36,22 @@ type Param struct {
 }
 
 // Tool represents a registered shell script tool.
+//
+// Timeout, when > 0, overrides the package-level DefaultTimeout for
+// this tool only. Set via the `@timeout: N` script header (N in
+// seconds). Zero (the default) means use DefaultTimeout. Per-tool
+// override exists for legitimately long-running tools — e.g. a
+// script that polls an external service or runs a heavy local
+// command — so they can opt out of the 30-second cap without
+// raising the floor for every other tool.
+// Design: docs/en/tool-execution-timeout.md.
 type Tool struct {
-	Name        string   `json:"name"`
-	Description string   `json:"description"`
-	Params      []Param  `json:"params"`
-	Category    Category `json:"category"`
-	ScriptPath  string   `json:"script_path"`
+	Name        string        `json:"name"`
+	Description string        `json:"description"`
+	Params      []Param       `json:"params"`
+	Category    Category      `json:"category"`
+	ScriptPath  string        `json:"script_path"`
+	Timeout     time.Duration `json:"timeout,omitempty"`
 }
 
 // NeedsMITL reports whether this tool requires Man-In-The-Loop approval.
@@ -99,8 +112,16 @@ func (r *Registry) All() []*Tool {
 }
 
 // Execute runs a tool script with the given JSON arguments.
+//
+// Per-tool Timeout (set via the `@timeout: N` header) wins over the
+// package DefaultTimeout when > 0. Design:
+// docs/en/tool-execution-timeout.md.
 func Execute(ctx context.Context, tool *Tool, argsJSON string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, DefaultTimeout)
+	timeout := tool.Timeout
+	if timeout <= 0 {
+		timeout = DefaultTimeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, tool.ScriptPath)
@@ -144,6 +165,13 @@ func (t *Tool) ToolDefParams() map[string]any {
 //	# @description: Tool description
 //	# @param: name type "description"
 //	# @category: read|write|execute
+//	# @timeout: 120                  (optional; positive integer of
+//	                                  seconds, default DefaultTimeout)
+//
+// Unknown directives are silently ignored. An invalid @timeout
+// (non-numeric, zero, negative) is logged via internal/logger and
+// the script falls back to DefaultTimeout. Design:
+// docs/en/tool-execution-timeout.md.
 func parseToolHeader(path string) (*Tool, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -189,6 +217,16 @@ func parseToolHeader(path string) (*Tool, error) {
 			param := parseParam(strings.TrimPrefix(line, "@param:"))
 			if param != nil {
 				tool.Params = append(tool.Params, *param)
+			}
+		} else if strings.HasPrefix(line, "@timeout:") {
+			raw := strings.TrimSpace(strings.TrimPrefix(line, "@timeout:"))
+			if secs, err := strconv.Atoi(raw); err == nil && secs > 0 {
+				tool.Timeout = time.Duration(secs) * time.Second
+			} else {
+				// Surface the typo via the regular log path; the
+				// script still loads with DefaultTimeout. See
+				// docs/en/tool-execution-timeout.md §4.4.
+				logger.Error("toolcall: %s: ignoring invalid @timeout %q (must be a positive integer of seconds)", path, raw)
 			}
 		}
 	}

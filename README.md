@@ -16,7 +16,7 @@ and hybrid LLM backend (Local + Vertex AI).
 - **Memory v2 (opt-in)** — non-destructive context build: records stay full-fidelity, the LLM context is derived per call from `internal/contextbuild`, older portions condensed via a content-keyed summary cache, time-range markers added so the model can reason about *when* events happened. See [memory-architecture-v2.md](docs/en/memory-architecture-v2.md).
 - **Container sandbox (opt-in)** — eight `sandbox-*` tools that execute shell or Python in a per-session `podman`/`docker` container with `/work` mounted from the session's data dir, MITL-gated, network-off by default. Includes `sandbox-load-into-analysis` (CSV/JSON in `/work` → DuckDB) and `sandbox-export-sql` (SQL query → CSV in `/work`) so query results flow between analysis and Python without round-tripping through chat. See [sandbox-execution.md](docs/en/sandbox-execution.md) for the macOS setup guide.
 - **Global Findings** — promote analysis insights to cross-session knowledge with origin provenance
-- **Shell script Tool Calling** — register scripts as tools with MITL approval for write/execute
+- **Shell script Tool Calling** — register scripts as tools with MITL approval for write/execute. Per-tool `@timeout: N` header (seconds) overrides the 30-second default for legitimately long-running tools — see [agent-tool-visibility.md](docs/en/agent-tool-visibility.md) and [tool-execution-timeout.md](docs/en/tool-execution-timeout.md).
 - **MITL approval, end-to-end** — every tool source (analysis / shell / sandbox / MCP) routes through one gate. Destructive analysis tools (`load-data`, `reset-analysis`, `promote-finding`) and SQL/analyze prompts are MITL-by-default; metadata reads (`describe-data`, `list-tables`, etc.) are not. Override per-tool from **Settings → Tools** — the toggle reflects the actual dispatcher default. See [security-hardening-2.md](docs/en/security-hardening-2.md).
 - **Bundled scripts** — `file-info`, `preview-file`, `list-files`, `weather`, `get-location`, `write-note`. Auto-installed on first launch via `go:embed`; user customizations are preserved.
 - **Tool-call timeline** — every tool start/end appears inline in the chat as a transient pill, in addition to the existing status-bar indicator. The pill is restored on session reload as a compact tool-name + status (success / error) bubble; live argument and result text remain ephemeral. See [tool-event-restore.md](docs/en/tool-event-restore.md).
@@ -125,6 +125,7 @@ make test       # Run tests
 - [Security hardening (round 1, v0.1.18)](docs/en/security-hardening.md)
 - [Security hardening (round 2, v0.1.20)](docs/en/security-hardening-2.md)
 - [Agent tool visibility (v0.1.21)](docs/en/agent-tool-visibility.md)
+- [Shell tool execution timeout (`@timeout: N`)](docs/en/tool-execution-timeout.md)
 - [RFP (English)](docs/en/shell-agent-v2-rfp.md) · [RFP (Japanese)](docs/ja/shell-agent-v2-rfp.ja.md)
 
 Japanese mirrors live under `docs/ja/`.

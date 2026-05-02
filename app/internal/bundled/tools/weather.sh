@@ -3,6 +3,7 @@
 # @description: Get current weather forecast from Japan Meteorological Agency (JMA) for a specified region
 # @param: region string "Region name in Japanese (e.g. 東京, 大阪, 福岡, 札幌, 新潟)"
 # @category: read
+# @timeout: 30
 #
 # Uses the JMA open XML feed (no API key required).
 # Pair with get-location tool for automatic region detection.

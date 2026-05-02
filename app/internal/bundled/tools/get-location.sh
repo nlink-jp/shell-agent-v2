@@ -2,6 +2,7 @@
 # @tool: get-location
 # @description: Get the current approximate location of this device using system network information
 # @category: read
+# @timeout: 30
 #
 # macOS only. Uses timezone and system locale to infer approximate location.
 # Checks cached location in config.json first.

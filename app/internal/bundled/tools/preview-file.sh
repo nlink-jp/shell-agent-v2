@@ -5,6 +5,7 @@
 # @param: lines integer "Maximum number of lines to return (default 100, max 1000)"
 # @param: max_bytes integer "Hard cap on returned byte length (default 8192)"
 # @category: read
+# @timeout: 30
 #
 # Example: preview-file {"path": "/tmp/log.txt", "lines": 50}
 # Arguments are passed as JSON via stdin.

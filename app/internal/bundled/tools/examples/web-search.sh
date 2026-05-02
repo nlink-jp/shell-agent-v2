@@ -4,6 +4,7 @@
 # @param: query string "Search query"
 # @param: lang string "Language code (e.g. ja, en)"
 # @category: read
+# @timeout: 120
 #
 # REQUIRES: gem-search (https://github.com/nlink-jp/gem-search)
 #   Build: cd gem-search && make build

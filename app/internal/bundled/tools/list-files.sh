@@ -3,6 +3,7 @@
 # @description: List files in a directory
 # @param: path string "Directory path to list"
 # @category: read
+# @timeout: 30
 #
 # Example: list-files {"path": "/tmp"}
 # Arguments are passed as JSON via stdin (not CLI args).

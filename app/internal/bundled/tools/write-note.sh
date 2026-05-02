@@ -4,6 +4,7 @@
 # @param: filename string "Filename only (e.g. hello.txt), saved under /tmp/"
 # @param: content string "Content to write"
 # @category: write
+# @timeout: 30
 #
 # Category "write" requires MITL (Man-In-The-Loop) approval before execution.
 # Arguments are passed as JSON via stdin. Always sanitize parsed values —

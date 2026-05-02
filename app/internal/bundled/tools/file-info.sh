@@ -3,6 +3,7 @@
 # @description: Inspect a file: kind/MIME type, size, modified time, line count for text files.
 # @param: path string "Absolute or relative path to a file"
 # @category: read
+# @timeout: 30
 #
 # Example: file-info {"path": "/tmp/data.csv"}
 # Arguments are passed as JSON via stdin.
