@@ -8,7 +8,7 @@ and hybrid LLM backend (Local + Vertex AI).
 
 ## Features
 
-- **Interactive data analysis** — dialogue-driven exploration with embedded DuckDB
+- **Interactive data analysis** — dialogue-driven exploration with embedded DuckDB. Every analysis tool (`load-data`, `query-sql`, `describe-data`, `analyze-data`, etc.) is exposed to the LLM every round so the model can plan multi-step workflows up front instead of discovering tools round-by-round. See [agent-tool-visibility.md](docs/en/agent-tool-visibility.md). Set `tools.hide_analysis_tools_until_data_loaded: true` in `config.json` to restore the pre-v0.1.21 hide-until-load behaviour (opt-in for weaker local backends).
 - **Session-scoped analysis** — each session owns its own database, no cross-session state leakage
 - **Agent execution model** — Idle/Busy states with UI lockout during processing
 - **Hybrid LLM backend** — Local LLM (LM Studio) and Vertex AI (Gemini), switchable at runtime via `/model`
@@ -120,6 +120,7 @@ make test       # Run tests
 - [Tool-call round-trip (Vertex / Local)](docs/en/tool-call-roundtrip.md)
 - [Security hardening (round 1, v0.1.18)](docs/en/security-hardening.md)
 - [Security hardening (round 2, v0.1.20)](docs/en/security-hardening-2.md)
+- [Agent tool visibility (v0.1.21)](docs/en/agent-tool-visibility.md)
 - [RFP (English)](docs/en/shell-agent-v2-rfp.md) · [RFP (Japanese)](docs/ja/shell-agent-v2-rfp.ja.md)
 
 Japanese mirrors live under `docs/ja/`.

@@ -106,6 +106,15 @@ type ToolsConfig struct {
 	MCPProfiles   []MCPProfileConfig `json:"mcp_profiles"`
 	DisabledTools []string           `json:"disabled_tools,omitempty"` // tool names to exclude from LLM
 	MITLOverrides map[string]bool    `json:"mitl_overrides,omitempty"` // tool name → force MITL on/off
+
+	// HideAnalysisToolsUntilDataLoaded restores the pre-v0.1.21
+	// behaviour where data-dependent analysis tools (query-sql,
+	// describe-data, analyze-data, ...) only appear in the LLM
+	// tool list after a successful load-data. Default false.
+	// Opt-in for users on weaker local backends where exposing
+	// 30+ tools measurably hurts selection accuracy. See
+	// docs/en/agent-tool-visibility.md.
+	HideAnalysisToolsUntilDataLoaded bool `json:"hide_analysis_tools_until_data_loaded,omitempty"`
 }
 
 // WindowConfig holds window position and size for restoration.

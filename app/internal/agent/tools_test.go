@@ -8,6 +8,7 @@ import (
 
 	"github.com/nlink-jp/shell-agent-v2/internal/analysis"
 	"github.com/nlink-jp/shell-agent-v2/internal/config"
+	"github.com/nlink-jp/shell-agent-v2/internal/llm"
 	"github.com/nlink-jp/shell-agent-v2/internal/memory"
 )
 
@@ -38,30 +39,67 @@ func newTestEngine(t *testing.T, dir string) *analysis.Engine {
 	return analysis.NewWithPath("test-session", filepath.Join(dir, "test.duckdb"))
 }
 
+// TestAnalysisToolsFiltering covers the legacy hide-until-data-loaded
+// flag (default OFF in v0.1.21+; ON restores the pre-v0.1.21 split).
+// See docs/en/agent-tool-visibility.md.
 func TestAnalysisToolsFiltering(t *testing.T) {
-	// No data: load-data, reset-analysis, create-report, list-objects, get-object
-	tools := analysisTools(false)
+	// Legacy mode, no data: only the load-data half (5 tools).
+	tools := analysisTools(false, true)
 	if len(tools) != 5 {
-		t.Errorf("no-data tools count = %d, want 5", len(tools))
+		t.Errorf("legacy no-data tools count = %d, want 5", len(tools))
 	}
 
-	// With data: full set
-	tools = analysisTools(true)
+	// Legacy mode, with data: full set.
+	tools = analysisTools(true, true)
 	if len(tools) < 5 {
-		t.Errorf("with-data tools count = %d, want >= 5", len(tools))
+		t.Errorf("legacy with-data tools count = %d, want >= 5", len(tools))
 	}
+	if !containsTool(tools, "promote-finding") {
+		t.Error("promote-finding not in legacy with-data tools")
+	}
+}
 
-	// Verify promote-finding is in the with-data set
-	found := false
-	for _, tool := range tools {
-		if tool.Name == "promote-finding" {
-			found = true
-			break
+// TestAnalysisTools_FullSetByDefault_AllowsPlanning pins the new
+// v0.1.21 default: data-dependent tools (query-sql, analyze-data,
+// etc.) are exposed every round so the LLM can plan a load-then-
+// query workflow up front.
+func TestAnalysisTools_FullSetByDefault_AllowsPlanning(t *testing.T) {
+	// Default mode (hideUntilDataLoaded=false), no data: still full set.
+	tools := analysisTools(false, false)
+	for _, want := range []string{"query-sql", "describe-data", "analyze-data", "promote-finding", "list-tables"} {
+		if !containsTool(tools, want) {
+			t.Errorf("default-mode no-data tools missing %q (full set should be exposed)", want)
 		}
 	}
-	if !found {
-		t.Error("promote-finding not in with-data tools")
+}
+
+// TestAnalysisTools_HideFlagRestoresLegacyBehaviour: the opt-in
+// flag (cfg.Tools.HideAnalysisToolsUntilDataLoaded=true) restores
+// the pre-v0.1.21 5/13 split.
+func TestAnalysisTools_HideFlagRestoresLegacyBehaviour(t *testing.T) {
+	short := analysisTools(false, true)
+	full := analysisTools(true, true)
+	if len(short) != 5 {
+		t.Errorf("hide-flag, no data: %d tools, want 5", len(short))
 	}
+	if len(full) <= len(short) {
+		t.Errorf("hide-flag, with-data tools (%d) should be more than no-data (%d)", len(full), len(short))
+	}
+	if containsTool(short, "query-sql") {
+		t.Error("hide-flag no-data should NOT contain query-sql")
+	}
+	if !containsTool(full, "query-sql") {
+		t.Error("hide-flag with-data should contain query-sql")
+	}
+}
+
+func containsTool(tools []llm.ToolDef, name string) bool {
+	for _, t := range tools {
+		if t.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 func TestToolLoadData(t *testing.T) {

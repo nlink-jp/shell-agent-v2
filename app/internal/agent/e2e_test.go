@@ -269,8 +269,12 @@ func TestE2E_SessionIsolation(t *testing.T) {
 	engineB.Close()
 }
 
-// --- E2E: Dynamic Tool Filtering ---
+// --- E2E: Dynamic Tool Filtering (legacy mode) ---
 
+// TestE2E_DynamicToolFilteringInLoop covers the legacy
+// hide-until-data-loaded path (cfg.Tools.HideAnalysisToolsUntilDataLoaded).
+// The new v0.1.21 default exposes all analysis tools every round
+// for planning visibility — see docs/en/agent-tool-visibility.md.
 func TestE2E_DynamicToolFilteringInLoop(t *testing.T) {
 	tmpDir := t.TempDir()
 	csvPath := filepath.Join(tmpDir, "data.csv")
@@ -288,6 +292,7 @@ func TestE2E_DynamicToolFilteringInLoop(t *testing.T) {
 	)
 
 	a := newTestAgent(t, mock)
+	a.cfg.Tools.HideAnalysisToolsUntilDataLoaded = true // legacy mode
 	engine := analysis.NewWithPath("e2e-test", filepath.Join(tmpDir, "test.duckdb"))
 	a.SetAnalysis(engine)
 	defer engine.Close()

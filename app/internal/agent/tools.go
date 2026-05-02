@@ -56,13 +56,25 @@ func analysisToolMITLCategory(name string) string {
 }
 
 // analysisTools returns tool definitions for data analysis.
-// When no data is loaded, only load-data and reset-analysis are exposed
-// to keep the tool count low for local LLMs.
-func analysisTools(hasData bool) []llm.ToolDef {
+//
+// All 11 tools are exposed every round so the LLM can plan a
+// load-then-analyse workflow up front (see
+// docs/en/agent-tool-visibility.md). The dispatcher's
+// executeAnalysisTool already handles the empty-session case for
+// each tool: when something like query-sql is called against a
+// fresh session, the underlying engine returns an explicit
+// "no tables loaded" error the model can react to.
+//
+// The legacy hasData-based filter is preserved behind
+// hideUntilDataLoaded for users on weaker local backends; passing
+// true restores the pre-v0.1.21 behaviour where the
+// data-dependent half of the set only appears after a successful
+// load-data.
+func analysisTools(hasData, hideUntilDataLoaded bool) []llm.ToolDef {
 	tools := []llm.ToolDef{
 		{
 			Name:        "load-data",
-			Description: "Load a data file (CSV, JSON, JSONL) from the HOST filesystem into the analysis database. Creates or replaces the table. Only use this for absolute host paths the user supplied, or files explicitly attached to the conversation. For files inside the sandbox /work directory (anything you produced via sandbox-run-python, sandbox-write-file, sandbox-export-sql etc.), call sandbox-load-into-analysis instead — load-data cannot reach into the container.",
+			Description: "Load a data file (CSV, JSON, JSONL) from the HOST filesystem into the analysis database. Creates or replaces the table. Only use this for absolute host paths the user supplied, or files explicitly attached to the conversation. For files inside the sandbox /work directory (anything you produced via sandbox-run-python, sandbox-write-file, sandbox-export-sql etc.), call sandbox-load-into-analysis instead — load-data cannot reach into the container. Once loaded, the table is queryable via `query-sql`, `describe-data`, `list-tables`, `query-preview`, `suggest-analysis`, `quick-summary`, and `analyze-data`; use `promote-finding` to save insights, `create-report` to assemble a report.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -134,11 +146,15 @@ func analysisTools(hasData bool) []llm.ToolDef {
 		},
 	}
 
-	if !hasData {
+	// Legacy mode (opt-in via cfg.Tools.HideAnalysisToolsUntilDataLoaded):
+	// only the load-data half until a successful load. The new default
+	// falls through and exposes the full set every round so the LLM can
+	// plan multi-step workflows up front.
+	if hideUntilDataLoaded && !hasData {
 		return tools
 	}
 
-	// Full tool set when data is loaded
+	// Full tool set
 	dataTools := []llm.ToolDef{
 		{
 			Name:        "describe-data",

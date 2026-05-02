@@ -748,12 +748,17 @@ func (a *Agent) ListTools() []ToolInfoItem {
 	// Builtin tools
 	add(ToolInfoItem{Name: "resolve-date", Description: "Resolve relative date expressions", Category: "read", Source: "builtin"})
 
-	// Analysis tools
+	// Analysis tools. Mirrors the dispatcher's analysisTools() —
+	// default exposes all 11 every round so the LLM can plan multi-
+	// step workflows; legacy filter behaviour is preserved behind
+	// cfg.Tools.HideAnalysisToolsUntilDataLoaded for users on
+	// weaker local backends. See docs/en/agent-tool-visibility.md.
 	hasData := a.analysis != nil && a.analysis.HasData()
+	hideUntilDataLoaded := a.cfg.Tools.HideAnalysisToolsUntilDataLoaded
 	add(ToolInfoItem{Name: "load-data", Description: "Load CSV/JSON/JSONL file", Category: "read", Source: "analysis"})
 	add(ToolInfoItem{Name: "reset-analysis", Description: "Drop all tables", Category: "write", Source: "analysis"})
 	add(ToolInfoItem{Name: "create-report", Description: "Create markdown report", Category: "read", Source: "analysis"})
-	if hasData {
+	if hasData || !hideUntilDataLoaded {
 		add(ToolInfoItem{Name: "describe-data", Description: "Show table metadata", Category: "read", Source: "analysis"})
 		add(ToolInfoItem{Name: "query-sql", Description: "Execute SQL query", Category: "read", Source: "analysis"})
 		add(ToolInfoItem{Name: "query-preview", Description: "NL to SQL generation", Category: "read", Source: "analysis"})
@@ -1405,9 +1410,16 @@ func (a *Agent) buildToolDefs() []llm.ToolDef {
 		},
 	}
 
-	// Add analysis tools (dynamically filtered by data presence)
+	// Add analysis tools. Default exposes all 11 every round so the
+	// LLM can plan multi-step "load → query → analyse → report"
+	// workflows up front. Legacy filter behaviour is preserved
+	// behind cfg.Tools.HideAnalysisToolsUntilDataLoaded for users
+	// on weaker local backends. See docs/en/agent-tool-visibility.md.
 	if a.analysis != nil {
-		tools = append(tools, analysisTools(a.analysis.HasData())...)
+		tools = append(tools, analysisTools(
+			a.analysis.HasData(),
+			a.cfg.Tools.HideAnalysisToolsUntilDataLoaded,
+		)...)
 	}
 
 	// Add shell script tools from registry

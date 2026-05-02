@@ -98,7 +98,14 @@ func TestCancelledContextReturnsCancelled(t *testing.T) {
 }
 
 func TestDynamicToolFiltering(t *testing.T) {
-	a := New(config.Default())
+	// Use legacy filter mode so this test continues to validate the
+	// hide-until-data-loaded code path. The new v0.1.21 default
+	// exposes everything every round; that's covered by
+	// TestAnalysisTools_FullSetByDefault_AllowsPlanning in
+	// tools_test.go.
+	cfg := config.Default()
+	cfg.Tools.HideAnalysisToolsUntilDataLoaded = true
+	a := New(cfg)
 
 	// Without analysis engine
 	tools := a.buildToolDefs()
@@ -117,7 +124,7 @@ func TestDynamicToolFiltering(t *testing.T) {
 		t.Error("load-data should not be present without analysis engine")
 	}
 
-	// With analysis but no data
+	// With analysis but no data (legacy mode)
 	tmpDir := t.TempDir()
 	engine := analysis.NewWithPath("test", filepath.Join(tmpDir, "test.duckdb"))
 	a.SetAnalysis(engine)
@@ -138,7 +145,7 @@ func TestDynamicToolFiltering(t *testing.T) {
 		t.Error("load-data should be present with analysis engine")
 	}
 	if hasQuerySQL {
-		t.Error("query-sql should not be present without data")
+		t.Error("query-sql should not be present without data (legacy mode)")
 	}
 
 	// Load data

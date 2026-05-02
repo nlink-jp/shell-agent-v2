@@ -195,7 +195,9 @@ func TestE2E_MITLReject(t *testing.T) {
 }
 
 func TestAnalysisToolsFilteringWithNewTools(t *testing.T) {
-	tools := analysisTools(true)
+	// Use legacy mode (hideUntilDataLoaded=true) to keep this test
+	// validating the data-dependent half is present after a load.
+	tools := analysisTools(true, true)
 
 	expectedTools := []string{
 		"load-data", "reset-analysis", "describe-data", "query-sql",

@@ -5,6 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased] - v0.1.21 in progress
+
+UX-driven release: drop the `hasData`-based dynamic filter on the
+analysis-tool set so the LLM can plan multi-step "load → query →
+analyse → report" workflows up front. Design in
+[docs/en/agent-tool-visibility.md](docs/en/agent-tool-visibility.md).
+
+### Changed
+
+- **Analysis tools are now exposed every round**, regardless of
+  whether the active session has data loaded. Previously
+  `query-sql`, `describe-data`, `list-tables`, `query-preview`,
+  `suggest-analysis`, `quick-summary`, `analyze-data`,
+  `promote-finding` were hidden until a successful `load-data`,
+  which forced the LLM into round-by-round discovery and broke
+  up-front planning. The original rationale ("keep tool count
+  low for local LLMs") was for the early gemma2 / gemma3 era;
+  the standard local model (gemma-4-26b-a4b, MoE) and current
+  gpt-oss / qwen3 generation handle 30+ tools without
+  selection-accuracy regression.
+- **Visible result for users**: when you ask "monthly sales
+  totals" without attaching data, the model now proposes
+  `load-data` (asking for the file path) instead of declining.
+  When you attach data and ask in the same message, the model
+  can plan the load + query in one response instead of two
+  round-trips.
+
+### Added
+
+- New config flag `tools.hide_analysis_tools_until_data_loaded`
+  (default `false`) restores the pre-v0.1.21 behaviour for users
+  on weaker local backends where exposing 30+ tools measurably
+  hurts selection accuracy. Power-user knob, config-only — not
+  exposed in the Settings UI.
+- `load-data`'s tool description now advertises the downstream
+  pipeline (`query-sql`, `describe-data`, `analyze-data`, etc.)
+  so the LLM doesn't have to guess what becomes available after
+  a successful load.
+
 ## [0.1.20] - 2026-05-02
 
 Second-round security hardening on top of v0.1.18 / v0.1.19. Phased
