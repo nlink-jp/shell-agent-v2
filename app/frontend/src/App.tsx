@@ -387,10 +387,19 @@ function App() {
         setShowSettings(true)
     }, [])
 
-    const canChat = state === 'idle' && currentSessionId !== ''
+    // bgTasks holds names of post-response tasks the backend is
+    // still running (title gen / memory compaction / pinned-fact
+    // extraction). The agent stays Busy on the backend until they
+    // all finish, so we treat them as part of "busy" for the input
+    // gate. Without this, ChatInput re-enables the moment Send
+    // returns, the user types, the backend rejects with ErrBusy,
+    // and an "Error: agent is busy" toast appears.
+    const postBusy = bgTasks.length > 0
+    const isBusy = state === 'busy' || postBusy
+    const canChat = state === 'idle' && !postBusy && currentSessionId !== ''
 
     const handleSend = useCallback(async (text: string, images: string[]) => {
-        if ((!text && images.length === 0) || state === 'busy' || !currentSessionId) return
+        if ((!text && images.length === 0) || isBusy || !currentSessionId) return
 
         setMessages(prev => [...prev, {
             role: 'user', content: text, timestamp: nowTime(),
@@ -431,7 +440,7 @@ function App() {
             // or written /work files — refresh the Data disclosure.
             setDataRefreshTick(t => t + 1)
         }
-    }, [state, currentSessionId])
+    }, [isBusy, currentSessionId])
 
     function startResize(e: React.MouseEvent) {
         e.preventDefault()
@@ -578,7 +587,7 @@ function App() {
                     )}
                     {state === 'busy' && <span className="tool-progress">{progressTool || 'Thinking...'}</span>}
                     {bgTasks.length > 0 && (
-                        <span className="bg-task-badge" title="Background work running after the previous reply. The next message will auto-cancel any unfinished task.">
+                        <span className="bg-task-badge" title="Background work running after the previous reply. Input is disabled until these finish; click Abort to interrupt.">
                             Background: {bgTasks.map(bgTaskLabel).join(', ')}
                         </span>
                     )}
@@ -588,10 +597,14 @@ function App() {
                         </span>
                     )}
                 </div>
-                {state === 'busy' ? (
+                {isBusy ? (
                     <div className="input-area">
                         <div className="input-row">
-                            <textarea disabled rows={3} placeholder="Agent is busy..." />
+                            <textarea
+                                disabled
+                                rows={3}
+                                placeholder={state === 'busy' ? 'Agent is busy...' : 'Finishing up background tasks...'}
+                            />
                             <button className="abort-btn" onClick={handleAbort}>Abort</button>
                         </div>
                     </div>

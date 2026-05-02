@@ -247,6 +247,12 @@ func (v *Vertex) convertTools(tools []ToolDef) []*genai.Tool {
 // --- Response parsing ---
 
 // parseResponse extracts text and tool calls from genai response.
+//
+// Gemini emits chain-of-thought as separate parts with
+// part.Thought == true (see genai/types.go). These are internal
+// reasoning that the model wants to keep but the user shouldn't
+// see — without filtering, the assistant bubble shows raw
+// "THOUGHT\n..." text alongside the final answer.
 func (v *Vertex) parseResponse(resp *genai.GenerateContentResponse) *Response {
 	result := &Response{}
 	if resp == nil || len(resp.Candidates) == 0 || resp.Candidates[0].Content == nil {
@@ -255,6 +261,9 @@ func (v *Vertex) parseResponse(resp *genai.GenerateContentResponse) *Response {
 
 	var textParts []string
 	for _, part := range resp.Candidates[0].Content.Parts {
+		if part.Thought {
+			continue
+		}
 		if part.Text != "" {
 			textParts = append(textParts, part.Text)
 		}
@@ -307,6 +316,9 @@ func extractText(resp *genai.GenerateContentResponse) string {
 	}
 	var sb strings.Builder
 	for _, part := range resp.Candidates[0].Content.Parts {
+		if part.Thought {
+			continue // chain-of-thought is internal; never stream it
+		}
 		if part.Text != "" {
 			sb.WriteString(part.Text)
 		}
