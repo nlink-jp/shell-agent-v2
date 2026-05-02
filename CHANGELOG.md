@@ -5,11 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] - v0.1.20 in progress
+## [0.1.20] - 2026-05-02
 
 Second-round security hardening on top of v0.1.18 / v0.1.19. Phased
 into five commits — see [docs/en/security-hardening-2.md](docs/en/security-hardening-2.md)
-for the full design and finding inventory.
+for the full design and finding inventory. Two additional
+verification follow-ups (Settings UI MITL default surfacing; `~/`
+expansion in `load-data`) are documented under §10 of the same
+design doc.
 
 ### Security
 
