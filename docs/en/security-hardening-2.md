@@ -457,7 +457,7 @@ Pure backend, no UI surface.
 
 **4.3.1 Shared atomic-write helper**
 
-New `internal/atomic/writefile.go`:
+New `internal/atomicio/writefile.go`:
 
 ```go
 // WriteFileAtomic writes data to path via tmp+rename so
@@ -649,8 +649,8 @@ and an empty message slice.
 | B | `internal/agent/agent.go` | `splitMCPName` helper |
 | B | `internal/agent/agent_test.go` | three split tests |
 | B | `internal/config/config.go` | guardian-name regex on Load |
-| C | `internal/atomic/writefile.go` (new) | tmp+rename helper |
-| C | `internal/atomic/atomic_test.go` (new) | atomicity tests |
+| C | `internal/atomicio/writefile.go` (new) | tmp+rename helper |
+| C | `internal/atomicio/writefile_test.go` (new) | atomicity tests |
 | C | `internal/objstore/objstore.go` | atomic save |
 | C | `internal/findings/findings.go` | mutex + atomic save + ID overflow format |
 | C | `internal/findings/findings_test.go` | concurrency test |
@@ -763,7 +763,7 @@ phases. v0.1.20 release after Phase E.
 
 1. **fix(security): bound MCP and sandbox I/O, parameterise DuckDB metadata query (C1, C2, C3, H4, H12).** Highest impact; the C-tier issues. Backend-only.
 2. **fix(security): make Settings → Tools MITL toggles actually work for analysis tools; robust MCP name parsing (H1+H2, H3).** Routes analysis tools through the same `IsToolMITLRequired` gate the UI already advertises; removes the hard-coded MITL bypass on query-sql / analyze-data; documents the behavioural change. Verified against a manual ingestion run with the toggle flipped both ways.
-3. **fix(security): atomic JSON writes and findings ID race (C4, H9, H10).** New `internal/atomic` package; mechanical sweep across stores.
+3. **fix(security): atomic JSON writes and findings ID race (C4, H9, H10).** New `internal/atomicio` package; mechanical sweep across stores.
 4. **feat(security): mutable-tag warning banner; widen objstore IDs; reject symlinks in analysis paths; validate ToolCall args (H5, H6, H11, H14).** UI surface in (D); the rest is backend.
 5. **fix(security): guard wrap is fail-closed (L1).** Smallest change; ships last because it changes a public function signature.
 
@@ -771,3 +771,58 @@ Each phase passes `make test` (with `-tags no_duckdb_arrow`)
 and an integration smoke. AGENTS.md, README.md, README.ja.md,
 CHANGELOG.md updated in the same commit as the behaviour
 change per project convention.
+
+## 10. Verification follow-ups
+
+Two issues surfaced while running the v0.1.20 smoke tests
+against a real session and were folded into the same release
+because the underlying gaps were inseparable from the work in
+this round. Documenting them here keeps the design ↔ shipped
+mapping honest.
+
+### 10.1 Settings → Tools toggle reflects the dispatcher's actual default (commit `324f93f`)
+
+Phase B unified MITL routing through `IsToolMITLRequired` and
+introduced the `analysisToolMITLDefault` map. The frontend's
+`SettingsDialog.tsx`, however, was still computing the
+"default" toggle state locally as
+`category === 'write' || category === 'execute' || source === 'mcp'`
+— a calculation that pre-dated `analysisToolMITLDefault` and
+silently went out of sync when it was added. Concrete symptom:
+`load-data` (category `read`, source `analysis`) rendered as
+toggle-OFF; clicking it toggled to ON and back, but neither
+state diverged from the locally-computed default so no override
+was persisted; the dispatcher then prompted anyway because
+`IsToolMITLRequired("load-data")` returned true via the new
+map.
+
+Fix:
+
+- `agent.ToolInfoItem` and `bindings.ToolInfo` both gain a
+  `MITLDefault bool` field.
+- `Agent.ListTools` populates it via a new `Agent.toolMITLDefault`
+  helper that mirrors `IsToolMITLRequired`'s rules with no
+  override consulted.
+- `SettingsDialog.tsx` reads `t.mitl_default` directly instead
+  of recomputing.
+- Same audit revealed `IsToolMITLRequired` returned `false`
+  for shell tools while the dispatcher's shell-tool branch
+  consulted `tool.NeedsMITL()` directly — different paths,
+  same intent. Centralised by extending `IsToolMITLRequired`
+  to consult the registry as its shell-tool fallback and
+  routing the dispatcher's shell branch through it. Now
+  every tool source resolves MITL through one function.
+- `TestListTools_MITLDefaultMatchesGate` pins the contract.
+
+### 10.2 `load-data` expands `~/` (commit `f67e436`)
+
+§4.4.4 (H14) noted that `config.ExpandPath` "is unchanged"
+without flagging that `validateFilePath` itself never called
+it. In practice, LLMs pass `~/Desktop/foo.csv` through verbatim
+when the user types it that way; `filepath.Abs` leaves the `~`
+in place; `os.Lstat` then reports "file not accessible" and
+the LLM apologises. Fix: call `config.ExpandPath(path)` before
+`filepath.Abs(path)` in `validateFilePath`. One line of code,
+plus `TestValidateFilePath_ExpandsTilde` to keep it from
+regressing. This now mirrors how MCP profile paths have
+always been expanded.

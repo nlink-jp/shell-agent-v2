@@ -17,6 +17,7 @@ and hybrid LLM backend (Local + Vertex AI).
 - **Container sandbox (opt-in)** — eight `sandbox-*` tools that execute shell or Python in a per-session `podman`/`docker` container with `/work` mounted from the session's data dir, MITL-gated, network-off by default. Includes `sandbox-load-into-analysis` (CSV/JSON in `/work` → DuckDB) and `sandbox-export-sql` (SQL query → CSV in `/work`) so query results flow between analysis and Python without round-tripping through chat. See [sandbox-execution.md](docs/en/sandbox-execution.md) for the macOS setup guide.
 - **Global Findings** — promote analysis insights to cross-session knowledge with origin provenance
 - **Shell script Tool Calling** — register scripts as tools with MITL approval for write/execute
+- **MITL approval, end-to-end** — every tool source (analysis / shell / sandbox / MCP) routes through one gate. Destructive analysis tools (`load-data`, `reset-analysis`, `promote-finding`) and SQL/analyze prompts are MITL-by-default; metadata reads (`describe-data`, `list-tables`, etc.) are not. Override per-tool from **Settings → Tools** — the toggle reflects the actual dispatcher default. See [security-hardening-2.md](docs/en/security-hardening-2.md).
 - **Bundled scripts** — `file-info`, `preview-file`, `list-files`, `weather`, `get-location`, `write-note`. Auto-installed on first launch via `go:embed`; user customizations are preserved.
 - **Tool-call timeline** — every tool start/end appears inline in the chat as a transient pill, in addition to the existing status-bar indicator. The pill is restored on session reload as a compact tool-name + status (success / error) bubble; live argument and result text remain ephemeral. See [tool-event-restore.md](docs/en/tool-event-restore.md).
 - **Background task visibility** — when the agent kicks off post-response work (title generation, memory compaction, pinned-fact extraction), a small badge appears in the input-status-bar naming what's running. The input field stays disabled until those tasks finish, so the next user message can't race them and lose pinned facts. See [background-task-indicator.md](docs/en/background-task-indicator.md).
@@ -84,7 +85,8 @@ override the legacy top-level fallbacks in `config.json`.
 |---|---|---|---|
 | Enabled | `sandbox.enabled` | false | Master toggle. When off, the eight `sandbox-*` tools are not registered. |
 | Engine | `sandbox.engine` | `auto` | `auto` picks `podman` then `docker` from PATH. |
-| Image | `sandbox.image` | `python:3.12-slim` | Pulled on first use. |
+| Image | `sandbox.image` | (empty until you Build) | Active container image. Locally-built images (`shell-agent-v2-sandbox:<sha>`) and `@sha256:`-pinned references are treated as safe; mutable upstream tags (e.g. `python:3.12-slim`) trigger an advisory banner in the Settings → Sandbox tab. |
+| Max output bytes | `sandbox.max_output_bytes` | `8388608` (8 MiB) | Per-`exec` cap on each of stdout / stderr. Excess is dropped with a `[output truncated at N bytes]` marker — defends against an LLM-issued `cat /dev/zero` etc. OOMing the app. Config-only; no UI surface. |
 | Network | `sandbox.network` | false | Egress; default off. |
 | CPU limit | `sandbox.cpu_limit` | `2` | Passed to `--cpus`. |
 | Memory limit | `sandbox.memory_limit` | `1g` | Passed to `--memory`. |
@@ -116,6 +118,8 @@ make test       # Run tests
 - [Background task indicator](docs/en/background-task-indicator.md)
 - [Tool-event restore on session reload](docs/en/tool-event-restore.md)
 - [Tool-call round-trip (Vertex / Local)](docs/en/tool-call-roundtrip.md)
+- [Security hardening (round 1, v0.1.18)](docs/en/security-hardening.md)
+- [Security hardening (round 2, v0.1.20)](docs/en/security-hardening-2.md)
 - [RFP (English)](docs/en/shell-agent-v2-rfp.md) · [RFP (Japanese)](docs/ja/shell-agent-v2-rfp.ja.md)
 
 Japanese mirrors live under `docs/ja/`.

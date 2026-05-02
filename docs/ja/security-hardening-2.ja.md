@@ -404,7 +404,7 @@ if !ok {
 
 **4.3.1 共通 atomic-write ヘルパ**
 
-新規 `internal/atomic/writefile.go`:
+新規 `internal/atomicio/writefile.go`:
 
 ```go
 // WriteFileAtomic は data を tmp+rename で path に書き込む。
@@ -577,8 +577,8 @@ content = wrapped
 | B | `internal/agent/agent.go` | `splitMCPName` ヘルパ |
 | B | `internal/agent/agent_test.go` | 三 split tests |
 | B | `internal/config/config.go` | guardian-name regex on Load |
-| C | `internal/atomic/writefile.go` (新規) | tmp+rename ヘルパ |
-| C | `internal/atomic/atomic_test.go` (新規) | atomicity tests |
+| C | `internal/atomicio/writefile.go` (新規) | tmp+rename ヘルパ |
+| C | `internal/atomicio/writefile_test.go` (新規) | atomicity tests |
 | C | `internal/objstore/objstore.go` | atomic save |
 | C | `internal/findings/findings.go` | mutex + atomic save + ID overflow format |
 | C | `internal/findings/findings_test.go` | concurrency test |
@@ -684,7 +684,7 @@ content = wrapped
    の問題群。バックエンドのみ
 2. **fix(security): Settings → Tools の MITL トグルを analysis tool で実際に効くように修正; MCP 名 parse を robust 化 (H1+H2, H3).** UI が既に広告している `IsToolMITLRequired` ゲートに analysis tool を統一、query-sql / analyze-data の hard-coded MITL バイパスを削除、挙動変更を CHANGELOG 記録。手動 ingestion run でトグル両方向の挙動を検証
 3. **fix(security): JSON 書込を atomic 化 / findings ID race 修正
-   (C4, H9, H10).** 新規 `internal/atomic` パッケージ；store 全体に
+   (C4, H9, H10).** 新規 `internal/atomicio` パッケージ；store 全体に
    機械的 sweep
 4. **feat(security): mutable-tag 警告バナー; objstore ID 拡張;
    解析 path で symlink 拒否; ToolCall args 検証 (H5, H6, H11,
@@ -695,3 +695,50 @@ content = wrapped
 各 phase は `make test`（`-tags no_duckdb_arrow` 付）と integration
 smoke を pass。AGENTS.md / README.md / README.ja.md / CHANGELOG.md
 は behaviour 変更と同コミットで更新（プロジェクト規約）。
+
+## 10. Verification follow-ups（実機検証中の追加修正）
+
+v0.1.20 の実機 smoke test 中に 2 件の問題を発見し、本ラウンドの
+ギャップと不可分のため同リリースに同梱した。設計 ↔ 実装の対応関係
+を正直に保つため記録する。
+
+### 10.1 Settings → Tools トグルが dispatcher の実デフォルトを反映 (commit `324f93f`)
+
+Phase B で MITL ルーティングを `IsToolMITLRequired` に統一し
+`analysisToolMITLDefault` を導入したが、frontend の
+`SettingsDialog.tsx` は依然「デフォルト状態」を局所的に
+`category === 'write' || category === 'execute' || source === 'mcp'`
+で計算していた。この式は `analysisToolMITLDefault` 導入前から
+存在し、新マップが追加されても誰も同期しなかった。具体的症状:
+`load-data` (category `read`, source `analysis`) はトグル OFF で
+表示され、クリックして ON / OFF してもどちらも局所デフォルトと
+一致するため override が保存されず、dispatcher は新マップで
+`IsToolMITLRequired("load-data") == true` を返して prompt を発火。
+
+修正:
+
+- `agent.ToolInfoItem` と `bindings.ToolInfo` の双方に
+  `MITLDefault bool` フィールドを追加
+- `Agent.ListTools` は新ヘルパ `Agent.toolMITLDefault` で値を埋める。
+  これは override を見ない `IsToolMITLRequired` 同等のルール
+- `SettingsDialog.tsx` は `t.mitl_default` を直接読み、
+  局所計算をやめる
+- 同調査で `IsToolMITLRequired` が shell tool に対して `false` を
+  返す一方、dispatcher の shell tool 分岐は `tool.NeedsMITL()` を
+  直接呼んでいる（別経路で同じ意図）ことも判明。
+  `IsToolMITLRequired` を shell tool registry 経由に拡張し、
+  dispatcher も同関数経由に統一。これで全 tool source が単一
+  関数経由で MITL 解決
+- `TestListTools_MITLDefaultMatchesGate` で契約を pin
+
+### 10.2 `load-data` が `~/` を展開 (commit `f67e436`)
+
+§4.4.4 (H14) は `config.ExpandPath` を「unchanged」と書いていたが、
+`validateFilePath` 自体がそれを呼んでいなかったことを見落として
+いた。実際には LLM はユーザーが `~/Desktop/foo.csv` と打てば
+そのまま渡し、`filepath.Abs` は `~` を残し、`os.Lstat` が
+「アクセス不能」と返し、LLM が「ファイルが見つかりません」と
+返答する。修正は `validateFilePath` で `filepath.Abs` の前に
+`config.ExpandPath(path)` を挟むだけの 1 行。
+`TestValidateFilePath_ExpandsTilde` で regression 防止。MCP profile
+path が以前から行っている挙動と一致。

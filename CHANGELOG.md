@@ -78,12 +78,6 @@ for the full design and finding inventory.
   attacker who could plant a symlink in a path the LLM might
   pass would otherwise be able to redirect ingest to a host
   file the analysis layer is meant to refuse (H14).
-- **`load-data` expands `~/`.** Discovered during v0.1.20
-  verification: `filepath.Abs` alone leaves the literal `~`
-  in place, so an LLM passing `~/Desktop/foo.csv` (because
-  the user typed it that way) would always 404. The validator
-  now expands `~` via `config.ExpandPath` before resolving.
-  Mirrors what MCP profile paths already do.
 - **`guard.Wrap` is now fail-closed.** `chat.BuildMessages`,
   `chat.BuildMessagesWithBudget`, `chat.WrapUserToolContent`,
   and `contextbuild.Build` all return an error when the
@@ -132,6 +126,12 @@ for the full design and finding inventory.
   mcp) — the dispatcher's shell branch used to call
   `tool.NeedsMITL()` directly. New regression test
   `TestListTools_MITLDefaultMatchesGate` pins the contract.
+- **`load-data` now expands `~/` in file paths.** Discovered
+  during v0.1.20 verification: `filepath.Abs` alone leaves the
+  literal `~` in place, so an LLM passing `~/Desktop/foo.csv`
+  (because the user typed it that way) would always 404. The
+  validator now expands `~` via `config.ExpandPath` before
+  resolving — mirrors what MCP profile paths already do.
 - `TestSandboxDefaults` was asserting that the default
   `Sandbox.Image` is populated, but the actual default is empty
   on purpose (the readiness gate hides sandbox tools until the
