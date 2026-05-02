@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/nlink-jp/shell-agent-v2/internal/analysis"
 	"github.com/nlink-jp/shell-agent-v2/internal/llm"
 	"github.com/nlink-jp/shell-agent-v2/internal/objstore"
+	"github.com/nlink-jp/shell-agent-v2/internal/sandbox"
 )
 
 // analysisToolMITLDefault is the default MITL gate per analysis tool.
@@ -35,6 +38,7 @@ var analysisToolMITLDefault = map[string]bool{
 	"query-preview":    false, // NL → SQL only, doesn't execute
 	"suggest-analysis": false, // LLM-side suggestion, no state change
 	"quick-summary":    false, // SELECT + summarise, no mutation
+	"register-object":  false, // moves a /work file into objstore — same trust level as a drag-and-drop
 }
 
 // analysisToolMITLCategory returns the human-readable category passed
@@ -142,6 +146,29 @@ func analysisTools(hasData, hideUntilDataLoaded bool) []llm.ToolDef {
 					},
 				},
 				"required": []string{"id"},
+			},
+		},
+		{
+			Name:        "register-object",
+			Description: "Register a file already present in the session work directory ($SHELL_AGENT_WORK_DIR — same physical path that the sandbox sees as /work) into the central object store, returning an object:<ID> reference the chat can render. Use this to surface artefacts produced by shell tools (e.g. generate-image): write to $SHELL_AGENT_WORK_DIR from the shell tool, then call this with the same filename. For artefacts produced by sandbox-run-python / sandbox-run-shell, prefer sandbox-register-object (both end up reading from the same physical directory). Design: docs/en/work-dir-shell-bridge.md.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"path": map[string]any{
+						"type":        "string",
+						"description": "Path inside the work directory. Relative paths only; '..' traversal is rejected. e.g. 'sunset.png'",
+					},
+					"name": map[string]any{
+						"type":        "string",
+						"description": "Human-readable name for the object (shown in the Data panel). Falls back to the basename if omitted.",
+					},
+					"type": map[string]any{
+						"type":        "string",
+						"enum":        []string{"image", "blob", "report"},
+						"description": "Object type. If omitted, inferred from the file's MIME (image/* → image, text/markdown → report, otherwise blob).",
+					},
+				},
+				"required": []string{"path"},
 			},
 		},
 	}
@@ -672,6 +699,64 @@ func (a *Agent) toolGetObject(argsJSON string) string {
 		content += "\n... (truncated)"
 	}
 	return content
+}
+
+// toolRegisterObject reads a file from the session work directory
+// (the same physical path the sandbox bind-mounts at /work) and
+// registers it into objstore, returning the new object's ID. Used
+// by shell tools that wrote artefacts via $SHELL_AGENT_WORK_DIR
+// when the sandbox isn't running. Mirrors the effect of
+// sandbox-register-object — both read from the same host directory
+// and call the same objstore.Store.
+//
+// Path validation reuses the sandbox-side `safeWorkPath` helper so
+// `..` traversal, absolute paths, and symlink leaves are all
+// refused (security-hardening-2 §3.2.1 / H14 pattern). Design:
+// docs/en/work-dir-shell-bridge.md.
+func (a *Agent) toolRegisterObject(argsJSON string) (string, ActivityEventStatus) {
+	var args struct {
+		Path string `json:"path"`
+		Name string `json:"name"`
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return "Error: invalid arguments: " + err.Error(), ActivityStatusError
+	}
+	if args.Path == "" {
+		return "Error: 'path' is required", ActivityStatusError
+	}
+	if a.objects == nil {
+		return "Error: object store not available", ActivityStatusError
+	}
+	if a.session == nil {
+		return "Error: no active session", ActivityStatusError
+	}
+
+	workDir := a.sessionWorkDir()
+	src, err := safeWorkPath(workDir, args.Path)
+	if err != nil {
+		return "Error: " + err.Error(), ActivityStatusError
+	}
+	f, err := os.Open(src)
+	if err != nil {
+		return "Error: open source: " + err.Error(), ActivityStatusError
+	}
+	defer f.Close()
+
+	mime := sandbox.MimeFromPath(args.Path)
+	objType := args.Type
+	if objType == "" {
+		objType = sandbox.ObjectTypeForMIME(mime)
+	}
+	name := args.Name
+	if name == "" {
+		name = filepath.Base(args.Path)
+	}
+	meta, err := a.objects.Store(f, objstore.ObjectType(objType), mime, name, a.session.ID)
+	if err != nil {
+		return "Error: store: " + err.Error(), ActivityStatusError
+	}
+	return fmt.Sprintf("registered as object %s (%s, %s)", meta.ID, objType, humanSize(meta.Size)), ActivityStatusSuccess
 }
 
 // toolAnalyzeData runs sliding window analysis on a loaded table.

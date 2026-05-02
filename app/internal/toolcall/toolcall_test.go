@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -131,6 +132,58 @@ func TestExecute(t *testing.T) {
 	}
 	if result != `{"message":"hello"}` {
 		t.Errorf("result = %q, want JSON input echoed back", result)
+	}
+}
+
+// --- WithWorkDir env var injection (docs/en/work-dir-shell-bridge.md) ---
+
+// TestExecute_WithWorkDir_SetsEnvVar: when WithWorkDir is passed,
+// the spawned process sees SHELL_AGENT_WORK_DIR in its environment.
+func TestExecute_WithWorkDir_SetsEnvVar(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "echo-env.sh")
+	if err := os.WriteFile(script, []byte(`#!/bin/bash
+echo "$SHELL_AGENT_WORK_DIR"
+`), 0755); err != nil {
+		t.Fatal(err)
+	}
+	tool := &Tool{Name: "echo-env", ScriptPath: script}
+
+	want := "/tmp/work-xyz"
+	out, err := Execute(context.Background(), tool, "{}", WithWorkDir(want))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	got := strings.TrimSpace(out)
+	if got != want {
+		t.Errorf("SHELL_AGENT_WORK_DIR = %q, want %q", got, want)
+	}
+}
+
+// TestExecute_NoWithWorkDir_NoEnvVar: callers that don't pass
+// WithWorkDir get the same behaviour as before — env var absent
+// (or whatever the parent set).
+func TestExecute_NoWithWorkDir_NoEnvVar(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "echo-env.sh")
+	if err := os.WriteFile(script, []byte(`#!/bin/bash
+echo "${SHELL_AGENT_WORK_DIR:-UNSET}"
+`), 0755); err != nil {
+		t.Fatal(err)
+	}
+	tool := &Tool{Name: "echo-env", ScriptPath: script}
+
+	// Make sure the parent doesn't have the var set so we can
+	// observe the absence.
+	t.Setenv("SHELL_AGENT_WORK_DIR", "")
+	os.Unsetenv("SHELL_AGENT_WORK_DIR")
+
+	out, err := Execute(context.Background(), tool, "{}")
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if got := strings.TrimSpace(out); got != "UNSET" {
+		t.Errorf("env var leaked into child: %q (want UNSET)", got)
 	}
 }
 

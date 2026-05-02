@@ -140,6 +140,12 @@ shell-agent-v2/
   + `examples/generate-image` use `120` because `gem-search` /
   `gem-image` round-trips routinely exceed 30s. See
   [docs/en/tool-execution-timeout.md](docs/en/tool-execution-timeout.md).
+- Scripts can write artefacts to `$SHELL_AGENT_WORK_DIR` (the host
+  path of the per-session work directory; same physical location
+  the sandbox bind-mounts at `/work`). Files there appear in the
+  Data → /work panel and can be promoted to objstore via the
+  built-in `register-object` tool. See
+  [docs/en/work-dir-shell-bridge.md](docs/en/work-dir-shell-bridge.md).
 
 ### UI
 - Sidebar: icon navigation with two panels — **Sessions**

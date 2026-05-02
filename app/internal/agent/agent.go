@@ -685,7 +685,29 @@ func (a *Agent) LoadSession(session *memory.Session) error {
 	a.session = session
 	a.promptTokens = 0
 	a.outputTokens = 0
+
+	// Ensure the per-session work directory exists regardless of
+	// whether the sandbox is enabled. Shell tools learn its host
+	// path via SHELL_AGENT_WORK_DIR and may write artefacts there
+	// for the LLM to surface via the register-object tool.
+	// Design: docs/en/work-dir-shell-bridge.md.
+	if workDir := a.sessionWorkDir(); workDir != "" {
+		if err := os.MkdirAll(workDir, 0700); err != nil {
+			logger.Error("agent: workdir create %q: %v", workDir, err)
+		}
+	}
 	return nil
+}
+
+// sessionWorkDir returns the absolute host path of the current
+// session's work directory, or "" when no session is loaded.
+// Shared by LoadSession (creation) and the shell-tool dispatcher
+// branch (env var injection).
+func (a *Agent) sessionWorkDir() string {
+	if a.session == nil {
+		return ""
+	}
+	return filepath.Join(memory.SessionDir(a.session.ID), "work")
 }
 
 // SetObjects sets the object store reference.
@@ -760,6 +782,7 @@ func (a *Agent) ListTools() []ToolInfoItem {
 	add(ToolInfoItem{Name: "create-report", Description: "Render a markdown report and save it to the session's object store", Category: "read", Source: "analysis"})
 	add(ToolInfoItem{Name: "list-objects", Description: "List every object (image / blob / report) stored in the current session, with type, MIME, name, and creation time", Category: "read", Source: "analysis"})
 	add(ToolInfoItem{Name: "get-object", Description: "Retrieve an object's content by ID (32-hex; legacy 12-hex IDs still work). Images come back as a marker the chat resolves; text/data returns inline", Category: "read", Source: "analysis"})
+	add(ToolInfoItem{Name: "register-object", Description: "Move a file from the session work directory ($SHELL_AGENT_WORK_DIR / sandbox /work) into the central object store and return an object:<ID> the chat can render. No-sandbox equivalent of sandbox-register-object.", Category: "write", Source: "analysis"})
 	if hasData || !hideUntilDataLoaded {
 		add(ToolInfoItem{Name: "describe-data", Description: "Show columns, row count, and saved description for a table; optionally set a description", Category: "read", Source: "analysis"})
 		add(ToolInfoItem{Name: "query-sql", Description: "Run a SELECT you write yourself and return raw rows — fastest, no LLM round-trip", Category: "read", Source: "analysis"})
@@ -1312,6 +1335,18 @@ func (a *Agent) executeTool(ctx context.Context, tc llm.ToolCall) (string, Activ
 		return a.toolListObjects(tc.Arguments), ActivityStatusSuccess
 	case "get-object":
 		return a.toolGetObject(tc.Arguments), ActivityStatusSuccess
+	case "register-object":
+		// Bridge a host-side artefact (typically produced by a
+		// shell tool that wrote to $SHELL_AGENT_WORK_DIR) into
+		// objstore so the chat can render it as object:<ID>.
+		// Mirrors sandbox-register-object for the no-sandbox
+		// flow. Design: docs/en/work-dir-shell-bridge.md.
+		if a.IsToolMITLRequired(tc.Name) {
+			if rejection := a.requestMITL(tc.Name, tc.Arguments, "write"); rejection != "" {
+				return rejection, ActivityStatusError
+			}
+		}
+		return a.toolRegisterObject(tc.Arguments)
 	case "load-data", "describe-data", "query-sql", "query-preview", "suggest-analysis", "quick-summary", "list-tables", "reset-analysis", "create-report", "promote-finding", "analyze-data":
 		if a.analysis == nil {
 			return "Error: no analysis engine available", ActivityStatusError
@@ -1394,7 +1429,10 @@ func (a *Agent) executeTool(ctx context.Context, tc llm.ToolCall) (string, Activ
 					return result, ActivityStatusError
 				}
 			}
-			result, err := toolcall.Execute(ctx, tool, tc.Arguments)
+			// SHELL_AGENT_WORK_DIR injection — see
+			// docs/en/work-dir-shell-bridge.md.
+			result, err := toolcall.Execute(ctx, tool, tc.Arguments,
+				toolcall.WithWorkDir(a.sessionWorkDir()))
 			if err != nil {
 				return fmt.Sprintf("Error: %v", err), ActivityStatusError
 			}

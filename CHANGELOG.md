@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Shell tool ↔ /work bridge.** Host-side shell tools now learn
+  the per-session work directory via the
+  `SHELL_AGENT_WORK_DIR` environment variable. The directory is
+  the same physical path the sandbox bind-mounts at `/work`, so a
+  file written by a shell tool on the host is immediately visible
+  to sandbox tools (and vice versa) and shows up in the chat-pane
+  Data → /work section. Existing tools that ignore the env var
+  are unaffected.
+- **`register-object` built-in tool.** No-sandbox equivalent of
+  `sandbox-register-object`. Reads a file from the session work
+  directory and registers it into objstore, returning an
+  `object:<ID>` reference the chat can render. Use this to
+  surface artefacts produced by shell tools (e.g. the rewritten
+  `examples/generate-image.sh` writes to `$SHELL_AGENT_WORK_DIR`
+  and the agent follows up with `register-object` to make the
+  image appear inline). Path validation reuses the existing
+  sandbox-side traversal / symlink rejection logic. MITL default:
+  `false` (same trust level as a chat drag-and-drop). Design:
+  [docs/en/work-dir-shell-bridge.md](docs/en/work-dir-shell-bridge.md).
+
+### Fixed
+
+- `examples/generate-image.sh` produced an image but it never
+  reached objstore — the file was written under `/tmp/...` and
+  the only thing the LLM saw back was a JSON status string with
+  no rendering hint, so the user's chat stayed empty even after
+  a successful generation. Rewritten to use the new
+  `SHELL_AGENT_WORK_DIR` + `register-object` flow; the image
+  now appears in the Data panel immediately and inline in chat
+  after the follow-up call.
+
 ## [0.1.24] - 2026-05-02
 
 ### Added

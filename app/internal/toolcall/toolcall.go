@@ -111,12 +111,39 @@ func (r *Registry) All() []*Tool {
 	return result
 }
 
+// ExecOption configures one Execute call. Variadic options
+// pattern keeps the (ctx, tool, args) signature additive — existing
+// callers remain valid; new options like WithWorkDir layer on top
+// without breaking them.
+type ExecOption func(*execConfig)
+
+type execConfig struct {
+	workDir string
+}
+
+// WithWorkDir sets the SHELL_AGENT_WORK_DIR environment variable
+// on the spawned process so the script can write artefacts to the
+// per-session work directory the sandbox bind-mounts at /work.
+// Design: docs/en/work-dir-shell-bridge.md.
+func WithWorkDir(path string) ExecOption {
+	return func(c *execConfig) { c.workDir = path }
+}
+
 // Execute runs a tool script with the given JSON arguments.
 //
 // Per-tool Timeout (set via the `@timeout: N` header) wins over the
 // package DefaultTimeout when > 0. Design:
 // docs/en/tool-execution-timeout.md.
-func Execute(ctx context.Context, tool *Tool, argsJSON string) (string, error) {
+//
+// Variadic ExecOption args allow callers to inject extra context
+// such as the session work directory; absent options preserve the
+// pre-v0.1.25 behaviour exactly.
+func Execute(ctx context.Context, tool *Tool, argsJSON string, opts ...ExecOption) (string, error) {
+	cfg := execConfig{}
+	for _, o := range opts {
+		o(&cfg)
+	}
+
 	timeout := tool.Timeout
 	if timeout <= 0 {
 		timeout = DefaultTimeout
@@ -126,6 +153,9 @@ func Execute(ctx context.Context, tool *Tool, argsJSON string) (string, error) {
 
 	cmd := exec.CommandContext(ctx, tool.ScriptPath)
 	cmd.Stdin = strings.NewReader(argsJSON)
+	if cfg.workDir != "" {
+		cmd.Env = append(os.Environ(), "SHELL_AGENT_WORK_DIR="+cfg.workDir)
+	}
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
