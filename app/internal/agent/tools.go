@@ -126,7 +126,7 @@ func analysisTools(hasData bool) []llm.ToolDef {
 				"properties": map[string]any{
 					"id": map[string]any{
 						"type":        "string",
-						"description": "Object ID (12-character hex)",
+						"description": "Object ID (hex string, currently 32 chars; legacy 12-char IDs continue to work)",
 					},
 				},
 				"required": []string{"id"},
