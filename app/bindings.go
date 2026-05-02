@@ -291,17 +291,25 @@ func (b *Bindings) LoadSession(sessionID string) ([]MessageData, error) {
 		case "tool":
 			continue
 		case "assistant":
-			// Skip tool-call-only assistant turns from the chat
-			// pane — the activity events (tool_start/tool_end)
-			// already show the tool call inline.
+			// Mirror the live chat behaviour: tool-call turns are
+			// surfaced through the activity stream (tool_start /
+			// tool_end and the transient "thinking" progressTool),
+			// not as chat bubbles. Restoring them as bubbles would
+			// also drag back any thought-style preamble the model
+			// wrote into Content (e.g. Gemini 2.5 Flash sometimes
+			// prefixes "シンクタイム: 3秒\n\n…" or "THOUGHT\n…"),
+			// which never appeared in the live view.
 			//   - Old format (pre-r3): Content="[Calling: foo]"
-			//   - New format (post-r3): Content="" and ToolCalls
-			//     non-empty (tracked via ToolCalls field on the
-			//     persisted Record).
+			//   - New format (post-r3): Content possibly non-empty
+			//     plus ToolCalls non-empty (tracked via ToolCalls
+			//     on the persisted Record).
 			if strings.HasPrefix(r.Content, "[Calling:") {
 				continue
 			}
-			if r.Content == "" && len(r.ToolCalls) > 0 {
+			if len(r.ToolCalls) > 0 {
+				continue
+			}
+			if r.Content == "" {
 				continue
 			}
 			msgs = append(msgs, MessageData{
