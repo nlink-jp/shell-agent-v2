@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"errors"
+	"sync"
 	"testing"
 
 	"github.com/nlink-jp/shell-agent-v2/internal/config"
@@ -148,6 +150,99 @@ func TestNormalizeToolArgs(t *testing.T) {
 			}
 		})
 	}
+}
+
+// captureBgEvents installs a thread-safe BgTaskHandler that
+// accumulates every event for assertion. Tests need a mutex because
+// trackBg invokes the handler from goroutines in real use; here it is
+// called serially, but the locking matches production semantics.
+func captureBgEvents(a *Agent) func() []BgTaskEvent {
+	var (
+		mu     sync.Mutex
+		events []BgTaskEvent
+	)
+	a.SetBgTaskHandler(func(e BgTaskEvent) {
+		mu.Lock()
+		defer mu.Unlock()
+		events = append(events, e)
+	})
+	return func() []BgTaskEvent {
+		mu.Lock()
+		defer mu.Unlock()
+		out := make([]BgTaskEvent, len(events))
+		copy(out, events)
+		return out
+	}
+}
+
+func TestTrackBg_Success(t *testing.T) {
+	a := New(config.Default())
+	get := captureBgEvents(a)
+
+	a.trackBg(context.Background(), "title", func() error { return nil })
+
+	events := get()
+	if len(events) != 2 {
+		t.Fatalf("got %d events, want 2: %#v", len(events), events)
+	}
+	if events[0] != (BgTaskEvent{Name: "title", Phase: "start"}) {
+		t.Errorf("start event = %#v", events[0])
+	}
+	if events[1] != (BgTaskEvent{Name: "title", Phase: "end", Error: ""}) {
+		t.Errorf("end event = %#v", events[1])
+	}
+}
+
+func TestTrackBg_Error(t *testing.T) {
+	a := New(config.Default())
+	get := captureBgEvents(a)
+
+	a.trackBg(context.Background(), "memory-compaction", func() error {
+		return errors.New("boom")
+	})
+
+	events := get()
+	if len(events) != 2 {
+		t.Fatalf("got %d events, want 2", len(events))
+	}
+	if events[1].Phase != "end" || events[1].Error != "boom" {
+		t.Errorf("end event = %#v, want Phase=end Error=boom", events[1])
+	}
+}
+
+func TestTrackBg_CanceledNotReportedAsError(t *testing.T) {
+	a := New(config.Default())
+	get := captureBgEvents(a)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // already canceled before fn runs
+
+	a.trackBg(ctx, "pinned-extraction", func() error {
+		return ctx.Err()
+	})
+
+	events := get()
+	if len(events) != 2 {
+		t.Fatalf("got %d events, want 2", len(events))
+	}
+	if events[1].Phase != "end" {
+		t.Errorf("end event phase = %q, want end", events[1].Phase)
+	}
+	// Cancellation must not flash red — Error stays empty even though
+	// the body returned context.Canceled.
+	if events[1].Error != "" {
+		t.Errorf("canceled task reported Error=%q, want empty", events[1].Error)
+	}
+}
+
+func TestTrackBg_NilHandlerSafe(t *testing.T) {
+	// notifyBg must no-op when no handler is registered (e.g. tests
+	// that construct an Agent without bindings, or a brief window at
+	// startup before bindings.go wires the handler).
+	a := New(config.Default())
+	// Intentionally do NOT call SetBgTaskHandler.
+	a.trackBg(context.Background(), "title", func() error { return nil })
+	// Reaching here without panicking is the assertion.
 }
 
 func TestNormalizeToolArgs_FallsBackOnGarbage(t *testing.T) {

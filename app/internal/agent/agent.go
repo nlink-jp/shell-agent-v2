@@ -73,6 +73,20 @@ type MITLResponse struct {
 // MITLHandler is called when a tool requires Man-In-The-Loop approval.
 type MITLHandler func(req MITLRequest) MITLResponse
 
+// BgTaskEvent is emitted at the start and end of each post-response
+// background task (title generation, memory compaction, pinned-fact
+// extraction). Phase is "start" or "end"; Error is populated only on
+// "end" and only for non-cancel failures.
+type BgTaskEvent struct {
+	Name  string `json:"name"`
+	Phase string `json:"phase"`
+	Error string `json:"error"`
+}
+
+// BgTaskHandler receives BgTaskEvent notifications. Bindings register
+// one to bridge into the Wails event bus for the footer indicator.
+type BgTaskHandler func(BgTaskEvent)
+
 // Agent orchestrates chat, analysis, tool execution, and memory.
 type Agent struct {
 	cfg     *config.Config
@@ -103,6 +117,7 @@ type Agent struct {
 	reportHandler   func(title, content string)
 	pinnedHandler   func()
 	activityHandler func(ActivityEvent)
+	bgTaskHandler   BgTaskHandler
 	toolRegistry    *toolcall.Registry
 	guardians       map[string]*mcp.Guardian
 	guardiansMu     sync.RWMutex
@@ -278,6 +293,49 @@ func (a *Agent) SetActivityHandler(h func(ActivityEvent)) {
 	a.activityHandler = h
 }
 
+// SetBgTaskHandler registers a handler for post-response background
+// task lifecycle events. The bindings layer uses this to forward
+// start/end events into the Wails event bus.
+func (a *Agent) SetBgTaskHandler(h BgTaskHandler) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.bgTaskHandler = h
+}
+
+// notifyBg invokes the registered BgTaskHandler if any. The handler
+// is read under the lock, then invoked outside it so a slow handler
+// can't block other agent operations.
+func (a *Agent) notifyBg(e BgTaskEvent) {
+	a.mu.Lock()
+	h := a.bgTaskHandler
+	a.mu.Unlock()
+	if h != nil {
+		h(e)
+	}
+}
+
+// trackBg wraps a post-response task body with start/end logging
+// and notification. A context.Canceled return (the auto-cancel case
+// when the next Send arrives) is logged as INFO and reported with an
+// empty Error so the UI does not flash red. Any other error is logged
+// at ERROR and bubbled up via the end event for the footer.
+func (a *Agent) trackBg(ctx context.Context, name string, fn func() error) {
+	logger.Info("bg-task %s: start", name)
+	a.notifyBg(BgTaskEvent{Name: name, Phase: "start"})
+	err := fn()
+	msg := ""
+	switch {
+	case err == nil:
+		logger.Info("bg-task %s: done", name)
+	case errors.Is(err, context.Canceled) || ctx.Err() == context.Canceled:
+		logger.Info("bg-task %s: canceled (next Send)", name)
+	default:
+		logger.Error("bg-task %s: %v", name, err)
+		msg = err.Error()
+	}
+	a.notifyBg(BgTaskEvent{Name: name, Phase: "end", Error: msg})
+}
+
 // emitActivity is a small helper so we don't repeat the
 // nil-check at every call site.
 func (a *Agent) emitActivity(ev ActivityEvent) {
@@ -412,7 +470,18 @@ func (a *Agent) SendWithImages(ctx context.Context, message string, objectIDs, d
 		}
 	}
 
-	// Wait for any previous post-response tasks to complete
+	// Auto-cancel any still-running post-response tasks from the
+	// previous turn. The user has already moved on to the next
+	// message, so finishing those tasks (which may be in a 429
+	// retry sleep) only blocks the new turn. Cancellation is
+	// distinct from "failure" — trackBg logs the cancel at INFO
+	// and reports an empty Error so the footer does not flash red.
+	a.mu.Lock()
+	prevPostCancel := a.postCancel
+	a.mu.Unlock()
+	if prevPostCancel != nil {
+		prevPostCancel()
+	}
 	a.postTasksWg.Wait()
 
 	a.mu.Lock()
@@ -978,9 +1047,18 @@ func (a *Agent) postResponseTasks(parentCtx context.Context) {
 	a.mu.Unlock()
 
 	a.postTasksWg.Add(3)
-	go func() { defer a.postTasksWg.Done(); a.generateTitleIfNeeded(ctx) }()
-	go func() { defer a.postTasksWg.Done(); a.compactMemoryIfNeeded(ctx) }()
-	go func() { defer a.postTasksWg.Done(); a.extractPinnedMemories(ctx) }()
+	go func() {
+		defer a.postTasksWg.Done()
+		a.trackBg(ctx, "title", func() error { return a.generateTitleIfNeeded(ctx) })
+	}()
+	go func() {
+		defer a.postTasksWg.Done()
+		a.trackBg(ctx, "memory-compaction", func() error { return a.compactMemoryIfNeeded(ctx) })
+	}()
+	go func() {
+		defer a.postTasksWg.Done()
+		a.trackBg(ctx, "pinned-extraction", func() error { return a.extractPinnedMemories(ctx) })
+	}()
 }
 
 // compactIfOverBudget runs compaction synchronously before BuildMessages.
@@ -1020,9 +1098,9 @@ func (a *Agent) compactIfOverBudget(ctx context.Context) {
 // compactMemoryIfNeeded summarizes old hot messages when token budget exceeded.
 // Design: docs/en/agent-data-flow.md Section 4.2 (async safety net).
 // Skipped when Memory.UseV2 is true (see compactIfOverBudget).
-func (a *Agent) compactMemoryIfNeeded(ctx context.Context) {
+func (a *Agent) compactMemoryIfNeeded(ctx context.Context) error {
 	if a.session == nil || a.cfg.Memory.UseV2 {
-		return
+		return nil
 	}
 
 	summarizer := func(c context.Context, text string) (string, error) {
@@ -1042,13 +1120,13 @@ func (a *Agent) compactMemoryIfNeeded(ctx context.Context) {
 		Summarizer:    summarizer,
 	})
 	if err != nil {
-		logger.Error("compactMemory: %v", err)
-		return
+		return err
 	}
 	if compacted {
 		logger.Info("compactMemory: compacted session %s", a.session.ID)
 		_ = a.session.Save()
 	}
+	return nil
 }
 
 // requestMITL sends a MITL request and returns "" if approved,
@@ -1417,9 +1495,9 @@ func (a *Agent) setBackend(backend config.LLMBackend) {
 }
 
 // generateTitleIfNeeded generates a session title from the first user message.
-func (a *Agent) generateTitleIfNeeded(ctx context.Context) {
+func (a *Agent) generateTitleIfNeeded(ctx context.Context) error {
 	if a.session == nil || a.session.Title != "New Session" {
-		return
+		return nil
 	}
 
 	var firstUser string
@@ -1430,7 +1508,7 @@ func (a *Agent) generateTitleIfNeeded(ctx context.Context) {
 		}
 	}
 	if firstUser == "" {
-		return
+		return nil
 	}
 
 	messages := []llm.Message{
@@ -1440,12 +1518,12 @@ func (a *Agent) generateTitleIfNeeded(ctx context.Context) {
 
 	resp, err := a.backend.Chat(ctx, messages, nil)
 	if err != nil {
-		return
+		return err
 	}
 
 	title := strings.TrimSpace(resp.Content)
 	if title == "" || len(title) > 60 {
-		return
+		return nil
 	}
 
 	a.session.Title = title
@@ -1457,6 +1535,7 @@ func (a *Agent) generateTitleIfNeeded(ctx context.Context) {
 	if h != nil {
 		h(a.session.ID, title)
 	}
+	return nil
 }
 
 const defaultSystemPrompt = `You are a helpful assistant with data analysis capabilities.
@@ -1481,9 +1560,9 @@ Never fabricate image URLs or object IDs.`
 
 // extractPinnedMemories runs after each response to auto-extract important facts.
 // This is a system task, not an LLM tool — the backend drives the extraction.
-func (a *Agent) extractPinnedMemories(ctx context.Context) {
+func (a *Agent) extractPinnedMemories(ctx context.Context) error {
 	if a.session == nil {
-		return
+		return nil
 	}
 
 	// Collect last 4 hot messages for analysis
@@ -1497,7 +1576,7 @@ func (a *Agent) extractPinnedMemories(ctx context.Context) {
 		recentRecords = recentRecords[len(recentRecords)-4:]
 	}
 	if len(recentRecords) < 2 {
-		return // need at least a user + assistant exchange
+		return nil // need at least a user + assistant exchange
 	}
 
 	// Build conversation text for extraction
@@ -1530,13 +1609,12 @@ Already known:
 
 	resp, err := a.backend.Chat(ctx, messages, nil)
 	if err != nil {
-		logger.Error("extractPinnedMemories: %v", err)
-		return
+		return err
 	}
 
 	text := strings.TrimSpace(resp.Content)
 	if text == "" || strings.ToUpper(text) == "NONE" {
-		return
+		return nil
 	}
 
 	added := 0
@@ -1577,6 +1655,7 @@ Already known:
 			h()
 		}
 	}
+	return nil
 }
 
 // stripGemmaToolCallTags removes gemma-style text tool call tags from content.
