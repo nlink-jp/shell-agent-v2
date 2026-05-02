@@ -41,6 +41,20 @@ for the full design and finding inventory.
   match against the registered guardian set. Guardian names are
   also validated against `^[a-zA-Z0-9-]+$` at startup so the
   separator collision can't be planted in fresh configs (H3).
+- **Crash-safe JSON writes across the data path.** New
+  `internal/atomicio.WriteFileAtomic` helper writes via
+  tmp+rename so a power-fail or kill -9 mid-write leaves the
+  previous file intact rather than a torn / empty file the next
+  Load would mis-parse. Applied to: objstore index, findings
+  store, pinned-memory store, contextbuild summary cache, and
+  per-session chat.json (security-hardening-2.md C4 / H10).
+- **Findings ID race fixed.** `findings.Store.Add` used to derive
+  IDs from `len(s.findings)` without a lock; concurrent Adds
+  produced duplicate IDs and a later DeleteByIDs would silently
+  remove the wrong record. The store now serialises via
+  `sync.Mutex`, and the >999-per-day overflow path picks up a
+  6-hex random suffix so the ID stays unique without colliding
+  with the legacy fixed-width format (H9).
 
 ### Fixed
 

@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nlink-jp/shell-agent-v2/internal/atomicio"
 	"github.com/nlink-jp/shell-agent-v2/internal/config"
 )
 
@@ -95,6 +96,9 @@ func (s *Store) Save() error {
 // saveLocked writes the index without acquiring the lock.
 // Caller must already hold s.mu (Lock, not RLock — we are
 // reading the map but a concurrent writer would still race).
+//
+// Atomic write: tmp+rename so a reader never sees a partial
+// index.json after a crash mid-save (security-hardening-2.md C4 / H10).
 func (s *Store) saveLocked() error {
 	if err := os.MkdirAll(s.baseDir, 0700); err != nil {
 		return err
@@ -103,7 +107,7 @@ func (s *Store) saveLocked() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.indexPath, data, 0600)
+	return atomicio.WriteFileAtomic(s.indexPath, data, 0600)
 }
 
 // Store saves a blob and returns its metadata.

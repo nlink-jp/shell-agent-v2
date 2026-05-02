@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/nlink-jp/shell-agent-v2/internal/atomicio"
 	"github.com/nlink-jp/shell-agent-v2/internal/config"
 )
 
@@ -153,7 +154,10 @@ func LoadSession(sessionID string) (*Session, error) {
 	return &s, nil
 }
 
-// Save writes the session to disk.
+// Save writes the session to disk atomically (tmp+rename) so a
+// crash mid-save leaves either the previous chat.json or the new
+// one — never a torn file the next Load would mis-parse
+// (security-hardening-2.md C4 / H10).
 func (s *Session) Save() error {
 	dir := SessionDir(s.ID)
 	if err := os.MkdirAll(dir, 0700); err != nil {
@@ -163,5 +167,5 @@ func (s *Session) Save() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(ChatPath(s.ID), data, 0600)
+	return atomicio.WriteFileAtomic(ChatPath(s.ID), data, 0600)
 }

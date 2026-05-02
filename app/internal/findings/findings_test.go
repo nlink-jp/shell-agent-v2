@@ -2,6 +2,7 @@ package findings
 
 import (
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -104,6 +105,58 @@ func TestNewStore_LoadSaveRoundtrip(t *testing.T) {
 	}
 	if s2.All()[0].Content != "first" || s2.All()[1].Content != "second" {
 		t.Errorf("content not preserved: %+v", s2.All())
+	}
+}
+
+// TestStore_AddIsThreadSafe pins the security-hardening-2.md H9 fix:
+// concurrent Add calls used to race on the shared len(s.findings) ID
+// derivation, producing duplicate IDs and silent miss-targeted
+// DeleteByIDs. With the mutex in place every concurrent caller now
+// observes its own count slot and produces a unique ID.
+func TestStore_AddIsThreadSafe(t *testing.T) {
+	s := &Store{path: "/tmp/test-findings-race.json", findings: []Finding{}}
+
+	const N = 64
+	var wg sync.WaitGroup
+	wg.Add(N)
+	for i := 0; i < N; i++ {
+		go func(i int) {
+			defer wg.Done()
+			s.Add("content", "sess", "title", nil)
+		}(i)
+	}
+	wg.Wait()
+
+	all := s.All()
+	if len(all) != N {
+		t.Fatalf("got %d findings, want %d", len(all), N)
+	}
+	seen := make(map[string]struct{}, N)
+	for _, f := range all {
+		if _, dup := seen[f.ID]; dup {
+			t.Errorf("duplicate ID generated: %s", f.ID)
+		}
+		seen[f.ID] = struct{}{}
+	}
+}
+
+// TestStore_AddOverflowFormat exercises the >999-per-day fallback
+// ID format. We seed the store with 999 findings sharing today's
+// date prefix, then add one more and assert the new ID matches the
+// extended format.
+func TestStore_AddOverflowFormat(t *testing.T) {
+	s := &Store{path: "/tmp/test-findings-overflow.json", findings: []Finding{}}
+	for i := 0; i < 999; i++ {
+		s.Add("seed", "sess", "title", nil)
+	}
+	got := s.Add("after-overflow", "sess", "title", nil)
+	// After 999, the next ID should be longer than the legacy
+	// f-YYYYMMDD-NNN form (which is 14 chars long).
+	if len(got.ID) <= 14 {
+		t.Errorf("overflow ID = %q (len %d), want extended format", got.ID, len(got.ID))
+	}
+	if !strings.HasPrefix(got.ID, "f-") {
+		t.Errorf("overflow ID = %q, missing f- prefix", got.ID)
 	}
 }
 

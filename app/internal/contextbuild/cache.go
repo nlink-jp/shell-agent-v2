@@ -11,6 +11,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/nlink-jp/shell-agent-v2/internal/atomicio"
 	"github.com/nlink-jp/shell-agent-v2/internal/memory"
 )
 
@@ -111,8 +112,10 @@ func LoadCache(sessionID string) (*SummaryCache, error) {
 	return &c, nil
 }
 
-// Save writes the cache to disk. No-op if there are no entries (avoids
-// littering empty files).
+// Save writes the cache to disk atomically (tmp+rename) so a torn
+// summaries.json never reaches the next contextbuild call. No-op if
+// there are no entries (avoids littering empty files).
+// Security-hardening-2.md C4.
 func (c *SummaryCache) Save(sessionID string) error {
 	if c == nil || len(c.Entries) == 0 {
 		return nil
@@ -125,7 +128,7 @@ func (c *SummaryCache) Save(sessionID string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(cachePath(sessionID), data, 0600)
+	return atomicio.WriteFileAtomic(cachePath(sessionID), data, 0600)
 }
 
 func cachePath(sessionID string) string {

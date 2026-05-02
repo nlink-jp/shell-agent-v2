@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nlink-jp/shell-agent-v2/internal/atomicio"
 	"github.com/nlink-jp/shell-agent-v2/internal/config"
 )
 
@@ -49,7 +50,9 @@ func (s *PinnedStore) Load() error {
 	return json.Unmarshal(data, &s.Entries)
 }
 
-// Save writes pinned facts to disk.
+// Save writes pinned facts to disk atomically (tmp+rename) so a
+// crash mid-write leaves the previous file intact rather than a
+// torn / empty pinned.json (security-hardening-2.md C4 / H10).
 func (s *PinnedStore) Save() error {
 	if err := os.MkdirAll(filepath.Dir(s.path), 0700); err != nil {
 		return err
@@ -58,7 +61,7 @@ func (s *PinnedStore) Save() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.path, data, 0600)
+	return atomicio.WriteFileAtomic(s.path, data, 0600)
 }
 
 // Add appends a new fact, deduplicating by content.
