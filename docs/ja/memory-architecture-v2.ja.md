@@ -1,8 +1,15 @@
 # メモリアーキテクチャ v2 — 設計ドキュメント
 
 > 作成日: 2026-04-27
-> ステータス: レビュー用 Draft
-> スコープ: `internal/memory/`、`internal/chat/BuildMessages*`、`internal/agent/agent.go`（圧縮呼び出し）
+> ステータス: 実装済み (opt-in) — `internal/contextbuild/`,
+> `agent.buildMessagesV2`, `sessions/<id>/summaries.json`
+> キャッシュはマージ済みで、`Memory.UseV2` でゲートされる。
+> 既定はレガシー v1 destructive path のままで、`config.json` の
+> フラグを切り替えることで本ドキュメントの非破壊派生に移行する。
+> v0.1.19 では構造的変更なし — Record スキーマに
+> [agent-data-flow.ja.md](./agent-data-flow.ja.md) §3.1 で示す
+> `ToolCalls` / `Status` フィールドが追加されただけ。
+> スコープ: `internal/memory/`、`internal/contextbuild/`、`internal/chat/BuildMessages*`、`internal/agent/agent.go`（圧縮呼び出し）
 
 ## 1. 問題の要約
 

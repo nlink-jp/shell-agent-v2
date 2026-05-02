@@ -1,8 +1,16 @@
 # Memory Architecture v2 — Design Document
 
 > Date: 2026-04-27
-> Status: Draft for review
-> Scope: `internal/memory/`, `internal/chat/BuildMessages*`, `internal/agent/agent.go` (compaction calls)
+> Status: Shipped (opt-in) — `internal/contextbuild/`,
+> `agent.buildMessagesV2`, and the `sessions/<id>/summaries.json`
+> cache are merged and gated behind `Memory.UseV2`. The legacy
+> v1 destructive path remains as the default; flipping the flag
+> in `config.json` switches a session to the non-destructive
+> derivation described below. v0.1.19 left this path unchanged
+> structurally — only the per-Record schema gained the
+> `ToolCalls` and `Status` fields described in
+> [agent-data-flow.md](./agent-data-flow.md) §3.1.
+> Scope: `internal/memory/`, `internal/contextbuild/`, `internal/chat/BuildMessages*`, `internal/agent/agent.go` (compaction calls)
 
 ## 1. Problem Summary
 

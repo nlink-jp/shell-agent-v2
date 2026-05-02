@@ -2,7 +2,15 @@
 
 ## ステータス
 
-設計書 — 承認後に実装。
+v0.1.19 でリリース済み。`memory.Record.Status` は新規ツール結果
+すべてに保存される（`executeTool` の戻り値 — `tool_end` 活動
+イベントを駆動するのと同じ source of truth）。
+`bindings.LoadSession` は永続レコードから tool-event 行を復元する。
+レガシー（Status フィールド未保存）は `success` にデフォルト。
+テストは永続化側
+（`memory_test.go::TestToolResultStatusRoundTrip`）と binding
+側復元（`bindings_test.go::TestLoadSession_RestoresToolEventBubbles`）
+の両方を含む。
 
 ## 課題
 

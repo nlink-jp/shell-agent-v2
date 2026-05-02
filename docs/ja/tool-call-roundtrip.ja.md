@@ -1,12 +1,18 @@
 # ツール呼び出しラウンドトリップ — 設計ドキュメント
 
 > 日付: 2026-05-02
-> ステータス: ドラフト（実装未着手）
+> ステータス: リリース済み — `memory.Record.ToolCalls` の
+> ラウンドトリップ永続化と、並列 FunctionResponse の Content
+> 集約をいずれも v0.1.19 でマージ。並列集約は最後の必須ピース
+> で、モデルが並列ツール呼び出しを実用するや否や Gemini が
+> 「N calls / 1 response each」を HTTP 400 で拒否していた。
+> 経験的検証ハーネスは `app/cmd/tooltest-vertex` と
+> `app/cmd/tooltest-local` に同梱。
 > 範囲: assistant 側のツール呼び出し構造をエンドツーエンドで
 > 永続化・再生して、Vertex（および OpenAI 互換のローカル
 > バックエンド）が自分の出した function call を認識できる
 > ようにする。「Vertex が成功したツールを 3 回連発する」
-> ループを修正
+> ループに加えて、並列呼び出し時の HTTP 400 退行も解消。
 >
 > 引用元（執筆前に検証済み）:
 >   - [Gemini Function Calling docs](https://ai.google.dev/gemini-api/docs/function-calling)

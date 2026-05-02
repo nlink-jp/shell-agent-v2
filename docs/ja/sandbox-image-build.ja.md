@@ -1,13 +1,13 @@
 # Sandbox イメージビルド — 設計ドキュメント
 
 > 日付: 2026-05-01
-> ステータス: ドラフト（実装未着手、Revision 3）
-> 範囲: 推奨 sandbox image (Python + CJK フォント + 解析
-> スタック) と、Settings からビルド可能なビルド機構を
-> 内蔵する。sandbox ツールは (a) アクティブな image が
-> 選択されていて、(b) その image がローカルに存在し、
-> (c) `Sandbox.Enabled = true` — の **3 つすべて** が
-> 満たされたときに初めて有効化される。
+> ステータス: v0.1.18 でリリース済み（Revision 3 — Settings 内
+> Dockerfile エディタ、content-addressed なイメージタグ、
+> ビルド済みイメージライブラリ（Active / Use / Delete アクション）、
+> 専用 Sandbox Settings タブ）。sandbox ツールは (a) アクティブな
+> image が選択されていて、(b) ローカルエンジンにそれが存在し、
+> (c) `Sandbox.Enabled = true` の **3 つすべて** を満たしたときに
+> 登録される。
 >
 > リビジョン履歴:
 >   - r1: Image タグ設定欄と「Build recommended image」

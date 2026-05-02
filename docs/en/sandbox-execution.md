@@ -1,9 +1,17 @@
 # Sandbox Execution — Design Document
 
 > Date: 2026-04-28
-> Status: Draft for review
-> Scope: New `internal/sandbox/` package, new `sandbox-*` tools,
->   config additions, agent loop integration
+> Status: Shipped — Phase 1 (dormant package + tests) in v0.1.13;
+> Phase 2 (config, Settings UI, eight `sandbox-*` LLM tools) in
+> v0.1.13; Phase 3 (image build flow, Sandbox Settings tab) in
+> v0.1.18 (see [`sandbox-image-build.md`](./sandbox-image-build.md));
+> security hardening (symlink traversal, `:Z` SELinux gate,
+> startup container sweep) in v0.1.18 (see
+> [`security-hardening.md`](./security-hardening.md)). Defaults:
+> opt-in, network off, MITL required.
+> Scope: `internal/sandbox/`, `internal/sandbox/imagebuild/`, the
+>   eight `sandbox-*` tools, config additions, agent loop
+>   integration
 
 ## 1. Problem & Motivation
 

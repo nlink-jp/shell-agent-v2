@@ -1,7 +1,14 @@
 # Information Display Redesign — Design Document
 
 > Date: 2026-04-30
-> Status: Draft — pending implementation
+> Status: Shipped — Phase 1 / 2 in v0.1.14, Phase 3 (objects
+> moved into Data disclosure, bulk delete) in v0.1.15. Phase 4
+> (footer strip vs sidebar status) implicitly closed: tokens /
+> message counts now live in the input-status-bar of the chat
+> pane (`App.tsx`), and the Sidebar's `status` panel is gone.
+> Subsequent surfaces piggy-back on the same shape: the
+> background-task badge (v0.1.19) and the BlobPreview entry
+> (v0.1.19) both extend the existing chat-pane chrome.
 > Scope: Sidebar tabs, chat-pane data view, status surfaces
 
 ## 1. Problem Statement

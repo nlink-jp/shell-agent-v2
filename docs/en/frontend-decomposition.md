@@ -1,7 +1,10 @@
 # Frontend Decomposition — Design Document
 
 > Date: 2026-04-30
-> Status: Draft — pending implementation
+> Status: Shipped in v0.1.15. The split below is the layout that
+> actually exists today; subsequent UI work (BlobPreview, MITL
+> tweaks, etc.) extends the same component tree without
+> resurrecting the monolith.
 > Scope: `app/frontend/src/App.tsx` only; CSS, build, and Wails
 > bindings stay untouched
 

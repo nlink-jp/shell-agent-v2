@@ -2,7 +2,11 @@
 
 ## ステータス
 
-設計書 — 承認後に実装。
+v0.1.19 でリリース済み。フッタバッジ、post-task Busy ゲート
+（post-task 走行中は入力欄 + Sidebar の New / Load / Delete を
+ロック）、対称な INFO / ERROR ログ（`done` / `canceled` / `<err>`）
+すべて稼働中。本ドキュメント早期改訂で記述された auto-cancel 案は
+試行 → 撤回。経緯は §「post-task 完了まで Busy を維持」を参照。
 
 ## 課題
 

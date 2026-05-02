@@ -1,13 +1,13 @@
 # Sandbox Image Build — Design Document
 
 > Date: 2026-05-01
-> Status: Draft — pending implementation (Revision 3)
-> Scope: Embed a recommended sandbox image (Python + CJK
-> fonts + analysis stack) and a build mechanism so users
-> can build it from the Settings dialog. Sandbox tools
-> become available only when **all three** of: (a) an
-> active image is selected, (b) the active image is
-> present locally, (c) `Sandbox.Enabled` is true.
+> Status: Shipped in v0.1.18 — Revision 3 (Dockerfile editor
+> in Settings, content-addressed image tags, built-images
+> library with Active / Use / Delete actions, dedicated
+> Sandbox Settings tab). Sandbox tools register only when
+> **all three** of: (a) an active image is selected,
+> (b) the active image is present on the local engine,
+> (c) `Sandbox.Enabled` is true.
 >
 > Revision history:
 >   - r1: separate "Image tag" config field plus an

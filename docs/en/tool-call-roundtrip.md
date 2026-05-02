@@ -1,11 +1,19 @@
 # Tool-Call Round-Trip — Design Document
 
 > Date: 2026-05-02
-> Status: Draft — pending implementation
+> Status: Shipped — `memory.Record.ToolCalls` round-trip
+> persistence and parallel-FunctionResponse coalescing both
+> merged in v0.1.19. The parallel-call coalescing was the
+> finishing piece: Gemini rejected `N calls / 1 response each`
+> as HTTP 400 once the model started using parallel tool
+> calls in real sessions. Empirical verification harnesses
+> ship under `app/cmd/tooltest-vertex` and
+> `app/cmd/tooltest-local`.
 > Scope: Persist and replay assistant-side tool-call
 > structure end-to-end so Vertex (and the OpenAI-format
 > local backend) recognise their own function calls. Fixes
-> a class of "Vertex re-runs the same successful tool" loops.
+> a class of "Vertex re-runs the same successful tool" loops
+> plus the parallel-call HTTP 400 regression.
 >
 > Cited sources (verified before drafting):
 >   - [Gemini Function Calling docs](https://ai.google.dev/gemini-api/docs/function-calling)

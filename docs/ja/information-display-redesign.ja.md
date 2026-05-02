@@ -1,7 +1,13 @@
 # 情報表示リデザイン — 設計ドキュメント
 
 > 日付: 2026-04-30
-> ステータス: ドラフト（実装未着手）
+> ステータス: リリース済み — Phase 1 / 2 が v0.1.14、Phase 3
+> （Objects を Data disclosure に統合、バルク削除）が v0.1.15。
+> Phase 4（footer 帯と Sidebar status 整理）も実質完了し、
+> Tokens / Messages 件数は chat ペインの input-status-bar に
+> 集約され、Sidebar の status パネルは廃止済み。後続の v0.1.19
+> background-task バッジと BlobPreview もこの input-status-bar /
+> data ペイン上に乗っている。
 > 範囲: サイドバータブ、チャットペインのデータビュー、ステータス系の表示
 
 ## 1. 問題整理

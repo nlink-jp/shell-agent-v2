@@ -1,9 +1,16 @@
 # サンドボックス実行 — 設計ドキュメント
 
 > 作成日: 2026-04-28
-> ステータス: レビュー用 Draft
-> スコープ: 新パッケージ `internal/sandbox/`、新 `sandbox-*` ツール群、
->   config 追加、エージェントループ統合
+> ステータス: リリース済み — Phase 1（dormant パッケージ + テスト）が
+> v0.1.13、Phase 2（config / Settings UI / 8 個の `sandbox-*` ツール）
+> も v0.1.13、Phase 3（イメージビルドフロー / 専用 Settings タブ）が
+> v0.1.18（[`sandbox-image-build.ja.md`](./sandbox-image-build.ja.md)
+> 参照）。security 強化（symlink traversal、`:Z` SELinux ゲート、
+> 起動時の残コンテナ sweep）も v0.1.18 で完了
+> （[`security-hardening.ja.md`](./security-hardening.ja.md) 参照）。
+> 既定値: opt-in、ネットワーク off、MITL 必須。
+> スコープ: `internal/sandbox/`、`internal/sandbox/imagebuild/`、
+>   8 個の `sandbox-*` ツール、config 追加、エージェントループ統合
 
 ## 1. 問題と動機
 

@@ -2,7 +2,15 @@
 
 ## Status
 
-Design — to be implemented after sign-off.
+Shipped in v0.1.19. `memory.Record.Status` is populated on every
+new tool result (success / error from the same `executeTool`
+return that drives `tool_end` activity events).
+`bindings.LoadSession` rebuilds tool-event rows from persisted
+records; legacy records (no Status field) default to `success`
+on restore. Tests cover both the persistence path
+(`memory_test.go::TestToolResultStatusRoundTrip`) and the
+binding-side restore
+(`bindings_test.go::TestLoadSession_RestoresToolEventBubbles`).
 
 ## Problem
 

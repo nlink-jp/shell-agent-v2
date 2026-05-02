@@ -2,7 +2,13 @@
 
 ## Status
 
-Design — to be implemented after sign-off.
+Shipped in v0.1.19. The footer badge, the post-task Busy gate
+(input field + Sidebar New / Load / Delete all locked while
+post-tasks run), and the symmetric INFO/ERROR logging
+(`done` / `canceled` / `<err>`) are all live. The auto-cancel
+variant described in earlier drafts of this doc was tried and
+reverted; see the §"State stays Busy until post-tasks finish"
+section below for why.
 
 ## Problem
 
