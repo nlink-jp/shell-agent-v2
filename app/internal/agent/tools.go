@@ -11,6 +11,50 @@ import (
 	"github.com/nlink-jp/shell-agent-v2/internal/objstore"
 )
 
+// analysisToolMITLDefault is the default MITL gate per analysis tool.
+// Consulted by Agent.IsToolMITLRequired when no MITLOverrides entry is
+// set. Centralises the policy so the Settings → Tools toggle and the
+// dispatcher both see the same source of truth
+// (security-hardening-2.md H1+H2).
+//
+// Categories:
+//   - true (MITL on by default)  — host-filesystem ingest, destructive
+//     operations, cross-session state mutation, query/analyze surfaces
+//     that already had a UI confirmation dialog
+//   - false                       — pure metadata reads or local-only
+//     artefact creation
+var analysisToolMITLDefault = map[string]bool{
+	"load-data":        true,  // host-file ingest into the analysis DB
+	"reset-analysis":   true,  // drops every table in the session
+	"promote-finding":  true,  // mutates the global findings store
+	"query-sql":        true,  // SQL preview dialog already in place
+	"analyze-data":     true,  // analysis-plan dialog already in place
+	"create-report":    false, // local artefact in objstore
+	"describe-data":    false, // metadata read
+	"list-tables":      false, // metadata read
+	"query-preview":    false, // NL → SQL only, doesn't execute
+	"suggest-analysis": false, // LLM-side suggestion, no state change
+	"quick-summary":    false, // SELECT + summarise, no mutation
+}
+
+// analysisToolMITLCategory returns the human-readable category passed
+// to requestMITL for analysis tools. The frontend special-cases
+// "sql_preview" and "analysis_plan" to render a SQL preview dialog
+// and an analysis-plan dialog respectively; everything else falls
+// back to the standard execute / write confirmation.
+func analysisToolMITLCategory(name string) string {
+	switch name {
+	case "query-sql":
+		return "sql_preview"
+	case "analyze-data":
+		return "analysis_plan"
+	case "load-data", "reset-analysis":
+		return "execute"
+	default:
+		return "write"
+	}
+}
+
 // analysisTools returns tool definitions for data analysis.
 // When no data is loaded, only load-data and reset-analysis are exposed
 // to keep the tool count low for local LLMs.
@@ -222,14 +266,9 @@ func (a *Agent) executeAnalysisTool(ctx context.Context, name string, argsJSON s
 	case "describe-data":
 		return a.toolDescribeData(argsJSON)
 	case "query-sql":
-		// MITL: show SQL before execution. Carry the rejection
-		// sentinel back so the agentLoop colours the tool-event
-		// bubble red. The result text remains the user-facing
-		// rejection message so the LLM understands why nothing
-		// ran.
-		if rejection := a.requestMITL("query-sql", argsJSON, "sql_preview"); rejection != "" {
-			return rejection, ErrMITLRejected
-		}
+		// MITL is now gated by the dispatcher via IsToolMITLRequired
+		// so the Settings → Tools toggle takes effect. See
+		// security-hardening-2.md H1+H2 / agent.go:1231.
 		return a.toolQuerySQL(argsJSON)
 	case "list-tables":
 		return a.toolListTables()
@@ -246,11 +285,8 @@ func (a *Agent) executeAnalysisTool(ctx context.Context, name string, argsJSON s
 	case "promote-finding":
 		return a.toolPromoteFinding(argsJSON)
 	case "analyze-data":
-		// MITL: show analysis perspective before execution.
-		// Same sentinel-on-rejection pattern as query-sql above.
-		if rejection := a.requestMITL("analyze-data", argsJSON, "analysis_plan"); rejection != "" {
-			return rejection, ErrMITLRejected
-		}
+		// MITL is now gated by the dispatcher via IsToolMITLRequired
+		// (security-hardening-2.md H1+H2 / agent.go:1231).
 		return a.toolAnalyzeData(ctx, argsJSON)
 	default:
 		return "", fmt.Errorf("unknown analysis tool: %s", name)

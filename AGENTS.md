@@ -199,3 +199,5 @@ All implementation must follow these design documents:
 - Sandbox `Exec` caps each of stdout/stderr at `Sandbox.MaxOutputBytes` (default 8 MiB); excess is dropped with a trailing marker (C3)
 - Local-backend `Chat` / `ChatStream` reject response bodies above 16 MiB (`MaxLocalResponseBytes`) (H12)
 - `analysis.refreshTableMeta` uses parameter binding for the `duckdb_tables()` lookup — never string-concatenate LLM-supplied table names into SQL (C1)
+- Analysis tools route through `IsToolMITLRequired` like every other source — `analysisToolMITLDefault` (`tools.go`) is the single source of truth for per-tool defaults; `executeAnalysisTool` no longer does its own MITL gating (security-hardening-2.md H1+H2)
+- MCP tool name parsing uses `splitMCPName` with longest-prefix fallback for the rare guardian / tool name containing `__`. Guardian names must match `validGuardianName` (`^[a-zA-Z0-9-]+$`) at startup (H3)

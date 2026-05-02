@@ -34,9 +34,30 @@ for the full design and finding inventory.
   `duckdb_tables()` `WHERE` clause; LLM-supplied names with quote
   characters or SQL meta-syntax can no longer perturb the query
   (C1).
+- **Robust MCP tool-name parsing.** The dispatcher used to do a
+  naive `SplitN("__", 2)` on the part after `mcp__`, which
+  mis-routed when a guardian or upstream tool name contained
+  `__`. New `splitMCPName` helper falls back to a longest-prefix
+  match against the registered guardian set. Guardian names are
+  also validated against `^[a-zA-Z0-9-]+$` at startup so the
+  separator collision can't be planted in fresh configs (H3).
 
 ### Fixed
 
+- **Settings → Tools MITL toggles now actually work for analysis
+  tools** (security-hardening-2.md H1+H2). The toggle for
+  `load-data`, `reset-analysis`, `promote-finding`,
+  `describe-data`, `list-tables`, `query-preview`,
+  `suggest-analysis`, `quick-summary`, `create-report` was a
+  no-op — the dispatcher's analysis branch never consulted
+  `MITLOverrides`. Conversely, `query-sql` and `analyze-data`
+  ignored the toggle's OFF state because their MITL was
+  hard-coded inside the tool handler. Both directions are now
+  honoured: turn the toggle ON to gate a previously-ungated tool,
+  OFF to silence a previously-forced prompt. New defaults match
+  what the UI used to imply (`load-data`, `reset-analysis`,
+  `promote-finding`, `query-sql`, `analyze-data` default ON;
+  metadata reads default OFF).
 - `TestSandboxDefaults` was asserting that the default
   `Sandbox.Image` is populated, but the actual default is empty
   on purpose (the readiness gate hides sandbox tools until the

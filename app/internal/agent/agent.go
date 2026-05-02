@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -27,6 +28,13 @@ import (
 	"github.com/nlink-jp/shell-agent-v2/internal/toolcall"
 )
 
+// validGuardianName restricts MCP guardian profile names so the
+// `mcp__<guardian>__<tool>` flat namespace stays unambiguous. The
+// double-underscore separator means we cannot allow `_` runs in
+// guardian names without inviting parser confusion
+// (security-hardening-2.md H3).
+var validGuardianName = regexp.MustCompile(`^[a-zA-Z0-9-]+$`)
+
 // State represents the agent's execution state.
 type State string
 
@@ -42,14 +50,6 @@ const maxToolRounds = config.DefaultMaxToolRounds
 
 // ErrBusy is returned when a message is sent while the agent is busy.
 var ErrBusy = errors.New("agent is busy")
-
-// ErrMITLRejected is returned by tool dispatchers when the user
-// rejected the MITL prompt. The user-facing rejection string
-// (carried alongside as the result text) is what the LLM sees in
-// the tool_result; the sentinel error lets the agentLoop tag the
-// activity as ActivityStatusError so the chat bubble shows red
-// instead of a misleading green check.
-var ErrMITLRejected = errors.New("agent: MITL rejected")
 
 // StreamHandler receives streaming tokens from the agent.
 type StreamHandler func(token string, done bool)
@@ -542,6 +542,18 @@ func (a *Agent) startGuardians() {
 	for _, p := range a.cfg.Tools.MCPProfiles {
 		if !p.Enabled || p.Name == "" || p.Binary == "" {
 			a.mcpStatuses = append(a.mcpStatuses, MCPStatus{Name: p.Name, Status: "disabled"})
+			continue
+		}
+		if !validGuardianName.MatchString(p.Name) {
+			// Reject profiles whose name doesn't match the
+			// allowed character set so the dispatcher's
+			// `mcp__<name>__<tool>` parsing stays unambiguous
+			// (security-hardening-2.md H3). Underscores and
+			// double-underscores in particular collide with the
+			// separator.
+			err := fmt.Errorf("invalid guardian name %q: must match %s", p.Name, validGuardianName)
+			logger.Error("MCP guardian %q rejected: %v", p.Name, err)
+			a.mcpStatuses = append(a.mcpStatuses, MCPStatus{Name: p.Name, Status: "error", Error: err.Error()})
 			continue
 		}
 		binary, err := validateBinaryPath(p.Binary)
@@ -1232,15 +1244,21 @@ func (a *Agent) executeTool(ctx context.Context, tc llm.ToolCall) (string, Activ
 		if a.analysis == nil {
 			return "Error: no analysis engine available", ActivityStatusError
 		}
-		result, err := a.executeAnalysisTool(ctx, tc.Name, tc.Arguments)
-		if errors.Is(err, ErrMITLRejected) {
-			// MITL rejection: keep the dispatcher's
-			// user-facing rejection text as the result so the
-			// LLM sees why nothing ran, but mark the activity
-			// as error so the bubble doesn't show a green
-			// check next to "Tool execution rejected by user."
-			return result, ActivityStatusError
+		// MITL is gated centrally here so the Settings → Tools toggle
+		// (cfg.Tools.MITLOverrides via IsToolMITLRequired) takes
+		// effect for analysis tools. Before security-hardening-2.md
+		// H1+H2 the toggle was a no-op for this branch — load-data,
+		// reset-analysis and promote-finding ran without confirmation
+		// regardless, while query-sql / analyze-data prompted
+		// regardless. The hard-coded MITL calls inside
+		// executeAnalysisTool have been removed.
+		if a.IsToolMITLRequired(tc.Name) {
+			category := analysisToolMITLCategory(tc.Name)
+			if rejection := a.requestMITL(tc.Name, tc.Arguments, category); rejection != "" {
+				return rejection, ActivityStatusError
+			}
 		}
+		result, err := a.executeAnalysisTool(ctx, tc.Name, tc.Arguments)
 		if err != nil {
 			return fmt.Sprintf("Error: %v", err), ActivityStatusError
 		}
@@ -1263,17 +1281,20 @@ func (a *Agent) executeTool(ctx context.Context, tc llm.ToolCall) (string, Activ
 					return rejection, ActivityStatusError
 				}
 			}
-			parts := strings.SplitN(strings.TrimPrefix(tc.Name, "mcp__"), "__", 2)
-			if len(parts) != 2 {
-				return "Error: invalid MCP tool name format", ActivityStatusError
-			}
 			a.guardiansMu.RLock()
-			g, ok := a.guardians[parts[0]]
+			guardianName, toolName, ok := splitMCPName(strings.TrimPrefix(tc.Name, "mcp__"), a.guardians)
+			var g *mcp.Guardian
+			if ok {
+				g = a.guardians[guardianName]
+			}
 			a.guardiansMu.RUnlock()
 			if !ok {
-				return fmt.Sprintf("Error: MCP guardian %q not found", parts[0]), ActivityStatusError
+				return "Error: invalid MCP tool name format", ActivityStatusError
 			}
-			result, err := g.CallTool(parts[1], json.RawMessage(tc.Arguments))
+			if g == nil {
+				return fmt.Sprintf("Error: MCP guardian %q not found", guardianName), ActivityStatusError
+			}
+			result, err := g.CallTool(toolName, json.RawMessage(tc.Arguments))
 			if errors.Is(err, mcp.ErrToolFailed) {
 				// Upstream MCP server signalled a tool-level
 				// failure via result.isError. The body still
@@ -1283,7 +1304,7 @@ func (a *Agent) executeTool(ctx context.Context, tc llm.ToolCall) (string, Activ
 				return string(result), ActivityStatusError
 			}
 			if err != nil {
-				return fmt.Sprintf("Error: MCP %s: %v", parts[1], err), ActivityStatusError
+				return fmt.Sprintf("Error: MCP %s: %v", toolName, err), ActivityStatusError
 			}
 			return string(result), ActivityStatusSuccess
 		}
@@ -1375,19 +1396,73 @@ func (a *Agent) buildToolDefs() []llm.ToolDef {
 	return tools
 }
 
+// splitMCPName parses the part after `mcp__` of an MCP tool call name
+// into (guardianName, toolName). It first tries the naive split on
+// the first `__`; if the resulting guardianName isn't registered, it
+// walks the registered guardians and picks the longest one whose name
+// is a prefix of `rest` followed by `__`. This makes the parser
+// tolerant of guardian or upstream-tool names containing `__`
+// (security-hardening-2.md H3). Caller must hold guardiansMu.
+func splitMCPName(rest string, guardians map[string]*mcp.Guardian) (string, string, bool) {
+	if i := strings.Index(rest, "__"); i > 0 {
+		guardian := rest[:i]
+		tool := rest[i+2:]
+		if tool != "" {
+			if _, ok := guardians[guardian]; ok {
+				return guardian, tool, true
+			}
+		}
+	}
+	// Fall back to longest-prefix match against registered names.
+	var bestGuardian string
+	for name := range guardians {
+		marker := name + "__"
+		if !strings.HasPrefix(rest, marker) {
+			continue
+		}
+		if len(name) > len(bestGuardian) {
+			bestGuardian = name
+		}
+	}
+	if bestGuardian == "" {
+		return "", "", false
+	}
+	tool := rest[len(bestGuardian)+2:]
+	if tool == "" {
+		return "", "", false
+	}
+	return bestGuardian, tool, true
+}
+
 // IsToolMITLRequired checks if a tool requires MITL approval,
 // considering per-tool overrides in config.
-// Default: MCP tools and write/execute shell tools require MITL.
+//
+// Priority:
+//  1. cfg.Tools.MITLOverrides[name] — user override always wins
+//  2. mcp__* / sandbox-* prefix → on by default
+//  3. analysisToolMITLDefault map → per-tool default for analysis tools
+//  4. otherwise (shell tools) → false; the dispatcher consults the
+//     tool's own Category via tool.NeedsMITL()
+//
+// Before security-hardening-2.md H1+H2, the analysis-tool branch of
+// the dispatcher bypassed this entirely: the Settings → Tools MITL
+// toggle existed in the UI but had no effect for any analysis tool
+// (load-data, reset-analysis, promote-finding could never be turned
+// ON; query-sql / analyze-data could never be turned OFF, the call
+// was hardcoded inside executeAnalysisTool). This routing closes that
+// contract gap.
 func (a *Agent) IsToolMITLRequired(toolName string) bool {
 	if override, ok := a.cfg.Tools.MITLOverrides[toolName]; ok {
 		return override
 	}
-	// Default: MCP and sandbox tools require MITL.
 	if strings.HasPrefix(toolName, "mcp__") {
 		return true
 	}
 	if strings.HasPrefix(toolName, "sandbox-") {
 		return true
+	}
+	if def, ok := analysisToolMITLDefault[toolName]; ok {
+		return def
 	}
 	return false
 }
