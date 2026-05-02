@@ -35,6 +35,16 @@ func (v *Vertex) Chat(ctx context.Context, messages []Message, tools []ToolDef) 
 
 	gcConfig := &genai.GenerateContentConfig{
 		SystemInstruction: v.buildSystemInstruction(messages),
+		// IncludeThoughts defaults to false in the SDK, but Gemini
+		// 2.5 Flash has been observed returning a thought Part with
+		// Thought=false anyway (whose text starts with "THOUGHT\n"
+		// or "思考\n"). Setting this explicitly is a no-op for
+		// well-behaved models and a hopeful nudge for ones that
+		// aren't honouring the default. Harmless on non-thinking
+		// models — the field is ignored.
+		ThinkingConfig: &genai.ThinkingConfig{
+			IncludeThoughts: false,
+		},
 	}
 	if len(tools) > 0 {
 		gcConfig.Tools = v.convertTools(tools)
@@ -59,6 +69,16 @@ func (v *Vertex) ChatStream(ctx context.Context, messages []Message, tools []Too
 
 	gcConfig := &genai.GenerateContentConfig{
 		SystemInstruction: v.buildSystemInstruction(messages),
+		// IncludeThoughts defaults to false in the SDK, but Gemini
+		// 2.5 Flash has been observed returning a thought Part with
+		// Thought=false anyway (whose text starts with "THOUGHT\n"
+		// or "思考\n"). Setting this explicitly is a no-op for
+		// well-behaved models and a hopeful nudge for ones that
+		// aren't honouring the default. Harmless on non-thinking
+		// models — the field is ignored.
+		ThinkingConfig: &genai.ThinkingConfig{
+			IncludeThoughts: false,
+		},
 	}
 	if len(tools) > 0 {
 		gcConfig.Tools = v.convertTools(tools)
