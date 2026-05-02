@@ -155,6 +155,11 @@ export default function SettingsDialog({settings, tools, mcpStatus, onUpdate, on
                                 <span>Per-request timeout (seconds)</span>
                                 <input type="number" min={5} value={settings.local_timeout_seconds || 300} onChange={e => onUpdate({local_timeout_seconds: parseInt(e.target.value, 10) || 300})} />
                             </label>
+                            <label>
+                                <span>Retry max attempts</span>
+                                <input type="number" min={1} max={10} value={settings.local_retry_max_attempts || 3} onChange={e => onUpdate({local_retry_max_attempts: parseInt(e.target.value, 10) || 3})} />
+                            </label>
+                            <p className="sidebar-hint">Total LLM call attempts including the first (1 = no retries). Defaults to 3. Backoff timing knobs (base / max / jitter) are config-only — see README.</p>
                         </div>
                         <div className="settings-section">
                             <h3>Vertex AI</h3>
@@ -178,6 +183,11 @@ export default function SettingsDialog({settings, tools, mcpStatus, onUpdate, on
                                 <span>Per-request timeout (seconds)</span>
                                 <input type="number" min={5} value={settings.vertex_timeout_seconds || 180} onChange={e => onUpdate({vertex_timeout_seconds: parseInt(e.target.value, 10) || 180})} />
                             </label>
+                            <label>
+                                <span>Retry max attempts</span>
+                                <input type="number" min={1} max={10} value={settings.vertex_retry_max_attempts || 3} onChange={e => onUpdate({vertex_retry_max_attempts: parseInt(e.target.value, 10) || 3})} />
+                            </label>
+                            <p className="sidebar-hint">Total LLM call attempts including the first (1 = no retries). Defaults to 3. Backoff timing knobs (base / max / jitter) are config-only — see README.</p>
                         </div>
                     </>)}
                     {tab === 'tools' && (<>

@@ -77,7 +77,11 @@ gcloud auth application-default login
 | Max Warm Summary Tokens | `llm.{local,vertex_ai}.context_budget.max_warm_tokens` | 1024 | 16384 | warm-summary ブロックの上限。これを超えた古い summary は drop される。 |
 | Max Tool-Result Tokens | `llm.{local,vertex_ai}.context_budget.max_tool_result_tokens` | 2048 | 32768 | LLM メッセージ列に投入する前にツール結果を切り詰めるサイズ。 |
 | Output Reserve | `llm.{local,vertex_ai}.context_budget.output_reserve` | 4096 | 4096 | モデル応答用に確保するトークン量。コンテキスト詰め込み前に `max_context_tokens` から差し引かれ、リクエストがモデルウィンドウを超えないようにする。 |
-| Per-request timeout (秒) | `llm.{local,vertex_ai}.request_timeout_seconds` | 300 | 180 | リトライ層内の per-attempt キャップ。リトライは最大 3 回（指数バックオフ付き）。 |
+| Per-request timeout (秒) | `llm.{local,vertex_ai}.request_timeout_seconds` | 300 | 180 | リトライ層内の per-attempt キャップ。 |
+| リトライ最大回数 | `llm.{local,vertex_ai}.retry_max_attempts` | 3 | 3 | 初回を含む LLM コール総試行数（1 = リトライなし）。Settings → Local LLM / Vertex AI に露出。 |
+| リトライ backoff base (秒) | `llm.{local,vertex_ai}.retry_backoff_base_seconds` | 5 | 5 | 最初のリトライ間隔。以降 2 倍ずつ伸び、下記 max でキャップ。設定ファイル直編集のみ。 |
+| リトライ backoff max (秒) | `llm.{local,vertex_ai}.retry_backoff_max_seconds` | 120 | 120 | リトライ間隔の上限。設定ファイル直編集のみ。 |
+| リトライ jitter (秒) | `llm.{local,vertex_ai}.retry_jitter_seconds` | 1 | 1 | 各 backoff に対し ±jitter の一様分布で揺らぎを足す。設定ファイル直編集のみ。 |
 
 #### Sandbox (`sandbox.*`)
 

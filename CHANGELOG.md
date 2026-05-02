@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+Hygiene + small-feature batch.
+
+### Added
+
+- **Per-backend retry policy in Settings.** New per-backend
+  `Retry max attempts` field in Settings → Local LLM and
+  Settings → Vertex AI (default 3, range 1–10). Backoff timing
+  knobs (`retry_backoff_base_seconds`, `retry_backoff_max_seconds`,
+  `retry_jitter_seconds`) are config-only on `cfg.LLM.{local,vertex_ai}.*`
+  for power users; default to nlk/backoff's defaults (5s base,
+  120s max, 1s jitter). Lets users on a slower-quota GCP project
+  shorten or lengthen the retry sequence without rebuilding.
+- **`internal/frontendlint` package.** A Go test
+  (`TestNoRehypeRaw` / `TestPackageJSONDoesNotDependOnRehypeRaw`)
+  scans `frontend/src/` and `frontend/package.json` for the
+  forbidden `rehype-raw` / `rehype-sanitize` imports and the
+  `dangerouslySetInnerHTML` escape hatch. The Markdown pipeline
+  is XSS-safe by construction (security-hardening-2.md §8); this
+  test catches the regression vector if someone re-enables raw
+  HTML in the future. Runs with `make test`, no separate ESLint
+  pipeline needed.
+
+### Changed
+
+- **Internal: Go-1.22+/1.25+ idiom sweep across the codebase.**
+  ~30 C-style `for i := 0; i < N; i++` loops converted to
+  `for i := range N` (or `for range N` where the index isn't
+  used); 3 `wg.Add(1) + go func() { defer wg.Done() … }()`
+  patterns converted to `wg.Go(...)`; `strings.Split` → `SplitSeq`
+  in two streaming-style consumers; one
+  `HasPrefix + TrimPrefix` pair → `CutPrefix`; two unnecessary
+  `fmt.Sprintf` calls inlined to string literals. Pure hygiene,
+  no behaviour change. All tests pass under `-race`.
+
 ## [0.1.22] - 2026-05-02
 
 ### Changed

@@ -77,7 +77,11 @@ override the legacy top-level fallbacks in `config.json`.
 | Max Warm Summary Tokens | `llm.{local,vertex_ai}.context_budget.max_warm_tokens` | 1024 | 16384 | Cap for the warm-summary block. Older summaries are dropped past this. |
 | Max Tool-Result Tokens | `llm.{local,vertex_ai}.context_budget.max_tool_result_tokens` | 2048 | 32768 | Per-tool-result truncation before insertion into the LLM message list. |
 | Output Reserve | `llm.{local,vertex_ai}.context_budget.output_reserve` | 4096 | 4096 | Tokens reserved for the model's reply. Subtracted from `max_context_tokens` before context packing, so the request stays under the model's window. |
-| Per-request timeout (s) | `llm.{local,vertex_ai}.request_timeout_seconds` | 300 | 180 | Per-attempt cap inside the retry layer. The retry loop runs up to 3 attempts with exponential backoff. |
+| Per-request timeout (s) | `llm.{local,vertex_ai}.request_timeout_seconds` | 300 | 180 | Per-attempt cap inside the retry layer. |
+| Retry max attempts | `llm.{local,vertex_ai}.retry_max_attempts` | 3 | 3 | Total LLM call attempts including the first (1 = no retries). Settings → Local LLM / Vertex AI surface this. |
+| Retry backoff base (s) | `llm.{local,vertex_ai}.retry_backoff_base_seconds` | 5 | 5 | Initial backoff between retries. Doubles on each subsequent retry, capped at the max below. Config-only — not in Settings UI. |
+| Retry backoff max (s) | `llm.{local,vertex_ai}.retry_backoff_max_seconds` | 120 | 120 | Cap on the per-retry wait. Config-only. |
+| Retry jitter (s) | `llm.{local,vertex_ai}.retry_jitter_seconds` | 1 | 1 | Uniform `±jitter` randomisation around each backoff. Config-only. |
 
 #### Sandbox (`sandbox.*`)
 

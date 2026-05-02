@@ -146,11 +146,17 @@ export interface Settings {
     local_model: string;
     local_budget: BackendBudget;
     local_timeout_seconds: number;
+    /** Total LLM call attempts (1 = no retries). Default 3.
+     *  Set in Settings → Local LLM. Backoff timing knobs
+     *  (base/max/jitter) are config-only — see README. */
+    local_retry_max_attempts: number;
     vertex_project: string;
     vertex_region: string;
     vertex_model: string;
     vertex_budget: BackendBudget;
     vertex_timeout_seconds: number;
+    /** Same as local_retry_max_attempts but for the Vertex backend. */
+    vertex_retry_max_attempts: number;
     theme: string;
     location: string;
     mcp_profiles: MCPProfile[];

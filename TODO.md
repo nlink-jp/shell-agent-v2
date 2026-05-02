@@ -123,16 +123,3 @@ Transformers) remains. Some ideas, none designed yet:
 Out of scope until someone wants to invest in local-only
 quality parity with Vertex.
 
-### Per-backend retry policy in Settings
-
-Currently hardcoded to 3 attempts with 5s→60s exponential
-backoff (±10% jitter) in `internal/llm/retry.go`'s
-`DefaultRetryPolicy`. The other "more knobs" candidates were
-shipped — per-backend timeouts, memory v2 toggle, sandbox
-image / CPU / memory, and per-backend `output_reserve` /
-`max_tool_rounds` are all in the Settings dialog.
-
-Retry was deferred because exposing it risks user
-mis-configuration with little benefit; revisit only if a real
-session needs custom retry behaviour (e.g., a slower-quota
-GCP project that benefits from longer initial backoff).

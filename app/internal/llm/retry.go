@@ -52,15 +52,54 @@ type RetryPolicy struct {
 	OnBackoff func(attempt int, wait time.Duration, err error)
 }
 
+// Default values used when a config field is left at zero. Kept in
+// one place so the Settings UI labels and the agent both agree on
+// what "leave blank to use the default" means.
+const (
+	DefaultMaxAttempts        = 3
+	DefaultBackoffBaseSeconds = 5
+	DefaultBackoffMaxSeconds  = 120
+	DefaultJitterSeconds      = 1
+)
+
 // DefaultRetryPolicy returns the policy used when no explicit one
-// is configured. base 5s, 2× growth capped at 60s, jitter ±10%,
-// 3 attempts total. The constants live here so tests and Settings
-// UI agree on what "default" means.
+// is configured. 3 attempts total, base 5s, max 120s, jitter ±1s
+// (defaults from nlk/backoff). The constants above let tests and
+// Settings UI agree on what "default" means.
 func DefaultRetryPolicy(perRequestTimeout time.Duration) RetryPolicy {
 	return RetryPolicy{
 		PerRequestTimeout: perRequestTimeout,
-		MaxAttempts:       3,
+		MaxAttempts:       DefaultMaxAttempts,
 		Backoff:           backoff.New(),
+	}
+}
+
+// RetryPolicyFrom builds a RetryPolicy from per-backend config
+// overrides. Each zero override falls back to the package default
+// (DefaultMaxAttempts / nlk/backoff defaults). The perRequestTimeout
+// is the resolved per-attempt timeout (already defaulted by the
+// caller via LocalRequestTimeout / VertexRequestTimeout).
+func RetryPolicyFrom(
+	perRequestTimeout time.Duration,
+	maxAttempts, backoffBaseSec, backoffMaxSec, jitterSec int,
+) RetryPolicy {
+	if maxAttempts <= 0 {
+		maxAttempts = DefaultMaxAttempts
+	}
+	var opts []backoff.Option
+	if backoffBaseSec > 0 {
+		opts = append(opts, backoff.WithBase(time.Duration(backoffBaseSec)*time.Second))
+	}
+	if backoffMaxSec > 0 {
+		opts = append(opts, backoff.WithMax(time.Duration(backoffMaxSec)*time.Second))
+	}
+	if jitterSec > 0 {
+		opts = append(opts, backoff.WithJitter(time.Duration(jitterSec)*time.Second))
+	}
+	return RetryPolicy{
+		PerRequestTimeout: perRequestTimeout,
+		MaxAttempts:       maxAttempts,
+		Backoff:           backoff.New(opts...),
 	}
 }
 
@@ -111,7 +150,7 @@ func (r *retryBackend) do(ctx context.Context, op func(context.Context) (*Respon
 	}
 
 	var lastErr error
-	for attempt := 0; attempt < maxAttempts; attempt++ {
+	for attempt := range maxAttempts {
 		// Per-attempt context with the configured timeout, derived
 		// from the caller's ctx so cancellation still propagates.
 		attemptCtx := ctx

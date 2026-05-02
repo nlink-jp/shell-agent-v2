@@ -16,6 +16,7 @@ import (
 	"github.com/nlink-jp/shell-agent-v2/internal/analysis"
 	"github.com/nlink-jp/shell-agent-v2/internal/bundled"
 	"github.com/nlink-jp/shell-agent-v2/internal/config"
+	"github.com/nlink-jp/shell-agent-v2/internal/llm"
 	"github.com/nlink-jp/shell-agent-v2/internal/logger"
 	"github.com/nlink-jp/shell-agent-v2/internal/memory"
 	"github.com/nlink-jp/shell-agent-v2/internal/objstore"
@@ -518,11 +519,13 @@ type SettingsData struct {
 	LocalModel           string            `json:"local_model"`
 	LocalBudget          BackendBudgetData `json:"local_budget"`
 	LocalTimeoutSeconds  int               `json:"local_timeout_seconds"`
+	LocalRetryMaxAttempts int              `json:"local_retry_max_attempts"`
 	VertexProject        string            `json:"vertex_project"`
 	VertexRegion         string            `json:"vertex_region"`
 	VertexModel          string            `json:"vertex_model"`
 	VertexBudget         BackendBudgetData `json:"vertex_budget"`
 	VertexTimeoutSeconds int               `json:"vertex_timeout_seconds"`
+	VertexRetryMaxAttempts int             `json:"vertex_retry_max_attempts"`
 	Theme          string            `json:"theme"`
 	Location       string            `json:"location"`
 	MCPProfiles    []MCPProfileData  `json:"mcp_profiles"`
@@ -548,17 +551,25 @@ func (b *Bindings) GetSettings() SettingsData {
 			OutputReserve:       b.OutputReserveResolved(),
 		}
 	}
+	resolveAttempts := func(v int) int {
+		if v <= 0 {
+			return llm.DefaultMaxAttempts
+		}
+		return v
+	}
 	return SettingsData{
-		DefaultBackend:       string(b.cfg.LLM.DefaultBackend),
-		LocalEndpoint:        b.cfg.LLM.Local.Endpoint,
-		LocalModel:           b.cfg.LLM.Local.Model,
-		LocalBudget:          toBudget(b.cfg.LLM.Local.HotTokenLimit, b.cfg.LLM.Local.ContextBudget),
-		LocalTimeoutSeconds:  b.cfg.LLM.Local.LocalRequestTimeout(),
-		VertexProject:        b.cfg.LLM.VertexAI.ProjectID,
-		VertexRegion:         b.cfg.LLM.VertexAI.Region,
-		VertexModel:          b.cfg.LLM.VertexAI.Model,
-		VertexBudget:         toBudget(b.cfg.LLM.VertexAI.HotTokenLimit, b.cfg.LLM.VertexAI.ContextBudget),
-		VertexTimeoutSeconds: b.cfg.LLM.VertexAI.VertexRequestTimeout(),
+		DefaultBackend:        string(b.cfg.LLM.DefaultBackend),
+		LocalEndpoint:         b.cfg.LLM.Local.Endpoint,
+		LocalModel:            b.cfg.LLM.Local.Model,
+		LocalBudget:           toBudget(b.cfg.LLM.Local.HotTokenLimit, b.cfg.LLM.Local.ContextBudget),
+		LocalTimeoutSeconds:   b.cfg.LLM.Local.LocalRequestTimeout(),
+		LocalRetryMaxAttempts: resolveAttempts(b.cfg.LLM.Local.RetryMaxAttempts),
+		VertexProject:         b.cfg.LLM.VertexAI.ProjectID,
+		VertexRegion:          b.cfg.LLM.VertexAI.Region,
+		VertexModel:           b.cfg.LLM.VertexAI.Model,
+		VertexBudget:          toBudget(b.cfg.LLM.VertexAI.HotTokenLimit, b.cfg.LLM.VertexAI.ContextBudget),
+		VertexTimeoutSeconds:  b.cfg.LLM.VertexAI.VertexRequestTimeout(),
+		VertexRetryMaxAttempts: resolveAttempts(b.cfg.LLM.VertexAI.RetryMaxAttempts),
 		Theme:          b.cfg.UI.Theme,
 		Location:       b.cfg.Location,
 		MCPProfiles:    profiles,
@@ -594,6 +605,7 @@ func (b *Bindings) SaveSettings(s SettingsData) error {
 		OutputReserve:       s.LocalBudget.OutputReserve,
 	}
 	b.cfg.LLM.Local.RequestTimeoutSeconds = s.LocalTimeoutSeconds
+	b.cfg.LLM.Local.RetryMaxAttempts = s.LocalRetryMaxAttempts
 	b.cfg.LLM.VertexAI.ProjectID = s.VertexProject
 	b.cfg.LLM.VertexAI.Region = s.VertexRegion
 	b.cfg.LLM.VertexAI.Model = s.VertexModel
@@ -605,6 +617,7 @@ func (b *Bindings) SaveSettings(s SettingsData) error {
 		OutputReserve:       s.VertexBudget.OutputReserve,
 	}
 	b.cfg.LLM.VertexAI.RequestTimeoutSeconds = s.VertexTimeoutSeconds
+	b.cfg.LLM.VertexAI.RetryMaxAttempts = s.VertexRetryMaxAttempts
 	b.cfg.UI.Theme = s.Theme
 	b.cfg.Location = s.Location
 	b.cfg.Memory.UseV2 = s.MemoryUseV2

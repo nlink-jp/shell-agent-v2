@@ -29,6 +29,16 @@ type LocalConfig struct {
 	// Garbage / attack detection threshold; not surfaced in the
 	// Settings UI (security-hardening-2.md H6).
 	MaxToolCallArgsBytes int `json:"max_tool_call_args_bytes,omitempty"`
+
+	// Retry policy. 0 on any field means "use the package default
+	// from internal/llm/retry.go" (3 attempts, 5s base, 120s cap,
+	// 1s jitter). Only RetryMaxAttempts is exposed in Settings UI;
+	// the backoff knobs are config-only since most users will never
+	// tune them.
+	RetryMaxAttempts        int `json:"retry_max_attempts,omitempty"`
+	RetryBackoffBaseSeconds int `json:"retry_backoff_base_seconds,omitempty"`
+	RetryBackoffMaxSeconds  int `json:"retry_backoff_max_seconds,omitempty"`
+	RetryJitterSeconds      int `json:"retry_jitter_seconds,omitempty"`
 }
 
 // VertexAIConfig holds Vertex AI settings.
@@ -43,6 +53,12 @@ type VertexAIConfig struct {
 	// returns tool calls already-decoded so the cap is enforced at
 	// the wire-decode boundary (not a string-len check).
 	MaxToolCallArgsBytes int `json:"max_tool_call_args_bytes,omitempty"`
+
+	// Retry policy — see LocalConfig.
+	RetryMaxAttempts        int `json:"retry_max_attempts,omitempty"`
+	RetryBackoffBaseSeconds int `json:"retry_backoff_base_seconds,omitempty"`
+	RetryBackoffMaxSeconds  int `json:"retry_backoff_max_seconds,omitempty"`
+	RetryJitterSeconds      int `json:"retry_jitter_seconds,omitempty"`
 }
 
 // LocalRequestTimeoutDefault is the fallback per-request timeout
