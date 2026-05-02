@@ -13,6 +13,7 @@ import SettingsDialog from './dialogs/SettingsDialog'
 import MITLDialog from './dialogs/MITLDialog'
 import Lightbox from './dialogs/Lightbox'
 import ReportViewer from './dialogs/ReportViewer'
+import BlobPreview, {type BlobPreviewData} from './dialogs/BlobPreview'
 import 'highlight.js/styles/github-dark.css'
 import 'katex/dist/katex.min.css'
 import './themes.css'
@@ -94,6 +95,7 @@ function App() {
     // inside the per-session DataDisclosure component.
     const [llmStatus, setLLMStatus] = useState<LLMStatus | null>(null)
     const [lightboxImage, setLightboxImage] = useState<string | null>(null)
+    const [blobPreview, setBlobPreview] = useState<BlobPreviewData | null>(null)
     const [expandedReport, setExpandedReport] = useState<ExpandedReport | null>(null)
     const [settings, setSettings] = useState<Settings | null>(null)
     // settingsTab state moved into SettingsDialog (Phase 3 of
@@ -196,6 +198,22 @@ function App() {
             return () => { cleanupStream(); cleanupActivity(); cleanupPinned(); cleanupReport(); cleanupMitl(); cleanupTitle(); cleanupBgStart(); cleanupBgEnd() }
         }
     }, [])
+
+    // isPreviewableTextMime returns true for blob mimes whose
+    // bytes are reasonable to dump as text in the BlobPreview
+    // dialog. Anything else (image/*, application/octet-stream,
+    // unknown binary) stays a click no-op so we don't surprise
+    // the user with megabytes of mojibake.
+    const isPreviewableTextMime = (mime: string | undefined): boolean => {
+        if (!mime) return false
+        if (mime.startsWith('text/')) return true
+        return (
+            mime === 'application/json' ||
+            mime === 'application/xml' ||
+            mime === 'application/javascript' ||
+            mime === 'application/x-ndjson'
+        )
+    }
 
     // Friendly label for each background task code. Centralised so
     // a future i18n pass can swap to a hook without hunting through
@@ -528,8 +546,26 @@ function App() {
                                     const text = await window.go.main.Bindings.GetObjectText(obj.id)
                                     const title = (text.split('\n')[0] || '').replace(/^#\s*/, '') || obj.orig_name || obj.id
                                     setExpandedReport({title, content: text})
+                                } else if (obj.type === 'blob' && isPreviewableTextMime(obj.mime_type)) {
+                                    // Text-shaped blobs (CSV, JSON, plain
+                                    // text, etc.) get an in-app preview;
+                                    // CSV/TSV in particular is rendered as
+                                    // a simple table so the data-analysis
+                                    // pitch holds up. Binary blobs still
+                                    // fall through to the no-op.
+                                    const text = await window.go.main.Bindings.GetObjectText(obj.id)
+                                    const limit = 100 * 1024
+                                    const truncated = text.length > limit
+                                    setBlobPreview({
+                                        title: obj.orig_name || obj.id,
+                                        mime: obj.mime_type || 'text/plain',
+                                        content: truncated ? text.slice(0, limit) : text,
+                                        sizeBytes: obj.size,
+                                        truncated,
+                                    })
                                 }
-                                // blob has no built-in preview yet — left as a click no-op.
+                                // Other blob types (binary) intentionally
+                                // remain a no-op — Export still works.
                             } catch {}
                         }}
                     />
@@ -650,6 +686,10 @@ function App() {
 
             {lightboxImage && (
                 <Lightbox src={lightboxImage} onClose={() => setLightboxImage(null)} />
+            )}
+
+            {blobPreview && (
+                <BlobPreview data={blobPreview} onClose={() => setBlobPreview(null)} />
             )}
 
             {expandedReport && (

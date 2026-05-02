@@ -11,6 +11,11 @@
   --bg-msg-error: rgba(200, 60, 60, 0.2);
   --bg-msg-tool: rgba(40, 80, 40, 0.2);
   --bg-hover: rgba(255, 255, 255, 0.08);
+  /* Opaque variant of bg-primary for sticky table headers — bg-hover
+     and bg-primary are both translucent, so a sticky header using
+     them lets data rows bleed through during scroll. Use for sticky
+     thead only; ordinary surfaces should keep using bg-primary. */
+  --bg-sticky-header: rgb(36, 36, 36);
   --bg-code: rgba(0, 0, 0, 0.4);
   --bg-inline-code: rgba(255, 255, 255, 0.1);
   --bg-btn-primary: rgba(80, 120, 200, 0.4);
@@ -50,6 +55,7 @@
   --bg-msg-error: rgba(200, 55, 55, 0.1);
   --bg-msg-tool: rgba(40, 130, 50, 0.08);
   --bg-hover: rgba(50, 110, 180, 0.06);
+  --bg-sticky-header: rgb(225, 225, 215);
   --bg-code: rgba(50, 110, 180, 0.05);
   --bg-inline-code: rgba(50, 110, 180, 0.08);
   --bg-btn-primary: rgba(30, 100, 200, 0.2);
@@ -89,6 +95,7 @@
   --bg-msg-error: rgba(180, 60, 50, 0.18);
   --bg-msg-tool: rgba(60, 100, 50, 0.18);
   --bg-hover: rgba(200, 160, 100, 0.08);
+  --bg-sticky-header: rgb(48, 38, 30);
   --bg-code: rgba(0, 0, 0, 0.25);
   --bg-inline-code: rgba(200, 160, 100, 0.12);
   --bg-btn-primary: rgba(180, 120, 60, 0.3);
@@ -128,6 +135,7 @@
   --bg-msg-error: rgba(180, 40, 40, 0.2);
   --bg-msg-tool: rgba(30, 60, 30, 0.3);
   --bg-hover: rgba(100, 120, 200, 0.1);
+  --bg-sticky-header: rgb(20, 24, 36);
   --bg-code: rgba(0, 0, 0, 0.5);
   --bg-inline-code: rgba(100, 120, 200, 0.12);
   --bg-btn-primary: rgba(60, 80, 180, 0.35);
