@@ -755,17 +755,20 @@ func (a *Agent) ListTools() []ToolInfoItem {
 	// weaker local backends. See docs/en/agent-tool-visibility.md.
 	hasData := a.analysis != nil && a.analysis.HasData()
 	hideUntilDataLoaded := a.cfg.Tools.HideAnalysisToolsUntilDataLoaded
-	add(ToolInfoItem{Name: "load-data", Description: "Load CSV/JSON/JSONL file", Category: "read", Source: "analysis"})
-	add(ToolInfoItem{Name: "reset-analysis", Description: "Drop all tables", Category: "write", Source: "analysis"})
-	add(ToolInfoItem{Name: "create-report", Description: "Create markdown report", Category: "read", Source: "analysis"})
+	add(ToolInfoItem{Name: "load-data", Description: "Load a CSV/JSON/JSONL file from a host path into the analysis database as a table", Category: "read", Source: "analysis"})
+	add(ToolInfoItem{Name: "reset-analysis", Description: "Drop every table in the current session's analysis database (destructive)", Category: "write", Source: "analysis"})
+	add(ToolInfoItem{Name: "create-report", Description: "Render a markdown report and save it to the session's object store", Category: "read", Source: "analysis"})
+	add(ToolInfoItem{Name: "list-objects", Description: "List every object (image / blob / report) stored in the current session, with type, MIME, name, and creation time", Category: "read", Source: "analysis"})
+	add(ToolInfoItem{Name: "get-object", Description: "Retrieve an object's content by ID (32-hex; legacy 12-hex IDs still work). Images come back as a marker the chat resolves; text/data returns inline", Category: "read", Source: "analysis"})
 	if hasData || !hideUntilDataLoaded {
-		add(ToolInfoItem{Name: "describe-data", Description: "Show table metadata", Category: "read", Source: "analysis"})
-		add(ToolInfoItem{Name: "query-sql", Description: "Execute SQL query", Category: "read", Source: "analysis"})
-		add(ToolInfoItem{Name: "query-preview", Description: "NL to SQL generation", Category: "read", Source: "analysis"})
-		add(ToolInfoItem{Name: "suggest-analysis", Description: "Suggest analysis perspectives", Category: "read", Source: "analysis"})
-		add(ToolInfoItem{Name: "quick-summary", Description: "Query + LLM summary", Category: "read", Source: "analysis"})
-		add(ToolInfoItem{Name: "list-tables", Description: "List all tables", Category: "read", Source: "analysis"})
-		add(ToolInfoItem{Name: "promote-finding", Description: "Save insight to findings", Category: "write", Source: "analysis"})
+		add(ToolInfoItem{Name: "describe-data", Description: "Show columns, row count, and saved description for a table; optionally set a description", Category: "read", Source: "analysis"})
+		add(ToolInfoItem{Name: "query-sql", Description: "Run a SELECT you write yourself and return raw rows — fastest, no LLM round-trip", Category: "read", Source: "analysis"})
+		add(ToolInfoItem{Name: "query-preview", Description: "Natural-language question → LLM-generated SQL → executed → returns SQL + rows", Category: "read", Source: "analysis"})
+		add(ToolInfoItem{Name: "suggest-analysis", Description: "Brainstorm 3-5 analysis angles with sample SQL (does NOT execute)", Category: "read", Source: "analysis"})
+		add(ToolInfoItem{Name: "quick-summary", Description: "SQL → execute → LLM-generated narrative summary of patterns/outliers", Category: "read", Source: "analysis"})
+		add(ToolInfoItem{Name: "list-tables", Description: "List every loaded table with its row count and column list", Category: "read", Source: "analysis"})
+		add(ToolInfoItem{Name: "promote-finding", Description: "Save an insight to the cross-session global Findings store", Category: "write", Source: "analysis"})
+		add(ToolInfoItem{Name: "analyze-data", Description: "Sliding-window deep analysis: chunks the table, asks the LLM per chunk, accumulates findings, returns a markdown report. Heaviest analysis tool (multiple LLM calls).", Category: "read", Source: "analysis"})
 	}
 
 	// Shell script tools

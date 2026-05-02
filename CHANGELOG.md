@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- **Analysis-tool descriptions clarified.** The LLM-facing
+  descriptions for `query-sql`, `query-preview`, `quick-summary`,
+  `suggest-analysis`, and `analyze-data` now spell out (a) what
+  each tool actually does (LLM in the loop or not, executes or
+  not, returns rows or narrative), and (b) when to prefer one
+  over the others. Previously e.g. `quick-summary` was just
+  "Execute a SQL query and generate a natural language summary"
+  — accurate but didn't tell the model when to choose it over
+  `query-sql` or `analyze-data`. The Settings → Tools list got
+  matching one-line summaries that are descriptive sentences
+  rather than 3-word labels.
+
+### Fixed
+
+- **Settings → Tools now lists `analyze-data`, `list-objects`,
+  and `get-object`.** Three tools that were exposed to the LLM
+  (via the dispatcher) but missing from the Settings UI's tool
+  list, so users had no way to inspect their MITL state or
+  disable them per-tool. Particularly noticeable for
+  `analyze-data` since it's the headline sliding-window analysis
+  tool of this app. Now consistently surfaced — same
+  descriptions, same per-tool toggle controls as every other
+  analysis tool.
+
 ## [0.1.21] - 2026-05-02
 
 UX-driven release: drop the `hasData`-based dynamic filter on the
