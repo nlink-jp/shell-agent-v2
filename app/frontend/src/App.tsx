@@ -281,14 +281,20 @@ function App() {
     }, [])
 
     const handleNewSession = useCallback(async () => {
-        if (window.go && state === 'idle') {
+        // Block on bgTasks too so a click during the
+        // post-response window can't race a session swap into the
+        // middle of title generation / pinned-fact extraction.
+        // Sidebar already disables the button via busy=isBusy, but
+        // keep the guard here in case the path is reached through
+        // a keyboard shortcut or programmatic call.
+        if (window.go && state === 'idle' && bgTasks.length === 0) {
             const id = await window.go.main.Bindings.NewSession()
             setCurrentSessionId(id)
             setMessages([])
             setStreaming('')
             await refreshSessions()
         }
-    }, [state, refreshSessions])
+    }, [state, bgTasks, refreshSessions])
 
     // restoredMessages converts the backend's MessageData[] into
     // the ChatMessage[] the chat pane consumes. The mapping is
@@ -305,17 +311,17 @@ function App() {
         }))
 
     const handleLoadSession = useCallback(async (id: string) => {
-        if (window.go && state === 'idle') {
+        if (window.go && state === 'idle' && bgTasks.length === 0) {
             clearObjectCache() // clear image cache on session switch
             const msgs = await window.go.main.Bindings.LoadSession(id)
             setCurrentSessionId(id)
             setMessages(restoredMessages(msgs))
             setStreaming('')
         }
-    }, [state])
+    }, [state, bgTasks])
 
     const handleDeleteSession = useCallback(async (id: string) => {
-        if (window.go && state === 'idle') {
+        if (window.go && state === 'idle' && bgTasks.length === 0) {
             await window.go.main.Bindings.DeleteSession(id)
             const remaining = await window.go.main.Bindings.ListSessions()
             if (!remaining || remaining.length === 0) {
@@ -335,7 +341,7 @@ function App() {
                 }
             }
         }
-    }, [state, currentSessionId])
+    }, [state, bgTasks, currentSessionId])
 
     // startRename / commitRename moved into Sidebar (rename is a
     // sidebar-local concern; the rename binding call is plumbed
@@ -504,7 +510,7 @@ function App() {
                 onStartResize={startResize}
                 sessions={sessions}
                 currentSessionId={currentSessionId}
-                busy={state === 'busy'}
+                busy={isBusy}
                 onLoadSession={handleLoadSession}
                 onNewSession={handleNewSession}
                 onDeleteSession={handleDeleteSession}
