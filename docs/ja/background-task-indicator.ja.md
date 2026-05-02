@@ -87,28 +87,50 @@ func (a *Agent) trackBg(ctx context.Context, name string, fn func() error) {
 （「このセッション、なぜ最後までタイトルが付かないのか」を後で
 調べる時、無言の不在ではなくキャンセル痕跡が見えるように）。
 
-### 次の Send による auto-cancel
+### post-task 完了まで Busy を維持
 
-現状の `SendWithImages` は冒頭で `a.postTasksWg.Wait()`。これを:
+初期案では「次の Send 開始時に古い post-task を auto-cancel」を
+試したが、以下 2 点で破綻した:
+
+1. **ローカル LLM は遅い**。post-task が無事終わるより先にユーザが
+   次のメッセージを打ってしまうのが普通の対話ペースで起こりうる。
+   pinned-fact extraction がこの度に毎回 cancel されると pinned
+   store に何も溜まらず、ユーザは気づかぬ間に欠損する。
+2. **タスクは全部 idempotent ではない**。pinned-fact extraction は
+   直近 hot レコード 4 件しか見ないので、cancel されたら次回に
+   持ち越されるのではなく **失われる**。
+
+正解はユーザメッセージ受領から **3 タスクすべての完了** までの
+間 `StateBusy` を維持すること。Wails のフロントエンドは Busy で
+入力欄を disable するので、その間ユーザは物理的にメッセージも
+スラッシュコマンドも打てない。
 
 ```go
+// SendWithImages — Busy ガート → agentLoop → defer で
+// postResponseTasks 起動。完了後 goroutine が state=Idle に戻す。
+
 a.mu.Lock()
-prev := a.postCancel
-a.mu.Unlock()
-if prev != nil {
-    prev()              // 429 リトライ／sleep を解放
+if a.state != StateIdle {
+    a.mu.Unlock()
+    return "", ErrBusy
 }
-a.postTasksWg.Wait()    // ctx キャンセル後ほぼ即返る
+a.state = StateBusy
+ctx, a.cancel = context.WithCancel(ctx)
+a.mu.Unlock()
+
+return a.agentLoop(ctx, message, objectIDs, dataURLs)
+// agentLoop の `defer a.postResponseTasks(ctx)` が success/error
+// すべての return path をカバーする。postResponseTasks の末尾
+// goroutine が WaitGroup 完了後に state=Idle に戻す。
 ```
 
-cancel + wait の組み合わせは安価。各タスクは ctx を即座に尊重する
-（LLM クライアントは ctx 認識リトライ）。`Wait` は次ターン開始時に
-セッション状態を触る goroutine が残っていないことを保証するため
-そのまま残す。
+スラッシュコマンドは Busy 窓内で処理して二重実行を防ぐが、
+agentLoop には行かないので post-task もトリガしない。直接 state
+を Idle に戻して return する。
 
-`b8ebb2f` で導入したスラッシュコマンド先行パスはそのまま（Wait の
-前で解釈、Busy 時のみブロック）。`/model` 凍結問題はそちらで
-解決済みで、本変更で挙動を変える必要はない。
+`Abort` がユーザの逃げ道。`cancel`（in-flight agentLoop）と
+`postCancel`（post-task ctx）を両方発火し、postResponseTasks の
+末尾 goroutine が成功時と同じく state を Idle に戻す。
 
 ### バインディング — Wails イベント橋渡し
 

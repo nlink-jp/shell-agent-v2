@@ -5,11 +5,28 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/nlink-jp/shell-agent-v2/internal/config"
 	"github.com/nlink-jp/shell-agent-v2/internal/findings"
 	"github.com/nlink-jp/shell-agent-v2/internal/memory"
 )
+
+// waitForIdle polls Agent.State until it reports Idle or the deadline
+// elapses. Post-response background tasks now keep state at Busy
+// until they finish, so tests that previously asserted Idle right
+// after Send returns must give the trailing goroutine a moment to
+// land. Returns true if Idle was observed within the timeout.
+func waitForIdle(a *Agent, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if a.State() == StateIdle {
+			return true
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return a.State() == StateIdle
+}
 
 func TestNewAgent(t *testing.T) {
 	a := New(config.Default())
@@ -22,10 +39,14 @@ func TestSendReturnsToIdle(t *testing.T) {
 	a := New(config.Default())
 	a.session = &memory.Session{ID: "test", Records: []memory.Record{}}
 
-	// Send will fail because local LLM isn't running, but state should return to Idle
+	// Send fails because the local LLM isn't running. The post-
+	// response tasks then try the same dead endpoint and burn
+	// retries; Abort cancels both the in-flight Send context and
+	// the post-task context, letting state drop back to Idle.
 	_, _ = a.Send(context.Background(), "hello")
-	if a.State() != StateIdle {
-		t.Errorf("state after Send = %v, want %v", a.State(), StateIdle)
+	a.Abort()
+	if !waitForIdle(a, 5*time.Second) {
+		t.Errorf("state after Send+Abort = %v, want %v (timed out waiting for post-tasks)", a.State(), StateIdle)
 	}
 }
 

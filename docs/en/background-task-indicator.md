@@ -93,29 +93,54 @@ red footer flash but still leaves a breadcrumb in the log so an
 operator investigating "why didn't this session ever get a title"
 can see the cancellation rather than just an unexplained absence.
 
-### Auto-cancel on next Send
+### State stays Busy until post-tasks finish
 
-`SendWithImages` currently does `a.postTasksWg.Wait()` first. Change
-to:
+A previous iteration tried auto-cancelling lingering post-tasks at
+the start of the next `Send`. That broke down for two reasons:
+
+1. **Local LLMs are slow.** A well-behaved post-task can easily
+   take longer than the user takes to type the next message, so
+   under rapid conversation the user would auto-cancel every
+   pinned-fact extraction in the session and the pinned store
+   would silently lose facts.
+2. **Tasks are not all idempotent.** Pinned-fact extraction looks
+   only at the most recent four hot records, so if it never gets
+   to run before being cancelled by the next turn, those facts
+   are gone — not deferred, gone.
+
+The fix is to keep the agent in `StateBusy` from the moment the
+user message arrives until **all three post-tasks have completed**.
+The existing Wails frontend already disables the input field on
+Busy, so the user physically cannot type during this window —
+neither a chat message nor a slash command will fire.
 
 ```go
+// SendWithImages — Busy gate, then agentLoop with a defer-fired
+// postResponseTasks; the trailing goroutine drops state to Idle.
+
 a.mu.Lock()
-prev := a.postCancel
-a.mu.Unlock()
-if prev != nil {
-    prev()              // unblock any 429 retry / sleep
+if a.state != StateIdle {
+    a.mu.Unlock()
+    return "", ErrBusy
 }
-a.postTasksWg.Wait()    // returns ~immediately once ctx is cancelled
+a.state = StateBusy
+ctx, a.cancel = context.WithCancel(ctx)
+a.mu.Unlock()
+
+return a.agentLoop(ctx, message, objectIDs, dataURLs)
+// agentLoop's `defer a.postResponseTasks(ctx)` covers every
+// return path; postResponseTasks's trailing goroutine returns
+// state to Idle once the WaitGroup completes.
 ```
 
-The cancel + wait pair is cheap because each task respects ctx
-promptly (the LLM client wraps every call with `ctx`-aware retry).
-The `Wait` stays for the race-free guarantee that no goroutine is
-still mutating session state when the next turn begins.
+Slash commands run inside the Busy window so two of them can't
+race, but they do not call `agentLoop` and therefore do not trigger
+post-tasks — they release state directly before returning.
 
-The slash-command fast-path added in `b8ebb2f` keeps its current
-behaviour (parse before wait, only block if `state != Idle`) — it
-already handled the "frozen `/model`" symptom and shouldn't change.
+`Abort` remains the user's escape hatch: it fires both `cancel`
+(in-flight agent loop) and `postCancel` (post-task ctx). The
+trailing goroutine in `postResponseTasks` then drops state to
+Idle, just as in the success path.
 
 ### Bindings — Wails event bridge
 

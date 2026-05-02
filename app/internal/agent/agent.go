@@ -445,45 +445,20 @@ func (a *Agent) Send(ctx context.Context, message string) (string, error) {
 
 // SendWithImages processes a user message with optional images.
 // objectIDs are stored in session records; dataURLs are used for LLM context.
+//
+// Concurrency model: the agent's state stays Busy from the moment
+// this method takes the lock until the post-response background
+// tasks complete (handled by postResponseTasks). The input field on
+// the frontend keys off Busy, so the user physically cannot send a
+// new message — including a slash command — while title generation,
+// memory compaction, or pinned-fact extraction is still running.
+// This prevents the rapid-conversation race that would otherwise
+// drop pinned facts and leave sessions stuck on "New Session".
+//
+// To bail out of a stuck post-task (e.g. 429 retry), use Abort —
+// it fires both cancel funcs and lets the trailing goroutine in
+// postResponseTasks return state to Idle.
 func (a *Agent) SendWithImages(ctx context.Context, message string, objectIDs, dataURLs []string) (string, error) {
-	// Handle chat commands BEFORE waiting on the previous post-
-	// response task group. Slash commands don't go through the
-	// agent loop or LLM call path, so they shouldn't be held
-	// hostage by a 429-retry sleep happening in
-	// extractPinnedMemories. We still respect the busy state so
-	// /model can't race with an in-flight chat turn.
-	if strings.HasPrefix(message, "/") {
-		parts := strings.Fields(message)
-		switch parts[0] {
-		case "/model", "/finding", "/findings", "/help":
-			a.mu.Lock()
-			busy := a.state != StateIdle
-			a.mu.Unlock()
-			if busy {
-				return "", ErrBusy
-			}
-			result, err := a.handleCommand(message)
-			if err != nil {
-				return "", err
-			}
-			return "[CMD]" + result, nil
-		}
-	}
-
-	// Auto-cancel any still-running post-response tasks from the
-	// previous turn. The user has already moved on to the next
-	// message, so finishing those tasks (which may be in a 429
-	// retry sleep) only blocks the new turn. Cancellation is
-	// distinct from "failure" — trackBg logs the cancel at INFO
-	// and reports an empty Error so the footer does not flash red.
-	a.mu.Lock()
-	prevPostCancel := a.postCancel
-	a.mu.Unlock()
-	if prevPostCancel != nil {
-		prevPostCancel()
-	}
-	a.postTasksWg.Wait()
-
 	a.mu.Lock()
 	if a.state != StateIdle {
 		a.mu.Unlock()
@@ -493,13 +468,31 @@ func (a *Agent) SendWithImages(ctx context.Context, message string, objectIDs, d
 	ctx, a.cancel = context.WithCancel(ctx)
 	a.mu.Unlock()
 
-	defer func() {
-		a.mu.Lock()
-		a.state = StateIdle
-		a.cancel = nil
-		a.mu.Unlock()
-	}()
+	// Slash commands run inside the Busy window so the user can't
+	// race two of them, but they don't go through agentLoop and
+	// don't trigger post-response tasks — release state directly
+	// before returning. Unrecognised slash inputs fall through to
+	// agentLoop and are treated as ordinary messages (matches the
+	// pre-existing behaviour).
+	if strings.HasPrefix(message, "/") {
+		parts := strings.Fields(message)
+		switch parts[0] {
+		case "/model", "/finding", "/findings", "/help":
+			result, err := a.handleCommand(message)
+			a.mu.Lock()
+			a.state = StateIdle
+			a.cancel = nil
+			a.mu.Unlock()
+			if err != nil {
+				return "", err
+			}
+			return "[CMD]" + result, nil
+		}
+	}
 
+	// agentLoop fires postResponseTasks via defer on every return
+	// path; that goroutine is responsible for dropping state back
+	// to Idle once all three background tasks complete.
 	return a.agentLoop(ctx, message, objectIDs, dataURLs)
 }
 
@@ -839,6 +832,15 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 		a.session = &memory.Session{ID: "default", Records: []memory.Record{}}
 	}
 
+	// Background post-response tasks fire on every return path —
+	// success, max-rounds, or any error. The helpers each guard
+	// their own preconditions (Title=="New Session", token-budget
+	// thresholds, recent-records gating) so spurious invocations
+	// don't trigger spurious LLM calls. The goroutine spawned here
+	// is also responsible for returning state to Idle once all
+	// post-tasks finish (see postResponseTasks).
+	defer a.postResponseTasks(ctx)
+
 	// Avoid logging full user message at Info level (may contain sensitive data).
 	logger.Info("agentLoop: session=%s message_len=%d objects=%d", a.session.ID, len(userMessage), len(objectIDs))
 	logger.Debug("agentLoop: message=%s", logger.Truncate(userMessage, 100))
@@ -984,8 +986,6 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 			} else {
 				logger.Info("agentLoop: empty response after wrap-up retry, ending loop")
 			}
-			// Post-response background tasks
-			a.postResponseTasks(ctx)
 			return resp.Content, nil
 		}
 
@@ -1029,17 +1029,26 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 	return "(Max tool rounds reached)", nil
 }
 
-// postResponseTasks launches background tasks after a final response.
-// Tasks run concurrently in background. The next Send() call waits
-// for completion via postTasksWg before proceeding.
-// Design: docs/en/agent-data-flow.md Section 4.1
+// postResponseTasks launches background tasks after the agent loop
+// returns: title generation, memory compaction, pinned-fact
+// extraction. Each is wrapped in trackBg so the footer indicator
+// (start/end events) and log lines stay symmetric.
+//
+// State machine: agent state stays Busy until all three goroutines
+// finish; the trailing goroutine drops state back to Idle. This
+// means the input field stays disabled while these tasks run, so
+// the user cannot type a new message that would race with title
+// generation or pinned-fact extraction (the previous fire-and-
+// forget design caused tasks to be auto-cancelled in rapid
+// conversations and pinned facts to be silently dropped).
 //
 // The tasks run under a context derived from parentCtx; the cancel
-// is stashed on a.postCancel so Abort can interrupt them even after
-// SendWithImages has returned. Without this, a 429 retry inside
-// extractPinnedMemories could block the next Send for minutes with
-// no way to bail out (Abort previously only cancelled the
-// in-flight Send's ctx, which had already been released).
+// is stashed on a.postCancel so Abort can interrupt them when the
+// user explicitly wants to bail (e.g. a 429 retry that's taking
+// too long). Without an Abort, the goroutine waits to completion.
+//
+// Design: docs/en/agent-data-flow.md §4.1,
+// docs/en/background-task-indicator.md.
 func (a *Agent) postResponseTasks(parentCtx context.Context) {
 	ctx, cancel := context.WithCancel(parentCtx)
 	a.mu.Lock()
@@ -1058,6 +1067,19 @@ func (a *Agent) postResponseTasks(parentCtx context.Context) {
 	go func() {
 		defer a.postTasksWg.Done()
 		a.trackBg(ctx, "pinned-extraction", func() error { return a.extractPinnedMemories(ctx) })
+	}()
+
+	// Trailing goroutine: wait for all three tasks to finish, then
+	// release the agent back to Idle. Done as a separate goroutine
+	// so postResponseTasks itself returns immediately and the
+	// caller (agentLoop's defer) doesn't block.
+	go func() {
+		a.postTasksWg.Wait()
+		a.mu.Lock()
+		a.state = StateIdle
+		a.cancel = nil
+		a.postCancel = nil
+		a.mu.Unlock()
 	}()
 }
 

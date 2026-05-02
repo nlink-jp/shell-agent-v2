@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nlink-jp/shell-agent-v2/internal/analysis"
 	"github.com/nlink-jp/shell-agent-v2/internal/config"
@@ -454,8 +455,11 @@ func TestE2E_AbortDuringExecution(t *testing.T) {
 		}
 	}
 
-	// Agent should return to idle
-	if a.State() != StateIdle {
-		t.Errorf("state = %v, want idle after abort", a.State())
+	// Agent should return to Idle once post-response tasks settle
+	// (they ride on the same cancelled context, so each exits
+	// promptly, but the trailing goroutine still needs a moment to
+	// drop state).
+	if !waitForIdle(a, 5*time.Second) {
+		t.Errorf("state = %v, want idle after abort (timed out)", a.State())
 	}
 }
