@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] - v0.1.21 in progress
+## [0.1.21] - 2026-05-02
 
 UX-driven release: drop the `hasData`-based dynamic filter on the
 analysis-tool set so the LLM can plan multi-step "load → query →
