@@ -5,6 +5,127 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.19] - 2026-05-02
+
+User-experience and protocol-correctness release on top of v0.1.18's
+security hardening. Two visible new pieces (background task
+indicator, CSV / text-blob preview), one structural fix (tool-event
+bubble restoration on session reload), and a sweep of LLM-pipeline
+and macOS-build issues exposed during data-analysis runs.
+
+Designs in
+[docs/en/background-task-indicator.md](docs/en/background-task-indicator.md),
+[docs/en/tool-event-restore.md](docs/en/tool-event-restore.md), and
+[docs/en/tool-call-roundtrip.md](docs/en/tool-call-roundtrip.md).
+
+### Added
+
+- **Background task indicator.** When the agent kicks off
+  post-response work (title generation, memory compaction,
+  pinned-fact extraction), a small badge appears in the
+  input-status-bar naming what's running. The agent stays Busy on
+  the backend until those tasks complete; the input field stays
+  disabled and the Sidebar's New / Load / Delete actions are
+  greyed so a quickly-typed second message can't race them. Abort
+  still cancels post-tasks. Logs are symmetric — every task
+  records `start` and exactly one of `done` / `canceled` / error
+  at INFO/ERROR level so an operator can correlate "session
+  never got a title" with "user typed before title-gen finished".
+- **CSV / text-blob preview in the Data pane.** Clicking a
+  `text/csv` or `text/tab-separated-values` blob opens a real
+  HTML table (first 200 rows, 30 columns shown, RFC-4180-shaped
+  quoting); other text MIMEs (JSON, plain text, Markdown, HTML,
+  XML, NDJSON, JS) drop to a fixed-width `<pre>` view. Source is
+  clipped to 100 KB before reaching the modal. Binary blobs stay a
+  click no-op, with Export still available.
+- **Tool-event bubbles persist across session reload.** Tool
+  calls used to be invisible in restored sessions because
+  `LoadSession` dropped every `tool` record on the floor. They
+  now come back as compact name + status bubbles, matching the
+  live look. Required adding a `Status` field to `memory.Record`
+  (omitempty, populated from the `executeTool` return value
+  already used for `tool_end` activity events). Legacy records
+  without the field default to `success` so older chats stay
+  readable.
+
+### Changed
+
+- **Post-response tasks now hold Busy until they finish.** An
+  earlier iteration tried auto-cancelling them at the start of
+  the next `Send`, but local LLMs are slow enough that
+  pinned-fact extraction never completed during rapid
+  conversation, and the extractor only sees the latest 4 hot
+  records — cancellation drops those facts permanently rather
+  than deferring. Live behaviour now matches the design: state
+  stays Busy from the moment a user message arrives until all
+  three post-tasks finish, and the frontend (input field, Sidebar
+  session ops) keys off that.
+- **Sticky table headers in the Data pane.** Both the new
+  BlobPreview CSV table and the existing Tables-tab DB preview
+  used `--bg-hover` (≤0.1 alpha in every theme) for the sticky
+  `<th>` background, so scrolled rows bled through. Added a
+  per-theme opaque `--bg-sticky-header` and routed both rules
+  through it.
+- **Build artifact integrity on macOS.** `make build` used `cp
+  -r` to publish `dist/shell-agent-v2.app`. macOS strips
+  extended attributes (and with them the ad-hoc code-sign
+  resource fork) on `cp -r`, producing a bundle that crashed at
+  launch with `SIGKILL "Code Signature Invalid"` until manually
+  re-signed. Switched to `ditto` to preserve the signing
+  resources end-to-end.
+- **Tool-call assistant turns are no longer restored as chat
+  bubbles.** Live chat surfaces tool-call narration through the
+  activity stream (the transient progressTool "thinking" banner),
+  not as a chat bubble. Restore was inconsistent — any
+  non-empty `Content` came back as a bubble regardless of
+  attached `ToolCalls`, exposing thought-style preambles that the
+  live view had hidden. Skip those records on restore so the two
+  views match.
+
+### Fixed
+
+- **Vertex parallel function calls returned HTTP 400.** When the
+  assistant emitted multiple FunctionCall parts in a single turn
+  (parallel tool calls), the matching FunctionResponse parts were
+  emitted as separate user Content blocks; Gemini requires them
+  packed into one. `vertex.go buildContents` now coalesces
+  consecutive `RoleTool` messages into a single Content block.
+- **`/model` could appear frozen during a 429 retry.** The
+  slash-command parse used to live behind `postTasksWg.Wait()`,
+  so a `/model local` typed while a previous turn's
+  pinned-fact-extraction was sleeping in retry-backoff blocked
+  for minutes. Slash commands now parse before the wait, and
+  Abort also fires the post-task cancel func — previously Abort
+  only cancelled the in-flight Send, leaving the post-task
+  goroutines unkillable.
+- **Bindings could panic on startup.** `GetLLMStatus`,
+  `LoadSession`, and `Send` had no nil-guard for the brief
+  window between Wails' frontend mount and the backend
+  finishing `agent.New`. The frontend's first poll could race
+  in and trigger a nil-pointer panic in every `GetLLMStatus`
+  tick. Added defensive checks.
+- **Gemini 2.5 Flash thoughts leaked into the assistant text.**
+  Some responses arrived as `THOUGHT\n…\n\nactual reply` or
+  `思考\n…\n\n本文` or `シンクタイム: 3秒\n\n本文` — sometimes
+  in their own Part with `Thought=true`, sometimes inline. Set
+  `ThinkingConfig.IncludeThoughts=false` explicitly (default
+  behaviour, but worth being explicit), filter Parts with
+  `Thought=true` in `parseResponse`, and log per-Part shape at
+  debug level so the rare inline-text case can be diagnosed
+  without guesswork.
+
+### Notes
+
+The remaining inline-text-thought case (model writes `思考\n…`
+into a regular text Part on a fraction of replies) is **not**
+addressed in this release. The Part-shape filter doesn't reach
+it, and a heuristic strip risks over-deleting legitimate user
+content. The follow-up option is to set
+`ThinkingConfig.ThinkingBudget = 0`, which trades reasoning
+quality for an end to inline preambles; deferred to a future
+release once the trade-off is evaluated against representative
+analysis tasks.
+
 ## [0.1.18] - 2026-05-01
 
 Security-hardening release. Addresses three HIGH-severity and

@@ -18,12 +18,13 @@ and hybrid LLM backend (Local + Vertex AI).
 - **Global Findings** — promote analysis insights to cross-session knowledge with origin provenance
 - **Shell script Tool Calling** — register scripts as tools with MITL approval for write/execute
 - **Bundled scripts** — `file-info`, `preview-file`, `list-files`, `weather`, `get-location`, `write-note`. Auto-installed on first launch via `go:embed`; user customizations are preserved.
-- **Tool-call timeline** — every tool start/end appears inline in the chat as a transient pill, in addition to the existing status-bar indicator. Ephemeral, not persisted.
+- **Tool-call timeline** — every tool start/end appears inline in the chat as a transient pill, in addition to the existing status-bar indicator. The pill is restored on session reload as a compact tool-name + status (success / error) bubble; live argument and result text remain ephemeral. See [tool-event-restore.md](docs/en/tool-event-restore.md).
+- **Background task visibility** — when the agent kicks off post-response work (title generation, memory compaction, pinned-fact extraction), a small badge appears in the input-status-bar naming what's running. The input field stays disabled until those tasks finish, so the next user message can't race them and lose pinned facts. See [background-task-indicator.md](docs/en/background-task-indicator.md).
 - **MCP support** — via mcp-guardian stdio proxy
 - **Multi-turn memory** — Hot/Warm/Cold three-tier sliding window with timestamps
 - **Pinned Memory** — persistent cross-session facts (rendered with a `(learned YYYY-MM-DD)` suffix so the model can weigh recency)
 - **Multimodal** — image input via drag & drop, paste, or file picker
-- **Per-session Data panel** — collapsible disclosure at the top of the chat pane showing the current session's objects (images / reports / blobs as cards with thumbnails), DuckDB tables (click for a 20-row preview), and sandbox `/work` files. Bulk-select and delete with separate Yes / No confirmation.
+- **Per-session Data panel** — collapsible disclosure at the top of the chat pane showing the current session's objects (images / reports / blobs as cards with thumbnails), DuckDB tables (click for a 20-row preview), and sandbox `/work` files. Click an image for the lightbox, a report for the markdown viewer, or a CSV / text blob for an in-app preview — CSV / TSV render as an HTML table, other text MIMEs (JSON, plain text, HTML, etc.) drop to a fixed-width pre. Bulk-select and delete with separate Yes / No confirmation.
 - **Bulk select / delete** — Findings and Pinned Memory entries can be checked individually or all-at-once, with two-click confirm.
 - **Temporal context** — enriched date/time injection + `resolve-date` system tool
 
@@ -112,6 +113,9 @@ make test       # Run tests
 - [Sandbox execution design + macOS setup](docs/en/sandbox-execution.md)
 - [Object storage design](docs/en/object-storage.md)
 - [LLM backend abstraction](docs/en/llm-abstraction.md)
+- [Background task indicator](docs/en/background-task-indicator.md)
+- [Tool-event restore on session reload](docs/en/tool-event-restore.md)
+- [Tool-call round-trip (Vertex / Local)](docs/en/tool-call-roundtrip.md)
 - [RFP (English)](docs/en/shell-agent-v2-rfp.md) · [RFP (Japanese)](docs/ja/shell-agent-v2-rfp.ja.md)
 
 Japanese mirrors live under `docs/ja/`.
