@@ -59,7 +59,12 @@ type BuildOptions struct {
 	// WrapUserToolContent, if set, is applied to the content of every
 	// user and tool record before token estimation. The agent uses this
 	// for prompt-injection guard wrapping. Identity-equivalent if nil.
-	WrapUserToolContent func(string) string
+	//
+	// Returning an error aborts the whole Build — see
+	// security-hardening-2.md L1 for why we fail closed rather than
+	// silently feeding unwrapped untrusted content into the LLM
+	// context.
+	WrapUserToolContent func(string) (string, error)
 }
 
 func (o *BuildOptions) now() time.Time {

@@ -128,18 +128,29 @@ func (e *Engine) BuildSystemPrompt(pinnedContext, findingsContext string) string
 
 // WrapUserToolContent exposes the current guard tag's wrap function for
 // callers that render records outside BuildMessages (e.g. contextbuild).
-// Returns identity if guard wrap fails.
-func (e *Engine) WrapUserToolContent(s string) string {
-	if wrapped, err := e.guardTag.Wrap(s); err == nil {
-		return wrapped
+//
+// Fail-closed: when guard.Wrap returns an error (essentially a
+// crypto/rand-source catastrophe — the only realistic failure mode)
+// we return the error rather than silently passing the unwrapped
+// untrusted content through with elevated trust into the LLM
+// system-prompt context (security-hardening-2.md L1).
+func (e *Engine) WrapUserToolContent(s string) (string, error) {
+	wrapped, err := e.guardTag.Wrap(s)
+	if err != nil {
+		return "", fmt.Errorf("guard wrap: %w", err)
 	}
-	return s
+	return wrapped, nil
 }
 
 // BuildMessages constructs the message array for the API call,
 // injecting temporal context, pinned memory, and findings.
-// User and tool content is wrapped with guard tags for prompt injection defense.
-func (e *Engine) BuildMessages(session *memory.Session, pinnedContext, findingsContext string) []llm.Message {
+// User and tool content is wrapped with guard tags for prompt
+// injection defense.
+//
+// Fail-closed: a guard.Wrap failure returns an error rather than
+// silently feeding unwrapped untrusted content into the LLM context
+// (security-hardening-2.md L1).
+func (e *Engine) BuildMessages(session *memory.Session, pinnedContext, findingsContext string) ([]llm.Message, error) {
 	// Rotate guard nonce each call
 	e.guardTag = guard.NewTag()
 
@@ -169,9 +180,11 @@ func (e *Engine) BuildMessages(session *memory.Session, pinnedContext, findingsC
 		content := r.Content
 		// Guard user and tool content against prompt injection
 		if r.Role == "user" || r.Role == "tool" {
-			if wrapped, err := e.guardTag.Wrap(content); err == nil {
-				content = wrapped
+			wrapped, err := e.guardTag.Wrap(content)
+			if err != nil {
+				return nil, fmt.Errorf("guard wrap: %w", err)
 			}
+			content = wrapped
 		}
 		messages = append(messages, llm.Message{
 			Role:       llm.Role(r.Role),
@@ -184,7 +197,7 @@ func (e *Engine) BuildMessages(session *memory.Session, pinnedContext, findingsC
 		})
 	}
 
-	return messages
+	return messages, nil
 }
 
 // BuildOptions controls context budget for BuildMessagesWithBudget.
@@ -205,8 +218,14 @@ type BuildResult struct {
 // Newest messages are preserved; oldest are dropped first.
 // [Calling: ...] messages are excluded from LLM context.
 // Tool results are truncated to MaxToolResultTokens.
+//
+// Fail-closed: a guard.Wrap failure (essentially crypto/rand
+// catastrophe) returns an error rather than feeding unwrapped
+// untrusted content into the LLM context
+// (security-hardening-2.md L1).
+//
 // Design: docs/en/agent-data-flow.md Section 3.3
-func (e *Engine) BuildMessagesWithBudget(session *memory.Session, pinnedContext, findingsContext string, opts BuildOptions) BuildResult {
+func (e *Engine) BuildMessagesWithBudget(session *memory.Session, pinnedContext, findingsContext string, opts BuildOptions) (BuildResult, error) {
 	e.guardTag = guard.NewTag()
 
 	// 1. Build system prompt (same as BuildMessages)
@@ -282,11 +301,13 @@ func (e *Engine) BuildMessagesWithBudget(session *memory.Session, pinnedContext,
 			content = truncateToTokens(content, opts.MaxToolResultTokens)
 		}
 
-		// Guard user and tool content
+		// Guard user and tool content (fail-closed; security-hardening-2.md L1)
 		if r.Role == "user" || r.Role == "tool" {
-			if wrapped, err := e.guardTag.Wrap(content); err == nil {
-				content = wrapped
+			wrapped, err := e.guardTag.Wrap(content)
+			if err != nil {
+				return BuildResult{}, fmt.Errorf("guard wrap: %w", err)
 			}
+			content = wrapped
 		}
 
 		tokens := memory.EstimateTokens(content)
@@ -324,7 +345,7 @@ func (e *Engine) BuildMessagesWithBudget(session *memory.Session, pinnedContext,
 		Messages:     messages,
 		TotalTokens:  systemTokens + warmTokens + hotTokens,
 		DroppedCount: dropped,
-	}
+	}, nil
 }
 
 // truncateToTokens truncates text to approximately maxTokens.

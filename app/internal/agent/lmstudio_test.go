@@ -295,7 +295,7 @@ func TestLMStudio_Agent_BuildMessagesTokenCount(t *testing.T) {
 
 	// Build with budget
 	budget := a.cfg.ContextBudget
-	result := a.chat.BuildMessagesWithBudget(
+	result, err := a.chat.BuildMessagesWithBudget(
 		a.session,
 		a.pinned.FormatForPrompt(),
 		a.findings.FormatForPrompt(),
@@ -305,13 +305,19 @@ func TestLMStudio_Agent_BuildMessagesTokenCount(t *testing.T) {
 			MaxToolResultTokens:   budget.MaxToolResultTokens,
 		},
 	)
+	if err != nil {
+		t.Fatalf("BuildMessagesWithBudget: %v", err)
+	}
 
 	// Build without budget
-	allMsgs := a.chat.BuildMessages(
+	allMsgs, err := a.chat.BuildMessages(
 		a.session,
 		a.pinned.FormatForPrompt(),
 		a.findings.FormatForPrompt(),
 	)
+	if err != nil {
+		t.Fatalf("BuildMessages: %v", err)
+	}
 
 	t.Logf("With budget: %d messages, ~%d tokens, %d dropped", len(result.Messages), result.TotalTokens, result.DroppedCount)
 	t.Logf("Without budget: %d messages", len(allMsgs))

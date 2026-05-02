@@ -32,7 +32,10 @@ func TestBuildMessages(t *testing.T) {
 		},
 	}
 
-	msgs := e.BuildMessages(session, "", "")
+	msgs, err := e.BuildMessages(session, "", "")
+	if err != nil {
+		t.Fatalf("BuildMessages: %v", err)
+	}
 	if len(msgs) != 3 {
 		t.Fatalf("got %d messages, want 3", len(msgs))
 	}
@@ -91,14 +94,20 @@ func TestBuildSystemPrompt_SandboxGuidanceConditional(t *testing.T) {
 func TestWrapUserToolContent_RotatesWithSystemPrompt(t *testing.T) {
 	e := New("base")
 	_ = e.BuildSystemPrompt("", "")
-	wrapped1 := e.WrapUserToolContent("hi")
+	wrapped1, err := e.WrapUserToolContent("hi")
+	if err != nil {
+		t.Fatalf("WrapUserToolContent: %v", err)
+	}
 	if wrapped1 == "hi" {
 		t.Error("expected wrap to add markers")
 	}
 	// Building the system prompt again rotates the guard tag, so a
 	// previously-wrapped string from the old tag would no longer match.
 	_ = e.BuildSystemPrompt("", "")
-	wrapped2 := e.WrapUserToolContent("hi")
+	wrapped2, err := e.WrapUserToolContent("hi")
+	if err != nil {
+		t.Fatalf("WrapUserToolContent (2): %v", err)
+	}
 	if wrapped1 == wrapped2 {
 		t.Error("guard tag should rotate per BuildSystemPrompt call")
 	}
@@ -108,7 +117,10 @@ func TestBuildMessagesWithFindings(t *testing.T) {
 	e := New("test")
 	session := &memory.Session{}
 
-	msgs := e.BuildMessages(session, "", "Sales peak in April")
+	msgs, err := e.BuildMessages(session, "", "Sales peak in April")
+	if err != nil {
+		t.Fatalf("BuildMessages: %v", err)
+	}
 	if !strings.Contains(msgs[0].Content, "Sales peak in April") {
 		t.Error("findings context not included in system prompt")
 	}
@@ -123,9 +135,12 @@ func TestBuildMessagesWithBudget_DropOldMessages(t *testing.T) {
 		session.AddAssistantMessage(strings.Repeat("reply ", 100))
 	}
 
-	result := e.BuildMessagesWithBudget(session, "", "", BuildOptions{
+	result, err := e.BuildMessagesWithBudget(session, "", "", BuildOptions{
 		MaxConversationTokens: 2048,
 	})
+	if err != nil {
+		t.Fatalf("BuildMessagesWithBudget: %v", err)
+	}
 
 	if result.DroppedCount == 0 {
 		t.Error("expected some messages to be dropped")
@@ -155,9 +170,12 @@ func TestBuildMessagesWithBudget_SkipCallingMessages(t *testing.T) {
 		},
 	}
 
-	result := e.BuildMessagesWithBudget(session, "", "", BuildOptions{
+	result, err := e.BuildMessagesWithBudget(session, "", "", BuildOptions{
 		MaxConversationTokens: 8192,
 	})
+	if err != nil {
+		t.Fatalf("BuildMessagesWithBudget: %v", err)
+	}
 
 	// [Calling: query-sql] should be skipped
 	for _, m := range result.Messages {
@@ -182,10 +200,13 @@ func TestBuildMessagesWithBudget_TruncateToolResult(t *testing.T) {
 		},
 	}
 
-	result := e.BuildMessagesWithBudget(session, "", "", BuildOptions{
+	result, err := e.BuildMessagesWithBudget(session, "", "", BuildOptions{
 		MaxConversationTokens: 8192,
 		MaxToolResultTokens:   100,
 	})
+	if err != nil {
+		t.Fatalf("BuildMessagesWithBudget: %v", err)
+	}
 
 	// Find the tool message and check it's truncated
 	for _, m := range result.Messages {
@@ -211,10 +232,13 @@ func TestBuildMessagesWithBudget_WarmSummary(t *testing.T) {
 		},
 	}
 
-	result := e.BuildMessagesWithBudget(session, "", "", BuildOptions{
+	result, err := e.BuildMessagesWithBudget(session, "", "", BuildOptions{
 		MaxConversationTokens: 8192,
 		MaxWarmTokens:         1024,
 	})
+	if err != nil {
+		t.Fatalf("BuildMessagesWithBudget: %v", err)
+	}
 
 	// Should have: system + warm summary + user + assistant = 4
 	if len(result.Messages) != 4 {

@@ -32,7 +32,7 @@ func toLLMToolCalls(rec []memory.ToolCallRecord) []llm.ToolCall {
 	return out
 }
 
-func Build(ctx context.Context, session *memory.Session, cache *SummaryCache, opts BuildOptions) BuildResult {
+func Build(ctx context.Context, session *memory.Session, cache *SummaryCache, opts BuildOptions) (BuildResult, error) {
 	res := BuildResult{}
 
 	msgs := []llm.Message{}
@@ -44,7 +44,7 @@ func Build(ctx context.Context, session *memory.Session, cache *SummaryCache, op
 	if session == nil || len(session.Records) == 0 {
 		res.Messages = msgs
 		res.TotalTokens = sysTokens
-		return res
+		return res, nil
 	}
 
 	// Filter the records:
@@ -86,7 +86,10 @@ func Build(ctx context.Context, session *memory.Session, cache *SummaryCache, op
 	splitIdx := len(raw) // first index NOT included; equals len(raw) means all included
 
 	for i := len(raw) - 1; i >= 0; i-- {
-		content := renderRecordContent(raw, i, opts)
+		content, err := renderRecordContent(raw, i, opts)
+		if err != nil {
+			return BuildResult{}, err
+		}
 		t := EstimateTokens(content)
 		if opts.MaxContextTokens > 0 && used+t > budget && len(acc) > 0 {
 			splitIdx = i + 1
@@ -134,7 +137,7 @@ func Build(ctx context.Context, session *memory.Session, cache *SummaryCache, op
 	res.Messages = msgs
 	res.TotalTokens = used + sysTokens
 	res.IncludedRaw = len(acc)
-	return res
+	return res, nil
 }
 
 func shouldSummarize(older, legacy []memory.Record) bool {

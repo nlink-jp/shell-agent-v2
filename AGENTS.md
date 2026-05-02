@@ -207,3 +207,4 @@ All implementation must follow these design documents:
 - `llm.validateToolCallArgs` caps `ToolCall.Arguments` at 1 MiB (configurable via `LocalConfig.MaxToolCallArgsBytes` / `VertexAIConfig.MaxToolCallArgsBytes`) and requires valid JSON (H6)
 - `objstore.generateID` produces 16-byte (32 hex) IDs; legacy 12-hex IDs continue to load via the length-tolerant read path (H11)
 - `analysis.validateFilePath` uses `os.Lstat` and rejects symlinks outright — applies to `load-data` and any other host-path entry point (H14)
+- `guard.Wrap` is fail-closed: `chat.BuildMessages` / `BuildMessagesWithBudget` / `WrapUserToolContent` and `contextbuild.Build` return an error rather than silently falling back to unwrapped content. The agent loop surfaces the error to the user (security-hardening-2.md L1)

@@ -78,6 +78,22 @@ for the full design and finding inventory.
   attacker who could plant a symlink in a path the LLM might
   pass would otherwise be able to redirect ingest to a host
   file the analysis layer is meant to refuse (H14).
+- **`guard.Wrap` is now fail-closed.** `chat.BuildMessages`,
+  `chat.BuildMessagesWithBudget`, `chat.WrapUserToolContent`,
+  and `contextbuild.Build` all return an error when the
+  underlying guard wrap fails (essentially crypto/rand
+  catastrophe). Previously they silently fell back to the
+  unwrapped content, giving the LLM untrusted input under our
+  system-prompt trust level. The agent loop surfaces the error
+  to the user instead of proceeding (security-hardening-2.md L1).
+
+### Changed (API)
+
+- `chat.Engine.BuildMessages`, `BuildMessagesWithBudget`, and
+  `WrapUserToolContent` gained a trailing `error` return. Same
+  for `contextbuild.Build` and the
+  `BuildOptions.WrapUserToolContent` callback type. Internal
+  packages only — no JSON / Wails-binding surface change.
 
 ### Fixed
 

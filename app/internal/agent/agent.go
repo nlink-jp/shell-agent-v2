@@ -357,7 +357,11 @@ func (a *Agent) CurrentBackend() string {
 
 // buildMessagesV2 assembles the LLM messages via the contextbuild package
 // (memory-architecture-v2.md). Opt-in via Memory.UseV2.
-func (a *Agent) buildMessagesV2(ctx context.Context, budget config.ContextBudgetConfig) []llm.Message {
+//
+// Returns an error if the guard wrap fails — see security-hardening-2.md
+// L1. Caller surfaces the error to the user instead of feeding
+// unwrapped untrusted content into the LLM.
+func (a *Agent) buildMessagesV2(ctx context.Context, budget config.ContextBudgetConfig) ([]llm.Message, error) {
 	cache, err := contextbuild.LoadCache(a.session.ID)
 	if err != nil {
 		logger.Error("buildMessagesV2: load cache: %v", err)
@@ -385,7 +389,7 @@ func (a *Agent) buildMessagesV2(ctx context.Context, budget config.ContextBudget
 		return resp.Content, nil
 	}
 
-	res := contextbuild.Build(ctx, a.session, cache, contextbuild.BuildOptions{
+	res, err := contextbuild.Build(ctx, a.session, cache, contextbuild.BuildOptions{
 		SystemPrompt:        systemPrompt,
 		MaxContextTokens:    budget.MaxContextTokens,
 		MaxToolResultTokens: budget.MaxToolResultTokens,
@@ -394,15 +398,18 @@ func (a *Agent) buildMessagesV2(ctx context.Context, budget config.ContextBudget
 		Summarize:           summarize,
 		WrapUserToolContent: a.chat.WrapUserToolContent,
 	})
+	if err != nil {
+		return nil, err
+	}
 
 	if !res.UsedCache && res.SummarizedSpan > 0 {
-		if err := cache.Save(a.session.ID); err != nil {
-			logger.Error("buildMessagesV2: save cache: %v", err)
+		if cerr := cache.Save(a.session.ID); cerr != nil {
+			logger.Error("buildMessagesV2: save cache: %v", cerr)
 		}
 	}
 	logger.Info("buildMessagesV2: raw=%d summarized=%d cache_hit=%v total_tokens=%d budget=%d",
 		res.IncludedRaw, res.SummarizedSpan, res.UsedCache, res.TotalTokens, budget.MaxContextTokens)
-	return res.Messages
+	return res.Messages, nil
 }
 
 // currentModelName returns the active backend's configured model string.
@@ -916,9 +923,18 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 		budget := a.currentBudget()
 		var messages []llm.Message
 		if a.cfg.Memory.UseV2 {
-			messages = a.buildMessagesV2(ctx, budget)
+			built, err := a.buildMessagesV2(ctx, budget)
+			if err != nil {
+				// Fail-closed: BuildMessages returns an error only when
+				// guard.Wrap fails (essentially crypto/rand catastrophe).
+				// Better to surface the failure than feed unwrapped
+				// untrusted content to the LLM (security-hardening-2.md L1).
+				logger.Error("agentLoop: buildMessagesV2: %v", err)
+				return "", fmt.Errorf("build messages: %w", err)
+			}
+			messages = built
 		} else {
-			buildResult := a.chat.BuildMessagesWithBudget(
+			buildResult, err := a.chat.BuildMessagesWithBudget(
 				a.session,
 				a.pinned.FormatForPrompt(),
 				a.findings.FormatForPrompt(),
@@ -928,6 +944,10 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 					MaxToolResultTokens:   budget.MaxToolResultTokens,
 				},
 			)
+			if err != nil {
+				logger.Error("agentLoop: BuildMessagesWithBudget: %v", err)
+				return "", fmt.Errorf("build messages: %w", err)
+			}
 			messages = buildResult.Messages
 			if buildResult.DroppedCount > 0 {
 				logger.Debug("agentLoop: budget control dropped %d old messages (total ~%d tokens)", buildResult.DroppedCount, buildResult.TotalTokens)

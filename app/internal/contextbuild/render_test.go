@@ -46,7 +46,7 @@ func TestShouldAnnotate_ToolAlways(t *testing.T) {
 func TestRenderRecordContent_PrependsMarker_ToolRecord(t *testing.T) {
 	now := time.Date(2026, 4, 27, 10, 30, 0, 0, utc)
 	records := []memory.Record{mkRec(now, "tool", "result")}
-	out := renderRecordContent(records, 0, BuildOptions{Loc: utc})
+	out, _ := renderRecordContent(records, 0, BuildOptions{Loc: utc})
 	if !strings.HasPrefix(out, "[2026-04-27 10:30 UTC]\n") {
 		t.Errorf("tool record should always carry a timestamp; got %q", out)
 	}
@@ -58,7 +58,7 @@ func TestRenderRecordContent_PrependsMarker_ToolRecord(t *testing.T) {
 func TestRenderRecordContent_NoMarkerOnFirstUserRecord(t *testing.T) {
 	now := time.Date(2026, 4, 27, 10, 30, 0, 0, utc)
 	records := []memory.Record{mkRec(now, "user", "hello")}
-	out := renderRecordContent(records, 0, BuildOptions{Loc: utc})
+	out, _ := renderRecordContent(records, 0, BuildOptions{Loc: utc})
 	if strings.Contains(out, "[2026-04-27") {
 		t.Errorf("first user record should be unannotated to keep models calling tools; got %q", out)
 	}
@@ -71,7 +71,7 @@ func TestRenderRecordContent_ToolTruncation(t *testing.T) {
 	now := time.Date(2026, 4, 27, 10, 0, 0, 0, utc)
 	huge := strings.Repeat("payload ", 500)
 	records := []memory.Record{mkRec(now, "tool", huge)}
-	out := renderRecordContent(records, 0, BuildOptions{MaxToolResultTokens: 50, Loc: utc})
+	out, _ := renderRecordContent(records, 0, BuildOptions{MaxToolResultTokens: 50, Loc: utc})
 	if !strings.Contains(out, "[truncated") {
 		t.Error("expected truncation suffix")
 	}
@@ -100,14 +100,14 @@ func TestRenderRecordContent_AppliesGuardWrap(t *testing.T) {
 	wrapped := []string{}
 	opts := BuildOptions{
 		Loc: utc,
-		WrapUserToolContent: func(s string) string {
+		WrapUserToolContent: func(s string) (string, error) {
 			wrapped = append(wrapped, s)
-			return "<<GUARD>>" + s + "<</GUARD>>"
+			return "<<GUARD>>" + s + "<</GUARD>>", nil
 		},
 	}
-	u := renderRecordContent(records, 0, opts)
-	a := renderRecordContent(records, 1, opts)
-	tl := renderRecordContent(records, 2, opts)
+	u, _ := renderRecordContent(records, 0, opts)
+	a, _ := renderRecordContent(records, 1, opts)
+	tl, _ := renderRecordContent(records, 2, opts)
 
 	if !strings.Contains(u, "<<GUARD>>") {
 		t.Error("user content should be wrapped")

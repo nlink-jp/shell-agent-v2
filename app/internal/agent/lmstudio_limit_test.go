@@ -166,7 +166,7 @@ func TestLMStudio_Limit_WithBudget(t *testing.T) {
 		toolUsed := wasToolCalledInLastTurnH(a.session)
 
 		// Count messages that BuildMessagesWithBudget would produce
-		budgetResult := a.chat.BuildMessagesWithBudget(
+		budgetResult, berr := a.chat.BuildMessagesWithBudget(
 			a.session,
 			a.pinned.FormatForPrompt(),
 			a.findings.FormatForPrompt(),
@@ -176,6 +176,9 @@ func TestLMStudio_Limit_WithBudget(t *testing.T) {
 				MaxToolResultTokens:   cfg.ContextBudget.MaxToolResultTokens,
 			},
 		)
+		if berr != nil {
+			t.Fatalf("BuildMessagesWithBudget: %v", berr)
+		}
 
 		status := "TEXT_ONLY"
 		if toolUsed {

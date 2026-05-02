@@ -38,7 +38,7 @@ func TestBuildMessagesV2_SmallSession_NoSummarize(t *testing.T) {
 		{Timestamp: now, Role: "assistant", Content: "hello", Tier: memory.TierHot},
 	}
 
-	msgs := a.buildMessagesV2(context.Background(), a.currentBudget())
+	msgs, _ := a.buildMessagesV2(context.Background(), a.currentBudget())
 	if len(msgs) < 2 {
 		t.Fatalf("expected system + records, got %d", len(msgs))
 	}
@@ -69,7 +69,7 @@ func TestBuildMessagesV2_OverBudget_TriggersSummarize(t *testing.T) {
 		})
 	}
 
-	msgs := a.buildMessagesV2(context.Background(), a.currentBudget())
+	msgs, _ := a.buildMessagesV2(context.Background(), a.currentBudget())
 	if len(mock.Calls()) != 1 {
 		t.Errorf("summarizer should be invoked once, got %d", len(mock.Calls()))
 	}
@@ -107,7 +107,7 @@ func TestBuildMessagesV2_CacheHit_SkipsSummarize(t *testing.T) {
 		})
 	}
 
-	_ = a.buildMessagesV2(context.Background(), a.currentBudget())
+	_, _ = a.buildMessagesV2(context.Background(), a.currentBudget())
 	firstCalls := len(mock.Calls())
 
 	// Reload — the on-disk cache from the previous build must be picked up
@@ -115,7 +115,7 @@ func TestBuildMessagesV2_CacheHit_SkipsSummarize(t *testing.T) {
 	// SAME session ID + HOME (set via t.Setenv in newV2Agent), which is
 	// preserved across this same test by using t.Name() in the session ID.
 
-	_ = a.buildMessagesV2(context.Background(), a.currentBudget())
+	_, _ = a.buildMessagesV2(context.Background(), a.currentBudget())
 	if len(mock.Calls()) != firstCalls {
 		t.Errorf("second build should not re-invoke summarizer (got %d calls, want %d)", len(mock.Calls()), firstCalls)
 	}
@@ -141,7 +141,7 @@ func TestBuildMessagesV2_SummarizerError_DoesNotAbort(t *testing.T) {
 		})
 	}
 
-	msgs := a.buildMessagesV2(context.Background(), a.currentBudget())
+	msgs, _ := a.buildMessagesV2(context.Background(), a.currentBudget())
 	if len(msgs) == 0 {
 		t.Fatal("messages must not be empty even after summarizer error")
 	}
@@ -179,7 +179,7 @@ func TestBuildMessagesV2_LegacySummaryRecordsRendered(t *testing.T) {
 		{Timestamp: now.Add(-time.Minute), Role: "user", Content: "what next?", Tier: memory.TierHot},
 	}
 
-	msgs := a.buildMessagesV2(context.Background(), a.currentBudget())
+	msgs, _ := a.buildMessagesV2(context.Background(), a.currentBudget())
 	var sm *llm.Message
 	for i := range msgs {
 		if msgs[i].Role == llm.RoleSummary {

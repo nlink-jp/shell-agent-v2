@@ -34,7 +34,7 @@ func summaryMessage(msgs []llm.Message) *llm.Message {
 }
 
 func TestBuild_EmptySession(t *testing.T) {
-	res := Build(stdcontext.Background(), &memory.Session{}, &SummaryCache{}, BuildOptions{
+	res, _ := Build(stdcontext.Background(), &memory.Session{}, &SummaryCache{}, BuildOptions{
 		SystemPrompt: "you are an agent",
 	})
 	if len(res.Messages) != 1 {
@@ -58,7 +58,7 @@ func TestBuild_AlwaysIncludesRecent_HugeMessage(t *testing.T) {
 			mkRec(now.Add(-1*time.Minute), "tool", huge),
 		},
 	}
-	res := Build(stdcontext.Background(), s, &SummaryCache{}, BuildOptions{
+	res, _ := Build(stdcontext.Background(), s, &SummaryCache{}, BuildOptions{
 		SystemPrompt:     "sys",
 		MaxContextTokens: 100, // tiny — most records won't fit
 		SummarizerID:     "test",
@@ -81,7 +81,7 @@ func TestBuild_FoldsOlderIntoSummary(t *testing.T) {
 		recs = append(recs, mkRec(now.Add(time.Duration(i)*time.Minute), "user", strings.Repeat("word ", 50)))
 	}
 	s := &memory.Session{Records: recs}
-	res := Build(stdcontext.Background(), s, &SummaryCache{}, BuildOptions{
+	res, _ := Build(stdcontext.Background(), s, &SummaryCache{}, BuildOptions{
 		SystemPrompt:     "sys",
 		MaxContextTokens: 200, // forces folding
 		SummarizerID:     "test",
@@ -108,7 +108,7 @@ func TestBuild_SummaryHasTimeRangeHeader(t *testing.T) {
 		mkRec(now.Add(-30*time.Minute), "user", strings.Repeat("second ", 50)),
 		mkRec(now.Add(-1*time.Minute), "user", "now"),
 	}
-	res := Build(stdcontext.Background(), &memory.Session{Records: recs}, &SummaryCache{}, BuildOptions{
+	res, _ := Build(stdcontext.Background(), &memory.Session{Records: recs}, &SummaryCache{}, BuildOptions{
 		MaxContextTokens: 80,
 		SummarizerID:     "test",
 		Summarize:        mockSummarize,
@@ -144,7 +144,7 @@ func TestBuild_LegacySummaryRecordsRespected(t *testing.T) {
 		legacy,
 		mkRec(now.Add(-5*time.Minute), "user", "what about Kyoto?"),
 	}}
-	res := Build(stdcontext.Background(), s, &SummaryCache{}, BuildOptions{
+	res, _ := Build(stdcontext.Background(), s, &SummaryCache{}, BuildOptions{
 		MaxContextTokens: 0, // unlimited — recent stays raw, legacy still becomes summary block
 		SummarizerID:     "test",
 		Loc:              utc,
@@ -182,7 +182,7 @@ func TestBuild_CacheHitSkipsSummarizer(t *testing.T) {
 	})
 
 	calls := 0
-	res := Build(stdcontext.Background(), s, cache, BuildOptions{
+	res, _ := Build(stdcontext.Background(), s, cache, BuildOptions{
 		MaxContextTokens: 30,
 		SummarizerID:     "test",
 		Summarize: func(ctx stdcontext.Context, _ []memory.Record) (string, error) {
@@ -215,7 +215,7 @@ func TestBuild_ExcludesCallingMarkers(t *testing.T) {
 		mkRec(now.Add(2*time.Second), "tool", "loaded 100 rows"),
 		mkRec(now.Add(3*time.Second), "assistant", "Loaded successfully."),
 	}}
-	res := Build(stdcontext.Background(), s, &SummaryCache{}, BuildOptions{
+	res, _ := Build(stdcontext.Background(), s, &SummaryCache{}, BuildOptions{
 		MaxContextTokens: 0, // unlimited
 		Loc:              utc,
 	})
@@ -235,7 +235,7 @@ func TestBuild_FitsInBudget_BasicSanity(t *testing.T) {
 	for i := 0; i < 30; i++ {
 		recs = append(recs, mkRec(now.Add(time.Duration(i)*time.Minute), "user", strings.Repeat("word ", 30)))
 	}
-	res := Build(stdcontext.Background(), &memory.Session{Records: recs}, &SummaryCache{}, BuildOptions{
+	res, _ := Build(stdcontext.Background(), &memory.Session{Records: recs}, &SummaryCache{}, BuildOptions{
 		MaxContextTokens: 500,
 		OutputReserve:    50,
 		SummarizerID:     "test",

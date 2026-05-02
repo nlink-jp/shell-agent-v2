@@ -15,7 +15,10 @@ func TestBuildMessagesGuardWrapsUserContent(t *testing.T) {
 		},
 	}
 
-	msgs := e.BuildMessages(session, "", "")
+	msgs, err := e.BuildMessages(session, "", "")
+	if err != nil {
+		t.Fatalf("BuildMessages: %v", err)
+	}
 
 	// User message should be guard-wrapped (contains nonce tag)
 	userMsg := msgs[1]
@@ -39,7 +42,10 @@ func TestBuildMessagesGuardWrapsToolContent(t *testing.T) {
 		},
 	}
 
-	msgs := e.BuildMessages(session, "", "")
+	msgs, err := e.BuildMessages(session, "", "")
+	if err != nil {
+		t.Fatalf("BuildMessages: %v", err)
+	}
 	toolMsg := msgs[1]
 	if toolMsg.Content == "tool result" {
 		t.Error("tool content should be guard-wrapped")
@@ -54,10 +60,35 @@ func TestBuildMessagesDoesNotGuardAssistant(t *testing.T) {
 		},
 	}
 
-	msgs := e.BuildMessages(session, "", "")
+	msgs, err := e.BuildMessages(session, "", "")
+	if err != nil {
+		t.Fatalf("BuildMessages: %v", err)
+	}
 	assistantMsg := msgs[1]
 	if assistantMsg.Content != "I am the assistant" {
 		t.Errorf("assistant content should NOT be wrapped, got %q", assistantMsg.Content)
+	}
+}
+
+// TestWrapUserToolContent_FailClosed pins security-hardening-2.md L1:
+// when the underlying guard.Tag.Wrap returns an error (essentially a
+// crypto/rand catastrophe — the only realistic failure mode), we
+// must surface the error rather than silently feeding the unwrapped
+// content into the LLM with elevated trust. We can't easily fault-
+// inject crypto/rand from a unit test, so this test serves as a
+// contract assertion: the signature is `(string, error)` and the
+// happy path returns nil error. If the contract reverts to the old
+// silent-fallback signature, this test fails to compile — making the
+// regression visible at PR time.
+func TestWrapUserToolContent_FailClosed(t *testing.T) {
+	e := New("base")
+	_ = e.BuildSystemPrompt("", "")
+	wrapped, err := e.WrapUserToolContent("payload")
+	if err != nil {
+		t.Fatalf("happy path should not error: %v", err)
+	}
+	if wrapped == "payload" {
+		t.Error("expected wrap to add markers")
 	}
 }
 

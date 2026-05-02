@@ -45,10 +45,13 @@ func formatTimestamp(t time.Time, loc *time.Location) string {
 	return t.In(loc).Format("2006-01-02 15:04 MST")
 }
 
-// renderRecordContent prepends a timestamp marker when warranted, applies
-// tool-result truncation, and wraps user/tool content via the caller-
-// supplied guard hook. The original record is unchanged.
-func renderRecordContent(records []memory.Record, i int, opts BuildOptions) string {
+// renderRecordContent prepends a timestamp marker when warranted,
+// applies tool-result truncation, and wraps user/tool content via
+// the caller-supplied guard hook. The original record is unchanged.
+//
+// Returns an error if the WrapUserToolContent hook fails — fail-closed
+// per security-hardening-2.md L1.
+func renderRecordContent(records []memory.Record, i int, opts BuildOptions) (string, error) {
 	r := records[i]
 	content := r.Content
 
@@ -57,14 +60,18 @@ func renderRecordContent(records []memory.Record, i int, opts BuildOptions) stri
 	}
 
 	if opts.WrapUserToolContent != nil && (r.Role == "user" || r.Role == "tool") {
-		content = opts.WrapUserToolContent(content)
+		wrapped, err := opts.WrapUserToolContent(content)
+		if err != nil {
+			return "", err
+		}
+		content = wrapped
 	}
 
 	if shouldAnnotate(records, i) {
 		marker := "[" + formatTimestamp(r.Timestamp, opts.loc()) + "]"
 		content = marker + "\n" + content
 	}
-	return content
+	return content, nil
 }
 
 // renderSummaryHeader produces the time-range header that wraps a summary
