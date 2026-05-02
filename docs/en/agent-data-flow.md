@@ -1,8 +1,13 @@
 # Agent Data Flow & State Control — Design Document
 
-> Date: 2026-04-25
-> Status: Shipped — design documents the agent loop and memory compaction as it ships in v0.1.16+ (refined further by the agent-loop-resilience design for v0.1.16)
-> Scope: Agent loop, session records, memory compaction, object repository
+> Date: 2026-04-25 (initial), 2026-05-02 (refreshed for v0.1.19)
+> Status: Shipped — describes the agent loop, memory handling,
+> object repository, post-response task lifecycle, and tool-event
+> persistence as they ship in v0.1.19. Earlier revisions document
+> the same loop's evolution (v0.1.16 resilience work, v0.1.18
+> security hardening); the differences are called out below.
+> Scope: agent loop, session records, memory compaction, object
+> repository, post-response background tasks, tool-event restore.
 
 ## 1. Problem Summary
 
@@ -43,64 +48,111 @@ response. This was removed after testing proved:
 No streaming: Chat() is used for all rounds because tool chaining
 precludes knowing which round will be the final text response.
 
-### 2.2 v2 Agent Loop Design
+### 2.2 Agent Loop Design (v0.1.19)
 
 ```
 SendWithImages(ctx, message, imageURLs)
   │
-  ├── Wait for previous postResponseTasks (postTasksWg)
-  ├── State: Idle → Busy
-  ├── Handle /commands → popup result (not chat)
+  ├── Acquire mu, check state == Idle (else ErrBusy)
+  ├── State: Idle → Busy   (this Busy persists through post-tasks)
+  ├── Set ctx, a.cancel for the in-flight loop
+  │
+  ├── Slash commands (/model, /finding, /findings, /help)
+  │   └── handle inside the Busy window, then release state directly
+  │       (these never enter agentLoop / never trigger post-tasks)
   │
   └── agentLoop(ctx, message, imageURLs)
         │
+        ├── defer postResponseTasks(ctx)   ← fires on every return path
         ├── Save images to objstore → get IDs
         ├── Add user record to session
         ├── Auto-save session
-        ├── Synchronous compaction (compactIfOverBudget)
+        ├── Synchronous compaction (compactIfOverBudget; v1 only)
         │
-        └── LOOP (max 10 rounds):
+        └── LOOP (max maxToolRounds rounds — config.agent.max_tool_rounds):
               │
-              ├── Compact again if round > 0
+              ├── Compact again if round > 0 (v1 only; v2 path is no-op)
               │
               ├── tools = allTools (every round, enables chaining)
-              │   ├── builtin: resolve-date
-              │   ├── analysis: load-data, query-sql, analyze-data, etc.
-              │   ├── shell: from toolRegistry (list-files, weather, etc.)
-              │   ├── MCP: from guardians (mcp__name__tool)
+              │   ├── builtin: resolve-date, create-report
+              │   ├── analysis: load-data, query-sql, describe-data,
+              │   │   promote-finding, reset, …
+              │   ├── sandbox: 8 sandbox-* tools (registered only when
+              │   │   sandbox is enabled and the active image is ready)
+              │   ├── shell: from toolRegistry (bundled + user-added)
+              │   ├── MCP: from guardians (mcp__server__tool)
               │   └── Filter: remove disabled tools (config.DisabledTools)
               │
-              ├── BuildMessagesWithBudget
-              │   ├── System prompt + temporal + location + pinned + findings
-              │   ├── Warm summaries (truncated to MaxWarmTokens)
-              │   ├── Hot records newest-first (skip [Calling:] messages)
-              │   ├── Tool results truncated to MaxToolResultTokens
-              │   └── Guard-wrap user and tool content
+              ├── Build messages
+              │   ├── v1: chat.BuildMessagesWithBudget (system+temporal+
+              │   │   pinned+findings+warm+hot-newest-first; skip
+              │   │   [Calling:] markers; truncate tool results)
+              │   └── v2: agent.buildMessagesV2 → contextbuild.Build
+              │       (immutable records, content-keyed summary cache,
+              │        time markers; see memory-architecture-v2.md)
               │
-              ├── Call LLM: Backend.Chat() (non-streaming)
+              ├── Loop-detection ring buffer (v0.1.16) — if the same
+              │   tool failed in a row, prepend a one-shot system
+              │   nudge to the next call asking for a different
+              │   approach.
+              │
+              ├── Call LLM: backend.Chat() (non-streaming; tool chaining
+              │   precludes knowing the final round in advance).
+              │   Vertex parallel-call FunctionResponse coalescing
+              │   handled inside vertex.go buildContents.
               │
               ├── Clean response: ThinkTags + GemmaToolCallTags
+              │   (Gemini Thought-tagged Parts are dropped earlier in
+              │    parseResponse before this layer sees them.)
               │
               ├── IF no tool_calls AND content non-empty:
               │   ├── Store assistant record
               │   ├── Auto-save session
-              │   ├── postResponseTasks (async via WaitGroup)
-              │   └── RETURN content
+              │   └── RETURN content (post-tasks fire via defer)
               │
               ├── IF no tool_calls AND content empty:
-              │   └── RETURN ""
+              │   ├── First attempt: inject a wrap-up nudge for one
+              │   │   more round (handles Vertex's tokens=N/0 silent
+              │   │   exits). Continue.
+              │   └── After the wrap-up retry: RETURN "" (defer still
+              │       fires post-tasks).
               │
               └── IF tool_calls present:
-                    ├── Emit thinking activity (if LLM included explanation)
-                    ├── Store assistant record ([Calling:...] if empty)
+                    ├── Emit thinking activity if the model included
+                    │   narration (rendered as transient progressTool
+                    │   banner, never as a chat bubble).
+                    ├── Store assistant record (Content + ToolCalls)
                     ├── Execute each tool call:
                     │   ├── Emit tool_start activity
                     │   ├── MITL check (category + per-tool override)
-                    │   ├── Route: builtin / analysis / MCP / shell
-                    │   ├── Store tool result record
+                    │   ├── Route: builtin / analysis / sandbox / MCP /
+                    │   │   shell
+                    │   ├── Store tool result record (Status="success"
+                    │   │   /"error" persisted, used by LoadSession to
+                    │   │   rebuild tool-event bubbles on reload —
+                    │   │   tool-event-restore.md)
                     │   ├── Emit tool_end activity
                     │   └── If tool produces artifact → save to objstore
                     └── Auto-save session
+
+postResponseTasks(parentCtx)         ← run from agentLoop's defer
+  ├── ctx, postCancel = WithCancel(parentCtx); store on a.postCancel
+  ├── postTasksWg.Add(3)
+  ├── go trackBg("title",            generateTitleIfNeeded)
+  ├── go trackBg("memory-compaction", compactMemoryIfNeeded)
+  ├── go trackBg("pinned-extraction", extractPinnedMemories)
+  └── go { postTasksWg.Wait(); state=Idle; cancel/postCancel cleared }
+       ↑ this trailing goroutine is what releases the Busy state.
+         The frontend keys off Busy for the input gate AND the
+         Sidebar New / Load / Delete buttons — see
+         background-task-indicator.md.
+
+Abort()
+  ├── fires a.cancel       (interrupts the in-flight agentLoop)
+  └── fires a.postCancel   (interrupts running post-tasks)
+       The trailing goroutine then drops state to Idle as in the
+       success path. canceled tasks are logged at INFO and
+       reported with empty Error so the footer doesn't flash red.
 ```
 
 ### 2.3 Critical Rules
@@ -126,28 +178,49 @@ SendWithImages(ctx, message, imageURLs)
 
 ```go
 type Record struct {
-    Timestamp    time.Time   `json:"timestamp"`
-    Role         string      `json:"role"`      // user|assistant|tool|report|summary
-    Content      string      `json:"content"`
-    Tier         Tier        `json:"tier"`       // hot|warm|cold
-    ToolCallID   string      `json:"tool_call_id,omitempty"`
-    ToolName     string      `json:"tool_name,omitempty"`
-    ObjectIDs    []string    `json:"object_ids,omitempty"`  // references to objstore
-    SummaryRange *TimeRange  `json:"summary_range,omitempty"`
-    InTokens     int         `json:"in_tokens,omitempty"`
-    OutTokens    int         `json:"out_tokens,omitempty"`
+    Timestamp    time.Time         `json:"timestamp"`
+    Role         string            `json:"role"`      // user|assistant|tool|report|summary
+    Content      string            `json:"content"`
+    Tier         Tier              `json:"tier"`      // hot|warm|cold
+    ToolCallID   string            `json:"tool_call_id,omitempty"`
+    ToolName     string            `json:"tool_name,omitempty"`
+    ToolCalls    []ToolCallRecord  `json:"tool_calls,omitempty"`    // assistant turns that issued tool calls
+    ObjectIDs    []string          `json:"object_ids,omitempty"`    // objstore refs
+    ImageURLs    []string          `json:"image_urls,omitempty"`    // deprecated; data URLs only on legacy sessions
+    SummaryRange *TimeRange        `json:"summary_range,omitempty"`
+    Status       string            `json:"status,omitempty"`        // role=tool: "success"|"error" (v0.1.19+)
+}
+
+type ToolCallRecord struct {
+    ID        string `json:"id"`
+    Name      string `json:"name"`
+    Arguments string `json:"arguments"`
 }
 ```
+
+`ToolCalls` is what enables protocol-correct round-trips on
+subsequent agent rounds: Vertex needs the prior assistant turn to
+carry the matching FunctionCall Parts and OpenAI needs `tool_calls`
+on the assistant message — both are reconstructed from this slice
+at message-build time. See
+[`tool-call-roundtrip.md`](./tool-call-roundtrip.md).
+
+`Status` is populated only on `role=tool` records and is what
+LoadSession uses to rebuild tool-event bubbles with success/error
+styling on session reload. Records written before v0.1.19 have an
+empty Status; the restore path defaults them to `success` so
+older chats stay readable. See
+[`tool-event-restore.md`](./tool-event-restore.md).
 
 ### 3.2 Roles
 
 | Role | Stored by | Sent to LLM | Shown in UI | Notes |
 |------|-----------|-------------|-------------|-------|
 | `user` | agentLoop | Yes (guarded) | Yes | User messages |
-| `assistant` | agentLoop | Yes | Yes | LLM responses (non-empty only) |
-| `tool` | agentLoop | Yes (guarded) | No | Tool results, formatted as `[Tool: name]\nOutput:\n...` |
-| `report` | toolCreateReport | Yes | Yes (special) | Report content, stored in session |
-| `summary` | CompactIfNeeded | Yes | No | Warm/Cold memory summaries |
+| `assistant` | agentLoop | Yes | Yes (final reply only) | A turn that carries `ToolCalls` is **not** restored as a chat bubble — its narrative was a transient progressTool banner. Final replies (no tool calls) restore. |
+| `tool` | agentLoop | Yes (guarded) | As tool-event pill (live + restored) | Result text + Status; LoadSession rebuilds tool-event bubbles |
+| `report` | toolCreateReport | Yes | Yes (special) | Report content, stored in session + objstore |
+| `summary` | CompactIfNeeded (v1) | Yes | Yes (legacy block) | v1 destructive summaries; v2 doesn't write these. |
 
 ### 3.3 Context Budget Control
 
@@ -536,12 +609,16 @@ During tool execution (Busy state):
 
 | Event | Direction | Payload | Purpose |
 |-------|-----------|---------|---------|
-| `agent:stream` | Backend → FE | `{token, done}` | Streaming tokens (final response only) |
-| `agent:activity` | Backend → FE | `{type, detail}` | Agent execution status |
+| `agent:stream` | Backend → FE | `{token, done}` | Streaming tokens (currently disabled — Chat() is used; reserved for future ChatStream re-enable) |
+| `agent:activity` | Backend → FE | `{type, detail, status?}` | Agent execution status (tool_start / tool_end / thinking / retry_backoff). `status` is "success" / "error" on tool_end. |
 | `session:title` | Backend → FE | `{session_id, title}` | Auto-generated title |
 | `report:created` | Backend → FE | `{title, content}` | Report content for display |
 | `pinned:updated` | Backend → FE | `nil` | Pinned memory changed |
 | `mitl:request` | Backend → FE | `{tool_name, arguments, category}` | Tool approval needed |
+| `bg-task:start` | Backend → FE | `{name}` | Post-response background task started (`name` = title / memory-compaction / pinned-extraction) |
+| `bg-task:end` | Backend → FE | `{name, error}` | Post-response background task finished. Empty `error` for success / canceled; non-empty triggers a 5 s red flash in the footer. |
+| `sandbox:build:line` | Backend → FE | `{line}` | One stdout/stderr line from a sandbox image build. |
+| `sandbox:build:done` | Backend → FE | `{ok, error}` | Sandbox image build finished. |
 
 #### agent:activity Types
 
