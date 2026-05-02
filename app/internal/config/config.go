@@ -24,6 +24,11 @@ type LocalConfig struct {
 	HotTokenLimit         int                 `json:"hot_token_limit,omitempty"`     // 0 = inherit from Memory.HotTokenLimit
 	ContextBudget         ContextBudgetConfig `json:"context_budget,omitzero"`       // zero fields inherit from top-level ContextBudget
 	RequestTimeoutSeconds int                 `json:"request_timeout_seconds,omitempty"` // 0 = use default (300)
+	// MaxToolCallArgsBytes caps a single LLM-emitted tool call's
+	// Arguments string. 0 → 1 MiB (llm.MaxToolCallArgsBytesDefault).
+	// Garbage / attack detection threshold; not surfaced in the
+	// Settings UI (security-hardening-2.md H6).
+	MaxToolCallArgsBytes int `json:"max_tool_call_args_bytes,omitempty"`
 }
 
 // VertexAIConfig holds Vertex AI settings.
@@ -34,6 +39,10 @@ type VertexAIConfig struct {
 	HotTokenLimit         int                 `json:"hot_token_limit,omitempty"`
 	ContextBudget         ContextBudgetConfig `json:"context_budget,omitzero"`
 	RequestTimeoutSeconds int                 `json:"request_timeout_seconds,omitempty"` // 0 = use default (180)
+	// MaxToolCallArgsBytes — see LocalConfig. Vertex's genai SDK
+	// returns tool calls already-decoded so the cap is enforced at
+	// the wire-decode boundary (not a string-len check).
+	MaxToolCallArgsBytes int `json:"max_tool_call_args_bytes,omitempty"`
 }
 
 // LocalRequestTimeoutDefault is the fallback per-request timeout

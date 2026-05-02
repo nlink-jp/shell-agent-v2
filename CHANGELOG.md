@@ -55,6 +55,29 @@ for the full design and finding inventory.
   `sync.Mutex`, and the >999-per-day overflow path picks up a
   6-hex random suffix so the ID stays unique without colliding
   with the legacy fixed-width format (H9).
+- **Sandbox image pin advisory.** Settings → Sandbox surfaces a
+  warning banner when the active image uses a mutable upstream
+  tag (e.g. `python:3.12-slim`). Locally-built images and
+  `@sha256:` digest pins are treated as safe. The warning is
+  advisory — we do not refuse a mutable tag, since some users
+  legitimately want to track upstream patch updates
+  (security-hardening-2.md H5).
+- **Local-LLM ToolCall.Arguments validated.** Each tool call's
+  Arguments string is checked for valid JSON and capped at 1 MiB
+  (configurable via `cfg.LLM.{local,vertex_ai}.max_tool_call_args_bytes`).
+  This is a garbage / attack detection threshold — real workloads
+  (sandbox-write-file with HTML/CSV/Python, create-report with
+  long markdown) sit well below the cap. Empty Arguments strings
+  remain accepted for no-parameter tools (H6).
+- **Wider object-store IDs.** New objects use 16-byte (32 hex
+  char) IDs, up from 12-hex (48-bit). Birthday-bound collisions
+  are now astronomically improbable. Legacy 12-hex IDs continue
+  to load — the read path is length-tolerant (H11).
+- **`load-data` rejects symlinks.** `validateFilePath` now uses
+  `os.Lstat` and refuses any path that is itself a symlink. An
+  attacker who could plant a symlink in a path the LLM might
+  pass would otherwise be able to redirect ingest to a host
+  file the analysis layer is meant to refuse (H14).
 
 ### Fixed
 

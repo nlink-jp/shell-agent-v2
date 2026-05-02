@@ -225,6 +225,12 @@ func (e *Engine) LoadJSONL(tableName, filePath string) error {
 // validateFilePath ensures the path exists, is a regular file, and contains
 // no SQL metacharacters that could be used for injection beyond the
 // single-quote escape applied separately.
+//
+// Symlinks are rejected: an attacker who can plant a symlink in the
+// app's data dir or anywhere reachable by the LLM should not be able
+// to redirect a load-data ingest to a host file the analysis layer
+// is supposed to refuse. Lstat (not Stat) ensures we see the link
+// itself rather than its target (security-hardening-2.md H14).
 func validateFilePath(path string) (string, error) {
 	if path == "" {
 		return "", fmt.Errorf("empty file path")
@@ -233,9 +239,12 @@ func validateFilePath(path string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("invalid path: %w", err)
 	}
-	info, err := os.Stat(abs)
+	info, err := os.Lstat(abs)
 	if err != nil {
 		return "", fmt.Errorf("file not accessible: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("symlinks are not allowed: %s", abs)
 	}
 	if info.IsDir() {
 		return "", fmt.Errorf("path is a directory, not a file: %s", abs)

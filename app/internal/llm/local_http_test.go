@@ -282,6 +282,75 @@ func TestLocal_ChatStream_HTTP500(t *testing.T) {
 	}
 }
 
+// TestLocal_Chat_RejectsOversizedToolArgs covers security-hardening-2.md
+// H6: a local LLM emitting a multi-MB ToolCall.Arguments is treated
+// as garbage / attack rather than blindly persisted into the session
+// record and re-fed on the next round.
+func TestLocal_Chat_RejectsOversizedToolArgs(t *testing.T) {
+	// Build a JSON-shaped Arguments string just over the default cap.
+	bigField := strings.Repeat("a", MaxToolCallArgsBytesDefault+10)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		// Properly-encoded JSON for the outer chatResponse.
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"","tool_calls":[{"id":"tc1","type":"function","function":{"name":"x","arguments":` +
+			"\"" + bigField + "\"" + `}}]}}]}`))
+	}))
+	defer srv.Close()
+
+	l := newLocalAgainst(srv)
+	_, err := l.Chat(context.Background(), []Message{{Role: RoleUser, Content: "x"}}, nil)
+	if err == nil {
+		t.Fatal("expected error for oversized tool args")
+	}
+	if !strings.Contains(err.Error(), "exceed") {
+		t.Errorf("err = %v, want it to mention exceed", err)
+	}
+}
+
+// TestLocal_Chat_RejectsInvalidJSONToolArgs covers security-hardening-2.md
+// H6: a tool call carrying syntactically invalid JSON for its
+// arguments is rejected up front rather than left for the dispatcher
+// to discover via Unmarshal.
+func TestLocal_Chat_RejectsInvalidJSONToolArgs(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"","tool_calls":[{"id":"tc1","type":"function","function":{"name":"x","arguments":"{not json"}}]}}]}`))
+	}))
+	defer srv.Close()
+
+	l := newLocalAgainst(srv)
+	_, err := l.Chat(context.Background(), []Message{{Role: RoleUser, Content: "x"}}, nil)
+	if err == nil {
+		t.Fatal("expected error for invalid-JSON tool args")
+	}
+	if !strings.Contains(err.Error(), "valid JSON") {
+		t.Errorf("err = %v, want it to mention JSON validity", err)
+	}
+}
+
+// TestLocal_Chat_AcceptsEmptyToolArgs verifies that no-parameter
+// tools (where the model emits "" as Arguments) still work — empty
+// args is a valid case that the validator must not reject.
+func TestLocal_Chat_AcceptsEmptyToolArgs(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"","tool_calls":[{"id":"tc1","type":"function","function":{"name":"list-tables","arguments":""}}]}}]}`))
+	}))
+	defer srv.Close()
+
+	l := newLocalAgainst(srv)
+	resp, err := l.Chat(context.Background(), []Message{{Role: RoleUser, Content: "x"}}, nil)
+	if err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	if len(resp.ToolCalls) != 1 || resp.ToolCalls[0].Name != "list-tables" {
+		t.Errorf("expected one list-tables tool call, got %+v", resp.ToolCalls)
+	}
+}
+
 // TestLocal_Chat_RejectsOversizedResponse confirms doRequest's
 // LimitReader cap (security-hardening-2.md H12). A misbehaving
 // endpoint streaming a body larger than MaxLocalResponseBytes would

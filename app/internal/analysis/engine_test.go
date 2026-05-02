@@ -3,6 +3,7 @@ package analysis
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -310,6 +311,35 @@ func TestRefreshTableMeta_TableNameSQLEscape(t *testing.T) {
 				t.Errorf("description = %q, want %q", meta.Description, "round-trip")
 			}
 		})
+	}
+}
+
+// TestValidateFilePath_RejectsSymlink covers security-hardening-2.md
+// H14 — an attacker who can plant a symlink in a path the LLM might
+// pass to load-data should not be able to redirect ingest to a host
+// file the analysis layer is meant to refuse.
+func TestValidateFilePath_RejectsSymlink(t *testing.T) {
+	dir := t.TempDir()
+	// Real CSV file the symlink points at — exists and is regular,
+	// so the only thing the validator rejects is the symlink itself.
+	target := filepath.Join(dir, "real.csv")
+	if err := os.WriteFile(target, []byte("a,b\n1,2\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "alias.csv")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	if _, err := validateFilePath(link); err == nil {
+		t.Fatal("symlink should be rejected")
+	} else if !strings.Contains(err.Error(), "symlink") {
+		t.Errorf("err = %v, want it to mention symlinks", err)
+	}
+
+	// The real file should still pass.
+	if _, err := validateFilePath(target); err != nil {
+		t.Errorf("real file should pass: %v", err)
 	}
 }
 

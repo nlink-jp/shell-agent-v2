@@ -287,6 +287,11 @@ export default function SettingsDialog({settings, tools, mcpStatus, onUpdate, on
                         <div className="settings-section">
                             <h3>Sandbox (experimental)</h3>
                             <p className="sidebar-hint">Exposes the eight sandbox-* tools that run shell/Python inside a per-session container. Tools register only when an Active image exists, the engine has it locally, AND the checkbox below is on. See docs/en/sandbox-image-build.md.</p>
+                            {imageStatus?.active_tag && !imageStatus.active_pinned_by_digest && (
+                                <p className="sidebar-hint" style={{borderLeft: '3px solid #b58900', paddingLeft: '0.5em', marginTop: '0.5em'}}>
+                                    ⚠ Active image <code>{imageStatus.active_tag}</code> uses a mutable tag. A registry or network compromise could swap the image bytes the next time the engine pulls. Build locally (the Dockerfile flow below produces a content-addressed tag) or pin upstream by <code>@sha256:&lt;digest&gt;</code>.
+                                </p>
+                            )}
                         </div>
                         <div className="settings-section">
                             <h3>Built images</h3>

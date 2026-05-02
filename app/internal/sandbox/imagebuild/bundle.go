@@ -10,6 +10,7 @@ package imagebuild
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"regexp"
 )
 
 // TagPrefix is the namespace under which all sandbox
@@ -60,4 +61,33 @@ WORKDIR /work
 func TagFor(dockerfile string) string {
 	sum := sha256.Sum256([]byte(dockerfile))
 	return TagPrefix + ":" + hex.EncodeToString(sum[:6])
+}
+
+// digestPinRegex matches an OCI image reference pinned by digest:
+// `<registry/path>@sha256:<64 hex>`. Locally-built sandbox images
+// (TagPrefix:<sha[:12]>) also count as pinned for this purpose
+// because the tag itself is content-addressed and the local engine
+// won't pull a different image under that tag.
+var digestPinRegex = regexp.MustCompile(`@sha256:[a-f0-9]{64}$`)
+
+// IsImageDigestPinned reports whether the given image reference is
+// pinned in a way that resists registry / network compromise. Used
+// by the Settings UI to surface a "this image is mutable" warning
+// (security-hardening-2.md H5). The local content-addressed
+// `<TagPrefix>:<sha>` form is treated as pinned because the tag
+// matches the build content and the engine never re-fetches it from
+// a registry.
+func IsImageDigestPinned(image string) bool {
+	if image == "" {
+		return false
+	}
+	if digestPinRegex.MatchString(image) {
+		return true
+	}
+	// Locally-built sandbox image: tag is sha-prefixed and the
+	// engine never re-pulls.
+	if len(image) > len(TagPrefix)+1 && image[:len(TagPrefix)+1] == TagPrefix+":" {
+		return true
+	}
+	return false
 }

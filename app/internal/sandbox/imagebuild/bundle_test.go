@@ -46,3 +46,31 @@ func TestTagFor_HasPrefixAndShortHash(t *testing.T) {
 		t.Errorf("tag suffix %q is not 12 hex chars", suffix)
 	}
 }
+
+// TestIsImageDigestPinned drives security-hardening-2.md H5: the
+// Settings UI surfaces a warning banner when the active sandbox
+// image is a mutable tag (registry / network compromise can swap
+// it). Locally-built TagPrefix images and proper @sha256: refs
+// count as pinned.
+func TestIsImageDigestPinned(t *testing.T) {
+	cases := []struct {
+		name string
+		img  string
+		want bool
+	}{
+		{"empty", "", false},
+		{"mutable upstream tag", "python:3.12-slim", false},
+		{"mutable upstream latest", "python:latest", false},
+		{"upstream digest pin", "python@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", true},
+		{"upstream tag + digest pin", "python:3.12-slim@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", true},
+		{"locally built sandbox tag", TagPrefix + ":abcdef012345", true},
+		{"truncated digest", "python@sha256:0123", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := IsImageDigestPinned(tc.img); got != tc.want {
+				t.Errorf("IsImageDigestPinned(%q) = %v, want %v", tc.img, got, tc.want)
+			}
+		})
+	}
+}

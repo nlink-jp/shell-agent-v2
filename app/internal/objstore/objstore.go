@@ -1,5 +1,7 @@
 // Package objstore provides a central repository for images, blobs, and reports.
-// Objects are stored as files with 12-char hex IDs.
+// Objects are stored as files with hex IDs (16 bytes / 32 hex chars
+// for new objects; legacy 12-hex IDs continue to load via the
+// length-tolerant read path).
 // Design: docs/en/object-storage.md
 package objstore
 
@@ -111,17 +113,45 @@ func (s *Store) saveLocked() error {
 }
 
 // Store saves a blob and returns its metadata.
+//
+// Concurrency / collision: with 16-byte (128-bit) IDs the birthday
+// bound makes accidental collisions astronomically improbable, but
+// we still pick a fresh ID under the index lock and verify it isn't
+// already present — up to 3 attempts before bailing out. This both
+// future-proofs against ID-space shrinks and guards against a buggy
+// crypto/rand returning all zeros (security-hardening-2.md H11).
 func (s *Store) Store(reader io.Reader, objType ObjectType, mimeType, origName, sessionID string) (*ObjectMeta, error) {
 	if err := os.MkdirAll(s.dataDir, 0700); err != nil {
 		return nil, err
 	}
 
-	id := generateID()
+	s.mu.Lock()
+	var id string
+	for attempt := 0; attempt < 3; attempt++ {
+		candidate := generateID()
+		if _, exists := s.index[candidate]; !exists {
+			id = candidate
+			break
+		}
+	}
+	if id == "" {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("objstore: could not generate unique ID after 3 attempts")
+	}
+	// Reserve the slot under lock so a concurrent Store can't pick
+	// the same ID while we're writing the file. Set a placeholder
+	// that we'll overwrite with the real meta below.
+	s.index[id] = &ObjectMeta{ID: id}
+	s.mu.Unlock()
+
 	path := filepath.Join(s.dataDir, id)
 
 	// Use 0600 to restrict access to owner only (may contain sensitive content).
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
+		s.mu.Lock()
+		delete(s.index, id)
+		s.mu.Unlock()
 		return nil, fmt.Errorf("create object: %w", err)
 	}
 
@@ -131,6 +161,9 @@ func (s *Store) Store(reader io.Reader, objType ObjectType, mimeType, origName, 
 	}
 	if err != nil {
 		os.Remove(path)
+		s.mu.Lock()
+		delete(s.index, id)
+		s.mu.Unlock()
 		return nil, fmt.Errorf("write object: %w", err)
 	}
 
@@ -286,8 +319,15 @@ func (s *Store) LoadAsDataURL(id string) (string, error) {
 	return fmt.Sprintf("data:%s;base64,%s", meta.MimeType, encoded), nil
 }
 
+// IDByteLen is the entropy width of newly-generated object IDs.
+// 16 bytes → 32 hex chars → 128 bits, which makes accidental
+// collisions astronomically improbable even at >1 M objects per
+// store. Read-side code is length-tolerant so legacy 12-hex IDs
+// continue to load (security-hardening-2.md H11).
+const IDByteLen = 16
+
 func generateID() string {
-	b := make([]byte, 6)
+	b := make([]byte, IDByteLen)
 	rand.Read(b)
 	return hex.EncodeToString(b)
 }

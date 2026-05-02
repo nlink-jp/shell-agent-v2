@@ -123,6 +123,12 @@ export interface SandboxImageInfo {
 export interface SandboxImageStatus {
     active_tag: string;
     active_ready: boolean;
+    /** True when the Active image reference is digest-pinned or
+     *  locally content-addressed (TagPrefix:<sha>). False for
+     *  mutable upstream tags like `python:3.12-slim` — Settings
+     *  surfaces a warning banner in that case
+     *  (security-hardening-2.md H5). */
+    active_pinned_by_digest: boolean;
     building: boolean;
     recommended_dockerfile: string;
     current_dockerfile: string;

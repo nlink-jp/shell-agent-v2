@@ -203,3 +203,7 @@ All implementation must follow these design documents:
 - MCP tool name parsing uses `splitMCPName` with longest-prefix fallback for the rare guardian / tool name containing `__`. Guardian names must match `validGuardianName` (`^[a-zA-Z0-9-]+$`) at startup (H3)
 - JSON stores on the data path go through `internal/atomicio.WriteFileAtomic` (tmp+rename + parent-dir fsync) so a crash mid-save leaves the previous file intact. Applies to objstore index, findings, pinned, summaries cache, and per-session chat.json (security-hardening-2.md C4 / H10)
 - `findings.Store.Add` is mutex-protected; ID generation reads the per-day count under the same lock so concurrent Adds can't collide (H9). The >999-per-day overflow uses a 6-hex random suffix.
+- Settings → Sandbox surfaces a mutable-tag warning banner via `SandboxImageStatus.ActivePinnedByDigest` / `imagebuild.IsImageDigestPinned` — locally-built `<TagPrefix>:<sha>` and `@sha256:` upstream pins are safe (security-hardening-2.md H5)
+- `llm.validateToolCallArgs` caps `ToolCall.Arguments` at 1 MiB (configurable via `LocalConfig.MaxToolCallArgsBytes` / `VertexAIConfig.MaxToolCallArgsBytes`) and requires valid JSON (H6)
+- `objstore.generateID` produces 16-byte (32 hex) IDs; legacy 12-hex IDs continue to load via the length-tolerant read path (H11)
+- `analysis.validateFilePath` uses `os.Lstat` and rejects symlinks outright — applies to `load-data` and any other host-path entry point (H14)

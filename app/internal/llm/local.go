@@ -144,6 +144,9 @@ func (l *Local) Chat(ctx context.Context, messages []Message, tools []ToolDef) (
 		OutputTokens: resp.Usage.CompletionTokens,
 	}
 	for _, tc := range msg.ToolCalls {
+		if err := validateToolCallArgs(tc.Function.Name, tc.Function.Arguments, l.maxToolArgsBytes()); err != nil {
+			return nil, err
+		}
 		result.ToolCalls = append(result.ToolCalls, ToolCall{
 			ID:        tc.ID,
 			Name:      tc.Function.Name,
@@ -151,6 +154,38 @@ func (l *Local) Chat(ctx context.Context, messages []Message, tools []ToolDef) (
 		})
 	}
 	return result, nil
+}
+
+// MaxToolCallArgsBytesDefault is the default per-call cap on
+// LLM-emitted tool arguments. 1 MiB is a garbage-detection threshold,
+// not a tight resource limit — sandbox-write-file with a chunky CSV /
+// HTML payload routinely reaches a few hundred KB. The 16 MiB
+// response-body cap (MaxLocalResponseBytes / H12) is the actual
+// memory defence (security-hardening-2.md H6).
+const MaxToolCallArgsBytesDefault = 1024 * 1024
+
+func (l *Local) maxToolArgsBytes() int {
+	if l.cfg.MaxToolCallArgsBytes > 0 {
+		return l.cfg.MaxToolCallArgsBytes
+	}
+	return MaxToolCallArgsBytesDefault
+}
+
+func validateToolCallArgs(name, args string, maxBytes int) error {
+	if len(args) > maxBytes {
+		return fmt.Errorf("tool call %q arguments exceed %d bytes", name, maxBytes)
+	}
+	if args == "" {
+		// Empty args are accepted by some upstream model variants for
+		// no-parameter tools; the agent dispatcher already json.Unmarshals
+		// into a per-tool struct, which tolerates an empty string when
+		// no fields are required.
+		return nil
+	}
+	if !json.Valid([]byte(args)) {
+		return fmt.Errorf("tool call %q arguments are not valid JSON", name)
+	}
+	return nil
 }
 
 // ChatStream sends messages and streams the response via callback.
@@ -234,6 +269,9 @@ func (l *Local) ChatStream(ctx context.Context, messages []Message, tools []Tool
 		if b, ok := toolCallArgs[i]; ok {
 			tc.Arguments = b.String()
 			toolCalls[i] = tc
+		}
+		if err := validateToolCallArgs(tc.Name, tc.Arguments, l.maxToolArgsBytes()); err != nil {
+			return nil, err
 		}
 	}
 

@@ -716,12 +716,13 @@ type SandboxImageInfo struct {
 // SandboxImageStatus is the snapshot the Settings dialog
 // reads on open and after each build event.
 type SandboxImageStatus struct {
-	ActiveTag             string             `json:"active_tag"`             // cfg.Sandbox.Image
-	ActiveReady           bool               `json:"active_ready"`           // engine has the active tag locally
-	Building              bool               `json:"building"`               // a build is in flight
-	RecommendedDockerfile string             `json:"recommended_dockerfile"` // imagebuild.RecommendedDockerfile
-	CurrentDockerfile     string             `json:"current_dockerfile"`     // cfg.Sandbox.Dockerfile or recommended
-	Images                []SandboxImageInfo `json:"images"`                 // locally-built sandbox images
+	ActiveTag             string             `json:"active_tag"`              // cfg.Sandbox.Image
+	ActiveReady           bool               `json:"active_ready"`            // engine has the active tag locally
+	ActivePinnedByDigest  bool               `json:"active_pinned_by_digest"` // image ref is digest-pinned (or locally content-addressed); see security-hardening-2.md H5
+	Building              bool               `json:"building"`                // a build is in flight
+	RecommendedDockerfile string             `json:"recommended_dockerfile"`  // imagebuild.RecommendedDockerfile
+	CurrentDockerfile     string             `json:"current_dockerfile"`      // cfg.Sandbox.Dockerfile or recommended
+	Images                []SandboxImageInfo `json:"images"`                  // locally-built sandbox images
 }
 
 // GetSandboxImageStatus is the "is the sandbox usable?" probe
@@ -733,6 +734,7 @@ func (b *Bindings) GetSandboxImageStatus() SandboxImageStatus {
 	}
 	if b.cfg != nil {
 		s.ActiveTag = b.cfg.Sandbox.Image
+		s.ActivePinnedByDigest = imagebuild.IsImageDigestPinned(s.ActiveTag)
 		s.CurrentDockerfile = b.cfg.Sandbox.Dockerfile
 		if s.CurrentDockerfile == "" {
 			s.CurrentDockerfile = imagebuild.RecommendedDockerfile
