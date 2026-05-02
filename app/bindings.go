@@ -289,6 +289,25 @@ func (b *Bindings) LoadSession(sessionID string) ([]MessageData, error) {
 	for _, r := range session.Records {
 		switch r.Role {
 		case "tool":
+			// Reconstruct the live `tool-event` bubble: tool name
+			// + status (success / error). Empty Status indicates
+			// a session written before the field existed; default
+			// to "success" so legacy chats render with a sane
+			// styling rather than no bubble at all.
+			// Design: docs/en/tool-event-restore.md.
+			if r.ToolName == "" {
+				continue
+			}
+			status := r.Status
+			if status == "" {
+				status = "success"
+			}
+			msgs = append(msgs, MessageData{
+				Role:      "tool-event",
+				Content:   r.ToolName,
+				Status:    status,
+				Timestamp: r.Timestamp.Format("15:04:05"),
+			})
 			continue
 		case "assistant":
 			// Mirror the live chat behaviour: tool-call turns are
@@ -369,10 +388,15 @@ func (b *Bindings) DeleteSession(sessionID string) error {
 }
 
 // MessageData is a message for the frontend.
+//
+// Status is meaningful for `tool-event` rows reconstructed in
+// LoadSession (allowed values: "success" / "error"). Other roles
+// leave it empty and the frontend ignores it.
 type MessageData struct {
 	Role      string `json:"role"`
 	Content   string `json:"content"`
 	Timestamp string `json:"timestamp"`
+	Status    string `json:"status,omitempty"`
 }
 
 // --- MITL bindings ---

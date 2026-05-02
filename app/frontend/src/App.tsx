@@ -290,16 +290,26 @@ function App() {
         }
     }, [state, refreshSessions])
 
+    // restoredMessages converts the backend's MessageData[] into
+    // the ChatMessage[] the chat pane consumes. The mapping is
+    // mostly a 1:1 — the only field that needs care is `status`,
+    // which the backend now populates for `tool-event` rows on
+    // session restore so the success / error styling matches the
+    // live experience. Design: docs/en/tool-event-restore.md.
+    const restoredMessages = (msgs: MessageData[] | null | undefined): ChatMessage[] =>
+        (msgs || []).map(m => ({
+            role: m.role as ChatMessage['role'],
+            content: m.content,
+            timestamp: m.timestamp,
+            ...(m.status ? {status: m.status} : {}),
+        }))
+
     const handleLoadSession = useCallback(async (id: string) => {
         if (window.go && state === 'idle') {
             clearObjectCache() // clear image cache on session switch
             const msgs = await window.go.main.Bindings.LoadSession(id)
             setCurrentSessionId(id)
-            setMessages((msgs || []).map(m => ({
-                role: m.role as ChatMessage['role'],
-                content: m.content,
-                timestamp: m.timestamp,
-            })))
+            setMessages(restoredMessages(msgs))
             setStreaming('')
         }
     }, [state])
@@ -321,11 +331,7 @@ function App() {
                     // Switch to the first remaining session
                     const msgs = await window.go.main.Bindings.LoadSession(remaining[0].id)
                     setCurrentSessionId(remaining[0].id)
-                    setMessages((msgs || []).map(m => ({
-                        role: m.role as ChatMessage['role'],
-                        content: m.content,
-                        timestamp: m.timestamp,
-                    })))
+                    setMessages(restoredMessages(msgs))
                 }
             }
         }
@@ -350,11 +356,7 @@ function App() {
                 // Load the most recent session
                 const msgs = await window.go.main.Bindings.LoadSession(s[0].id)
                 setCurrentSessionId(s[0].id)
-                setMessages((msgs || []).map(m => ({
-                    role: m.role as ChatMessage['role'],
-                    content: m.content,
-                    timestamp: m.timestamp,
-                })))
+                setMessages(restoredMessages(msgs))
             }
         })()
     }, [])

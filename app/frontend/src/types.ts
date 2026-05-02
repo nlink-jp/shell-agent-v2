@@ -28,6 +28,10 @@ export interface MessageData {
     role: string;
     content: string;
     timestamp: string;
+    // Populated when the backend rebuilds tool-event rows from a
+    // restored session. "success" / "error" — never "running",
+    // because restored bubbles are always terminal.
+    status?: 'success' | 'error';
 }
 
 export interface Finding {

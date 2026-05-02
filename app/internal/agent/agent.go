@@ -1018,7 +1018,7 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 			logger.Debug("agentLoop: tool_call args=%s", logger.Truncate(tc.Arguments, 200))
 			result, status := a.executeTool(ctx, tc)
 			logger.Debug("agentLoop: tool_result name=%s status=%s result=%s", tc.Name, status, logger.Truncate(result, 200))
-			a.session.AddToolResult(tc.ID, tc.Name, result)
+			a.session.AddToolResult(tc.ID, tc.Name, result, string(status))
 			a.emitActivity(ActivityEvent{Type: "tool_end", Detail: tc.Name, Status: status})
 			recentToolCalls = pushToolCallTrace(recentToolCalls, toolCallTrace{Name: tc.Name, Status: status})
 		}

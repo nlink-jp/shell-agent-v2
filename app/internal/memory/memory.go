@@ -31,6 +31,12 @@ type Record struct {
 	ObjectIDs    []string         `json:"object_ids,omitempty"`   // references to objstore
 	ImageURLs    []string         `json:"image_urls,omitempty"`   // deprecated: use ObjectIDs
 	SummaryRange *TimeRange       `json:"summary_range,omitempty"`
+	// Status is meaningful only when Role == "tool". Allowed
+	// values: "success", "error". An empty Status on a tool record
+	// indicates a session written before this field existed and is
+	// treated as "success" at restore time. Design:
+	// docs/en/tool-event-restore.md.
+	Status string `json:"status,omitempty"`
 }
 
 // ToolCallRecord persists one function call the assistant
@@ -106,14 +112,20 @@ func (s *Session) AddReportMessage(title, content string) {
 	})
 }
 
-// AddToolResult appends a tool result to the session.
-func (s *Session) AddToolResult(toolCallID, toolName, content string) {
+// AddToolResult appends a tool result to the session. status must
+// be one of "success" or "error" — same source of truth as the
+// ActivityEventStatus emitted by tool_end. Persisting it lets
+// LoadSession rebuild tool-event bubbles on session restore with
+// the right success / error styling. Design:
+// docs/en/tool-event-restore.md.
+func (s *Session) AddToolResult(toolCallID, toolName, content, status string) {
 	s.Records = append(s.Records, Record{
 		Timestamp:  time.Now(),
 		Role:       "tool",
 		Content:    content,
 		ToolCallID: toolCallID,
 		ToolName:   toolName,
+		Status:     status,
 		Tier:       TierHot,
 	})
 }

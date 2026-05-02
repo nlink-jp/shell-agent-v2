@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -322,6 +323,79 @@ func TestBindings_DeleteFindings_AndPinned(t *testing.T) {
 	}
 	if got := len(b.GetPinnedMemories()); got != 1 {
 		t.Errorf("remaining pinned = %d, want 1", got)
+	}
+}
+
+// TestLoadSession_RestoresToolEventBubbles pins the contract
+// behind the session-restore feature: tool turns persisted via
+// AddToolResult come back to the frontend as `tool-event` rows
+// with the same status they were given live. Legacy records
+// (status field absent) default to "success" so old sessions
+// remain readable.
+func TestLoadSession_RestoresToolEventBubbles(t *testing.T) {
+	b, _ := newTestBindings(t)
+
+	sid := "sess-restore"
+	sess := &memory.Session{
+		ID:    sid,
+		Title: "Restore Test",
+		Records: []memory.Record{
+			{Timestamp: time.Now(), Role: "user", Content: "hi", Tier: memory.TierHot},
+			// Tool-call assistant turn — must be skipped at
+			// restore time (its narrative was a live activity).
+			{Timestamp: time.Now(), Role: "assistant", Content: "calling tools", Tier: memory.TierHot,
+				ToolCalls: []memory.ToolCallRecord{{ID: "tc-1", Name: "shell", Arguments: "{}"}}},
+			// Tool result — should restore as a tool-event bubble.
+			{Timestamp: time.Now(), Role: "tool", Content: "ok", Tier: memory.TierHot,
+				ToolCallID: "tc-1", ToolName: "shell", Status: "success"},
+			// Tool result that errored.
+			{Timestamp: time.Now(), Role: "tool", Content: "boom", Tier: memory.TierHot,
+				ToolCallID: "tc-2", ToolName: "shell", Status: "error"},
+			// Legacy tool record (no status field on disk).
+			{Timestamp: time.Now(), Role: "tool", Content: "old", Tier: memory.TierHot,
+				ToolCallID: "tc-3", ToolName: "legacy-tool"},
+			{Timestamp: time.Now(), Role: "assistant", Content: "done", Tier: memory.TierHot},
+		},
+	}
+
+	// Persist via the same path the live agent uses, so DataDir
+	// resolution matches what bindings.LoadSession reads.
+	if err := os.MkdirAll(memory.SessionDir(sid), 0700); err != nil {
+		t.Fatal(err)
+	}
+	chatBytes, err := json.Marshal(sess)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(memory.ChatPath(sid), chatBytes, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := b.LoadSession(sid)
+	if err != nil {
+		t.Fatalf("LoadSession: %v", err)
+	}
+
+	// Expected: user, tool-event(success), tool-event(error),
+	// tool-event(success default for legacy), assistant.
+	want := []struct {
+		role, content, status string
+	}{
+		{"user", "hi", ""},
+		{"tool-event", "shell", "success"},
+		{"tool-event", "shell", "error"},
+		{"tool-event", "legacy-tool", "success"},
+		{"assistant", "done", ""},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("rows = %d, want %d: %#v", len(got), len(want), got)
+	}
+	for i, w := range want {
+		if got[i].Role != w.role || got[i].Content != w.content || got[i].Status != w.status {
+			t.Errorf("row[%d] = {%s, %s, %s}, want {%s, %s, %s}",
+				i, got[i].Role, got[i].Content, got[i].Status,
+				w.role, w.content, w.status)
+		}
 	}
 }
 
