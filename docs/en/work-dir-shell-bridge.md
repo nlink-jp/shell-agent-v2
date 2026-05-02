@@ -223,13 +223,15 @@ if ! gem-image -p "$PROMPT" -o "$OUTPUT_PATH" --force 2>/dev/null; then
   exit 1
 fi
 
-# Hint the LLM to surface the image to the user via register-object.
-# The image is now visible in the Data panel (work section) but
-# won't appear inline in chat until registered.
-cat <<EOF
-{"status":"success","filename":"$FILENAME","next_step":"Call register-object with path=\"$FILENAME\" name=\"$PROMPT\" to surface the image in chat as an object:<ID> reference."}
-EOF
+# Success path: status + filename only. No `next_step`, no
+# absolute path. See §6 risks "Imperative next_step" and
+# "Absolute paths in tool output".
+python3 -c "import json; print(json.dumps({'status':'success','filename':'$FILENAME'}))"
 ```
+
+The follow-up convention ("then call register-object with
+path=<filename>") lives in the tool's `@description` (re-injected
+to the LLM every round) — not in per-call output. See §6 for why.
 
 ### 3.5 Documentation
 
@@ -270,10 +272,76 @@ EOF
 
 | Risk | Mitigation |
 |---|---|
-| LLM forgets to call `register-object` after `generate-image` succeeds | The success message includes `"next_step": "Call register-object …"` and the description on `generate-image` itself mentions the follow-up |
+| LLM forgets to call `register-object` after `generate-image` succeeds | The follow-up convention is documented in `generate-image`'s `@description`, which is re-injected to the LLM every round (no per-call hint needed — see anti-pattern below). |
 | Shell tool writes a file to work dir but with a path that escapes the dir (`../../etc/passwd`) | `register-object` validation rejects absolute paths, `..` traversal, and symlink leafs (mirroring `sandbox-register-object`'s `safeWorkPath`) |
 | Two tools (`register-object` and `sandbox-register-object`) confuse the LLM about which to choose | Both descriptions cross-reference each other and explain the equivalence; in practice the LLM picks the matching prefix based on which side wrote the file (shell tool → register-object; sandbox tool → sandbox-register-object). Either tool would actually work since they share the same physical directory. |
 | Work dir not yet created when first shell tool runs (e.g. session that has never opened sandbox or hit register-object) | Agent's `LoadSession` creates the dir up front |
+
+### 6.1 Anti-pattern: imperative `next_step` in tool output
+
+The first cut of `generate-image.sh` returned an explicit
+`next_step` instruction in its JSON output:
+
+```json
+{"status":"success","filename":"sunset.png",
+ "next_step":"Call register-object with path=\"sunset.png\" name=\"...\" to surface in chat"}
+```
+
+This **narrows the LLM's planning horizon to the immediate next
+action and can derail multi-step user plans.** Observed during
+v0.1.25 verification: the user asked for a 4-step plan (analyze →
+prompt → generate-3-images → write-report). The agent executed
+generate→register pairs cleanly for all three images, but treated
+each `next_step` as the round's primary objective; once the third
+register completed and there was no further `next_step` in the
+tool output, the agent loop ended **without writing the report**.
+The user had to prompt again to recover the originally-stated goal.
+
+**Rule**: shell-tool output should carry **state** (what
+happened, where the artefact lives), never **instructions**
+(what to do next). The follow-up convention belongs in the
+tool's `@description`, which is re-injected to the LLM every
+round and competes with the LLM's plan on equal footing rather
+than overriding it.
+
+### 6.2 Anti-pattern: absolute paths in tool output
+
+The same first cut also considered emitting
+`"work_dir_path": "/Users/magi/Library/.../work/sunset.png"`
+(absolute host path) so the LLM could reference the artefact
+directly. Rejected because:
+
+- The agent's other tools that legitimately accept absolute
+  paths (notably `load-data` — MITL-gated by design so the user
+  consciously approves each ingest from arbitrary host paths)
+  become attractive targets if the LLM has a curated list of
+  full host paths in its context. A prompt-injected LLM could
+  set up a load-data MITL prompt where the user, glancing past,
+  approves a path that turned out to be `~/.ssh/id_rsa` rather
+  than the expected artefact.
+- Absolute host paths are also exfiltration material in their
+  own right (LLM context → log → screenshare → ...).
+
+**Rule**: shell-tool output should expose **relative
+filenames** only. Tools that need absolute paths (`load-data`)
+must keep them MITL-gated.
+
+### 6.3 Other bundled tools updated
+
+`write-note.sh` was originally `/tmp/${FILENAME}` — global
+filesystem pollution, no per-session scoping, files
+inaccessible to sandbox tools or the Data panel. Rewritten to
+write into `$SHELL_AGENT_WORK_DIR` like `generate-image.sh`,
+following the same output contract (filename-only, no
+imperative instructions). The MITL gate stays — a write tool
+is still write-category — but the blast radius is now scoped
+to the session work dir instead of leaking into the host's
+`/tmp`.
+
+The other bundled tools (`weather`, `get-location`,
+`list-files`, `file-info`, `preview-file`) only emit data to
+stdout and don't write artefacts, so they need no work-dir
+treatment.
 
 ## 7. Out of scope
 

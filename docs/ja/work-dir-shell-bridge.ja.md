@@ -211,13 +211,15 @@ if ! gem-image -p "$PROMPT" -o "$OUTPUT_PATH" --force 2>/dev/null; then
   exit 1
 fi
 
-# LLM に register-object 呼出しのヒントを返す。画像は Data panel の
-# work セクションには既に見えているが、chat にインライン表示するには
-# 登録が必要。
-cat <<EOF
-{"status":"success","filename":"$FILENAME","next_step":"register-object を path=\"$FILENAME\" name=\"$PROMPT\" で呼び、object:<ID> 参照として chat に出す"}
-EOF
+# 成功パス: status + filename のみ。next_step や絶対パスは含めない。
+# 詳細は §6 リスク「命令形 next_step アンチパターン」「絶対パスを
+# tool 出力に乗せない」参照。
+python3 -c "import json; print(json.dumps({'status':'success','filename':'$FILENAME'}))"
 ```
+
+follow-up 規約 (「次に register-object を path=<filename> で呼ぶ」)
+は per-call 出力ではなく、ツールの `@description` (毎ラウンド LLM
+に再注入される) に置く。理由は §6 参照。
 
 ### 3.5 ドキュメント
 
@@ -258,10 +260,67 @@ EOF
 
 | リスク | 緩和策 |
 |---|---|
-| LLM が `generate-image` 成功後 `register-object` 呼び忘れ | 成功メッセージに `"next_step": "Call register-object …"` を含め、`generate-image` description にも follow-up を明記 |
+| LLM が `generate-image` 成功後 `register-object` 呼び忘れ | follow-up 規約は `generate-image` の `@description` に書き、毎ラウンド LLM に再注入される (per-call ヒントは下記アンチパターンの理由で使わない) |
 | シェルツールが work dir 外のパス (`../../etc/passwd`) に書く | `register-object` 検証で絶対パス、`..` traversal、symlink leaf 拒否 (`sandbox-register-object` の `safeWorkPath` をミラー) |
 | `register-object` と `sandbox-register-object` の使い分けで LLM 混乱 | 両 description で相互参照と等価性を明記。実運用では LLM はファイルを書いた側に対応する prefix を選ぶはず (シェルツール → register-object; sandbox ツール → sandbox-register-object)。物理的には同じ |
 | 初回シェルツール実行時に work dir が未作成 | agent `LoadSession` で先に作成 |
+
+### 6.1 アンチパターン: 命令形 `next_step` を tool 出力に乗せる
+
+`generate-image.sh` の初版は出力 JSON に明示的な `next_step`
+命令を含めていた:
+
+```json
+{"status":"success","filename":"sunset.png",
+ "next_step":"Call register-object with path=\"sunset.png\" name=\"...\" to surface in chat"}
+```
+
+これは **LLM の planning horizon を直近のサブステップに圧縮し、
+複数ステップのユーザープランを破壊しうる**。v0.1.25 検証中に観測:
+ユーザーが 4 ステップのプラン (画像分析 → プロンプト検討 → 画像 3
+枚生成 → レポート作成) を要求。エージェントは generate→register
+のペアを 3 セット完璧に実行したが、各 `next_step` をそのラウンドの
+主目的として扱い、3 つ目の register が完了して tool 出力に次の
+`next_step` がなくなった時点でループ終了 — **レポート作成を行わ
+なかった**。ユーザーは元目標を再指示する必要があった。
+
+**ルール**: シェルツール出力は **状態** (何が起きた、artefact が
+どこにあるか) を運ぶこと。**指示** (次に何をすべきか) は運ばない。
+follow-up 規約はツールの `@description` に置く — 毎ラウンド LLM に
+再注入され、override ではなく LLM のプランと対等に競合する。
+
+### 6.2 アンチパターン: 絶対パスを tool 出力に乗せる
+
+同初版では LLM が artefact を直接参照できるよう
+`"work_dir_path": "/Users/magi/Library/.../work/sunset.png"`
+(絶対 host パス) を出力に含めることも検討した。却下理由:
+
+- 絶対パスを正規受付するエージェント側ツール (代表: `load-data`
+  — まさにこの理由で MITL gate 必須にし、ユーザーが任意 host
+  パスからの ingest を意識的に承認させる設計) が、curated な
+  full host path リストを LLM context に持たせると魅力的なター
+  ゲットとなる。プロンプトインジェクションされた LLM が load-data
+  MITL prompt を立て、ユーザーが流し読みで承認した path が実は
+  期待した artefact ではなく `~/.ssh/id_rsa` だった、という
+  シナリオが成立する
+- 絶対 host パス自体が漏えい材料 (LLM context → log →
+  画面共有 → ...)
+
+**ルール**: シェルツール出力は **相対 filename のみ** 露出する。
+絶対パスを必要とするツール (`load-data`) は MITL gate を維持。
+
+### 6.3 他の bundled ツールも更新
+
+`write-note.sh` は元々 `/tmp/${FILENAME}` に書いていた — グローバル
+filesystem 汚染、per-session スコープ無し、sandbox ツールや Data
+panel から到達不能。`generate-image.sh` と同じく `$SHELL_AGENT_WORK_DIR`
+に書くよう書換、出力契約も同じ (filename のみ、命令形なし)。MITL
+gate は維持 — write ツールは write カテゴリのまま — だが blast radius
+が host の `/tmp` への漏れではなくセッション work dir に scoped。
+
+他の bundled ツール (`weather`, `get-location`, `list-files`,
+`file-info`, `preview-file`) は stdout にデータを返すだけで artefact
+書込は無いため、work dir 対応は不要。
 
 ## 7. Out of scope
 

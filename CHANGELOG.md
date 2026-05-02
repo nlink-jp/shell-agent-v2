@@ -38,7 +38,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   a successful generation. Rewritten to use the new
   `SHELL_AGENT_WORK_DIR` + `register-object` flow; the image
   now appears in the Data panel immediately and inline in chat
-  after the follow-up call.
+  after the follow-up call. Output is `{status, filename}` only
+  — no `next_step` instruction (would derail multi-step plans)
+  and no absolute host path (would be exfiltration material;
+  see `work-dir-shell-bridge.md` §6).
+- `bundled/tools/write-note.sh` now writes to
+  `$SHELL_AGENT_WORK_DIR` instead of `/tmp/`. The note is
+  immediately visible in the Data → /work panel and can be
+  promoted to objstore via `register-object` if the user wants
+  it to show up in chat. Same output contract as
+  `generate-image.sh` (filename only, no instructions, no
+  absolute paths). **Note for existing users**: the bundled
+  installer doesn't overwrite a script that already exists in
+  your `tools/` dir; delete `~/Library/Application Support/shell-agent-v2/tools/write-note.sh`
+  before the next launch to pick up the new version, or copy
+  the change in manually.
 
 ## [0.1.24] - 2026-05-02
 
