@@ -1,7 +1,9 @@
 # Central Object Storage — Design Document
 
-> Date: 2026-04-26
-> Status: Draft
+> Date: 2026-04-26 (initial), 2026-05-02 (v0.1.19 sweep)
+> Status: Shipped — Phases 1-4 below merged in v0.1.10 / v0.1.11.
+> Subsequent work added concurrent-write safety (`sync.RWMutex` in
+> v0.1.18) and an in-app text-blob / CSV preview path (v0.1.19).
 > Related: [Agent Data Flow](agent-data-flow.md) Section 5
 
 ## 1. Purpose
@@ -318,7 +320,11 @@ sorted newest-first. The card grid renders one tile per object:
 - **Report** — clickable document icon (📄). Click loads the
   markdown via `bindings.GetObjectText(id)` and opens it in the
   fullscreen report viewer.
-- **Blob** — typed icon, no preview.
+- **Blob** — typed icon (📦). Clicking a *text-shaped* blob
+  (MIME `text/*`, `application/json`, `application/xml`,
+  `application/javascript`, `application/x-ndjson`) opens an
+  in-app preview dialog (see §7.5). Other blobs stay a click
+  no-op — Export still works.
 
 **Bulk and single delete** both go through an inline confirmation
 with separate Yes / No buttons (the previous "click the same
@@ -351,6 +357,35 @@ back to a `🖼 alt` placeholder on `object not found`, so broken refs
 degrade gracefully. The existing `objstore.DeleteBySession` cascade
 is unchanged.
 
+### 7.5 BlobPreview Dialog (v0.1.19+)
+
+The previous "blob = click no-op" left CSVs and other text-shaped
+artifacts opaque to the user, even though shell-agent-v2 markets
+itself as a data-analysis tool. v0.1.19 adds an in-app preview
+modal at `app/frontend/src/dialogs/BlobPreview.tsx`:
+
+- **CSV / TSV** are rendered as a real HTML `<table>` (first 200
+  rows × 30 columns shown; truncation is announced in a footer
+  note). The parser handles RFC 4180-shaped quoting (double-quote
+  escaping, embedded delimiters, embedded newlines) without
+  pulling in a CSV library — full RFC support and non-comma
+  delimiters beyond TSV would justify a real parser.
+- **Other text MIMEs** drop to a fixed-width `<pre>` view.
+- **Source size cap**: text is fetched via `GetObjectText`,
+  trimmed to 100 KB before reaching the dialog. The dialog
+  itself caps at 200 rows for the table mode and ~200 KB for
+  the pre mode, with the footer noting any further truncation
+  beyond the source-side cap.
+- **Sticky table headers**: thead `<th>` cells use the
+  per-theme `--bg-sticky-header` opaque colour added in v0.1.19
+  so scrolled rows don't bleed through (the previous
+  `--bg-hover` was translucent in every theme).
+
+`App.tsx`'s `onPreviewObject` is the single dispatch point that
+routes by `obj.type` and MIME — image goes to Lightbox, report to
+ReportViewer, text-shaped blob to BlobPreview, anything else
+remains a no-op.
+
 ## 8. v1 → v2 Differences
 
 | Aspect | v1 | v2 |
@@ -365,26 +400,39 @@ is unchanged.
 
 ## 9. Implementation Checklist
 
-### Phase 1: Core objstore update
-- [ ] Add ObjectType constants (TypeImage, TypeBlob, TypeReport)
-- [ ] Add SessionID to ObjectMeta, set on every Save
-- [ ] Add ListBySession(sessionID) method
-- [ ] Add DeleteBySession(sessionID) method
-- [ ] Update index rebuild to handle types
+### Phase 1: Core objstore update (shipped, v0.1.10)
+- [x] Add ObjectType constants (TypeImage, TypeBlob, TypeReport)
+- [x] Add SessionID to ObjectMeta, set on every Save
+- [x] Add ListBySession(sessionID) method
+- [x] Add DeleteBySession(sessionID) method
+- [x] Update index rebuild to handle types
 
-### Phase 2: Record migration
-- [ ] Replace `ImageURLs []string` with `ObjectIDs []string` in Record
-- [ ] Update AddUserMessage to accept object IDs, not data URLs
-- [ ] Update bindings: SendWithImages saves to objstore first, passes IDs
-- [ ] Update BuildMessages: resolve latest image from objstore
+### Phase 2: Record migration (shipped, v0.1.10)
+- [x] Replace `ImageURLs []string` with `ObjectIDs []string` in Record
+- [x] Update AddUserMessage to accept object IDs, not data URLs
+- [x] Update bindings: SendWithImages saves to objstore first,
+      passes IDs
+- [x] Update BuildMessages: resolve latest image from objstore
 
-### Phase 3: LLM tools
-- [ ] Implement list-objects tool
-- [ ] Implement get-object tool with image recall markers
-- [ ] Add view-image backward compat alias
-- [ ] Update create-report to store in objstore
+### Phase 3: LLM tools (shipped, v0.1.10)
+- [x] Implement list-objects tool
+- [x] Implement get-object tool with image recall markers
+- [x] Update create-report to store in objstore
 
-### Phase 4: Frontend
-- [ ] ReactMarkdown object: URL resolver component
-- [ ] Image cache with lazy loading
-- [ ] Report save with object: URL resolution to inline base64
+### Phase 4: Frontend (shipped, v0.1.10-v0.1.11)
+- [x] ReactMarkdown object: URL resolver component
+- [x] Image cache with lazy loading
+- [x] Report save with object: URL resolution to inline base64
+
+### Phase 5: Concurrency hardening (shipped, v0.1.18)
+- [x] `objstore.Store` map access serialised with
+      `sync.RWMutex` — without it the agent's post-response
+      goroutines and the next tool call panic with
+      `concurrent map writes` under realistic activity.
+
+### Phase 6: Text-blob preview (shipped, v0.1.19)
+- [x] `BlobPreview` dialog for text-shaped MIMEs (CSV/TSV
+      table; other text → pre)
+- [x] `App.tsx::onPreviewObject` dispatches by type + MIME
+- [x] `--bg-sticky-header` opaque per-theme colour for
+      sticky `<th>` cells (table preview + DB-row preview)
