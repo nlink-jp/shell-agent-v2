@@ -118,12 +118,10 @@ func TestStore_AddIsThreadSafe(t *testing.T) {
 
 	const N = 64
 	var wg sync.WaitGroup
-	wg.Add(N)
-	for i := 0; i < N; i++ {
-		go func(i int) {
-			defer wg.Done()
+	for range N {
+		wg.Go(func() {
 			s.Add("content", "sess", "title", nil)
-		}(i)
+		})
 	}
 	wg.Wait()
 
@@ -146,7 +144,7 @@ func TestStore_AddIsThreadSafe(t *testing.T) {
 // extended format.
 func TestStore_AddOverflowFormat(t *testing.T) {
 	s := &Store{path: "/tmp/test-findings-overflow.json", findings: []Finding{}}
-	for i := 0; i < 999; i++ {
+	for range 999 {
 		s.Add("seed", "sess", "title", nil)
 	}
 	got := s.Add("after-overflow", "sess", "title", nil)

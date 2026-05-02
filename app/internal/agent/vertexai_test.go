@@ -137,7 +137,7 @@ func TestVertex_Agent_HeavyAnalysis(t *testing.T) {
 		{"Gadget X", "Home", 1200},
 	}
 	regions := []string{"Tokyo", "Osaka", "Nagoya"}
-	for i := 0; i < 15; i++ {
+	for i := range 15 {
 		p := products[i%len(products)]
 		r := regions[i%len(regions)]
 		csvBuf.WriteString(fmt.Sprintf("2026-01-%02d,%s,%s,%d,%d,%s\n",

@@ -127,7 +127,7 @@ func (s *Store) Store(reader io.Reader, objType ObjectType, mimeType, origName, 
 
 	s.mu.Lock()
 	var id string
-	for attempt := 0; attempt < 3; attempt++ {
+	for range 3 {
 		candidate := generateID()
 		if _, exists := s.index[candidate]; !exists {
 			id = candidate
@@ -284,9 +284,8 @@ func (s *Store) SaveDataURL(dataURL, sessionID string) (*ObjectMeta, error) {
 
 	header := parts[0]
 	mimeType := ""
-	if strings.HasPrefix(header, "data:") {
-		mimeType = strings.TrimPrefix(header, "data:")
-		mimeType = strings.TrimSuffix(mimeType, ";base64")
+	if rest, ok := strings.CutPrefix(header, "data:"); ok {
+		mimeType = strings.TrimSuffix(rest, ";base64")
 	}
 
 	decoded, err := base64.StdEncoding.DecodeString(parts[1])

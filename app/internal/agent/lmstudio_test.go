@@ -288,7 +288,7 @@ func TestLMStudio_Agent_BuildMessagesTokenCount(t *testing.T) {
 	a := newLMStudioAgent(t)
 
 	// Add many messages to session
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		a.session.AddUserMessage(fmt.Sprintf("Question %d: %s", i, strings.Repeat("word ", 50)))
 		a.session.AddAssistantMessage(fmt.Sprintf("Answer %d: %s", i, strings.Repeat("reply ", 50)))
 	}

@@ -7,7 +7,7 @@ import (
 
 func TestPushToolCallTrace_KeepsOnlyLastWindow(t *testing.T) {
 	var buf []toolCallTrace
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		buf = pushToolCallTrace(buf, toolCallTrace{Name: "x", Status: ActivityStatusError})
 	}
 	if len(buf) != recentToolWindow {
@@ -107,7 +107,7 @@ func TestLoopHintFor_MentionsToolName(t *testing.T) {
 // entries accumulate.
 func TestDetectStuckLoop_OneShotPerStretch(t *testing.T) {
 	var buf []toolCallTrace
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		buf = pushToolCallTrace(buf, toolCallTrace{Name: "t", Status: ActivityStatusError})
 	}
 	if _, ok := detectStuckLoop(buf); !ok {

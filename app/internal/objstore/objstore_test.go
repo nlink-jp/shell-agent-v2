@@ -212,13 +212,10 @@ func TestStore_ConcurrentStoreAndList(t *testing.T) {
 	const writesPerGoroutine = 25
 
 	var wg sync.WaitGroup
-	wg.Add(writers + reads)
 
-	for i := 0; i < writers; i++ {
-		i := i
-		go func() {
-			defer wg.Done()
-			for j := 0; j < writesPerGoroutine; j++ {
+	for i := range writers {
+		wg.Go(func() {
+			for j := range writesPerGoroutine {
 				_, err := s.Store(
 					strings.NewReader(fmt.Sprintf("payload-%d-%d", i, j)),
 					TypeBlob, "text/plain",
@@ -230,18 +227,17 @@ func TestStore_ConcurrentStoreAndList(t *testing.T) {
 					return
 				}
 			}
-		}()
+		})
 	}
 
-	for i := 0; i < reads; i++ {
-		go func() {
-			defer wg.Done()
-			for j := 0; j < writesPerGoroutine; j++ {
+	for range reads {
+		wg.Go(func() {
+			for range writesPerGoroutine {
 				_ = s.All()
 				_ = s.ListBySession("sess-0")
 				_ = s.ListByType(TypeBlob)
 			}
-		}()
+		})
 	}
 
 	wg.Wait()

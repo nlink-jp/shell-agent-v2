@@ -284,7 +284,7 @@ func TestLMStudio_MultiToolChain(t *testing.T) {
 	}
 
 	// Allow up to 3 rounds of tool calling
-	for round := 0; round < 3; round++ {
+	for round := range 3 {
 		var toolsForRound []ToolDef
 		if round == 0 {
 			toolsForRound = tools
@@ -316,7 +316,7 @@ func TestLMStudio_MultiToolChain(t *testing.T) {
 		case "resolve-date":
 			result = "2026-04-23 (Thursday)"
 		case "create-report":
-			result = fmt.Sprintf("SUCCESS: Report created and displayed to the user. Do not repeat the content.")
+			result = "SUCCESS: Report created and displayed to the user. Do not repeat the content."
 		default:
 			result = "Unknown tool"
 		}

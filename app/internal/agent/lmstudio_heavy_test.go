@@ -47,7 +47,7 @@ func TestLMStudio_Heavy_AnalysisWorkflow(t *testing.T) {
 		{"Gadget Y", "Home", 3500},
 	}
 	regions := []string{"Tokyo", "Osaka", "Nagoya", "Fukuoka", "Sapporo"}
-	for i := 0; i < 30; i++ {
+	for i := range 30 {
 		p := products[i%len(products)]
 		r := regions[i%len(regions)]
 		csvBuf.WriteString(fmt.Sprintf("2026-01-%02d,%s,%s,%d,%d,%s\n",
@@ -58,7 +58,7 @@ func TestLMStudio_Heavy_AnalysisWorkflow(t *testing.T) {
 
 	// Create log data
 	var logBuf strings.Builder
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		level := "INFO"
 		if i%7 == 0 { level = "ERROR" }
 		if i%5 == 0 { level = "WARN" }

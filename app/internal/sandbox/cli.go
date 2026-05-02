@@ -257,7 +257,7 @@ func (e *cliEngine) ListImages(ctx context.Context) ([]ImageInfo, error) {
 		return nil, fmt.Errorf("sandbox: list images: %w", err)
 	}
 	var infos []ImageInfo
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(string(out)), "\n") {
 		if line == "" {
 			continue
 		}
@@ -589,7 +589,7 @@ func (e *cliEngine) Info(ctx context.Context, sessionID string) (*Info, error) {
 		out.PythonVersion = strings.TrimSpace(r.Stdout)
 	}
 	if r, err := e.Exec(ctx, sessionID, ExecArgs{Language: "shell", Code: "pip list --format=freeze 2>/dev/null | head -200"}); err == nil && r.ExitCode == 0 {
-		for _, line := range strings.Split(strings.TrimSpace(r.Stdout), "\n") {
+		for line := range strings.SplitSeq(strings.TrimSpace(r.Stdout), "\n") {
 			if line != "" {
 				out.PipPackages = append(out.PipPackages, line)
 			}

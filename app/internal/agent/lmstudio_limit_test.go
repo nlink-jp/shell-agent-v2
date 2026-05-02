@@ -317,7 +317,7 @@ func TestLMStudio_Limit_TokenThreshold(t *testing.T) {
 			}
 
 			// Add realistic filler conversation
-			for i := 0; i < turns; i++ {
+			for i := range turns {
 				messages = append(messages, llm.Message{
 					Role:    llm.RoleUser,
 					Content: fmt.Sprintf("質問%d: データ分析において、カテゴリ別の集計や地域ごとの傾向を把握するためにはどのようなSQLクエリを書けばよいですか？具体的な例を教えてください。", i),

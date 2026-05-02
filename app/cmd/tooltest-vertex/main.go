@@ -217,7 +217,7 @@ func runLoop(ctx context.Context, client *genai.Client, model string, cfg *genai
 		genai.NewContentFromText(userQuery, genai.RoleUser),
 	}
 	calls := 0
-	for round := 0; round < maxRounds; round++ {
+	for round := range maxRounds {
 		fmt.Printf("\n--- Round %d ---\n", round)
 		dump("REQUEST", history)
 		resp, err := client.Models.GenerateContent(ctx, model, history, cfg)

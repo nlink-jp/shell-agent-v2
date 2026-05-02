@@ -130,7 +130,7 @@ func TestBuildMessagesWithBudget_DropOldMessages(t *testing.T) {
 	e := New("test")
 	session := &memory.Session{}
 	// Add many messages to exceed budget
-	for i := 0; i < 30; i++ {
+	for range 30 {
 		session.AddUserMessage(strings.Repeat("word ", 100))
 		session.AddAssistantMessage(strings.Repeat("reply ", 100))
 	}

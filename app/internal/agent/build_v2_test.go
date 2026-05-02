@@ -60,7 +60,7 @@ func TestBuildMessagesV2_OverBudget_TriggersSummarize(t *testing.T) {
 	a := newV2Agent(t, mock, cfg)
 
 	now := time.Now()
-	for i := 0; i < 30; i++ {
+	for i := range 30 {
 		a.session.Records = append(a.session.Records, memory.Record{
 			Timestamp: now.Add(time.Duration(i) * time.Minute),
 			Role:      "user",
@@ -98,7 +98,7 @@ func TestBuildMessagesV2_CacheHit_SkipsSummarize(t *testing.T) {
 	a := newV2Agent(t, mock, cfg)
 
 	now := time.Now()
-	for i := 0; i < 30; i++ {
+	for i := range 30 {
 		a.session.Records = append(a.session.Records, memory.Record{
 			Timestamp: now.Add(time.Duration(i) * time.Minute),
 			Role:      "user",
@@ -132,7 +132,7 @@ func TestBuildMessagesV2_SummarizerError_DoesNotAbort(t *testing.T) {
 	a := newV2Agent(t, mock, cfg)
 
 	now := time.Now()
-	for i := 0; i < 30; i++ {
+	for i := range 30 {
 		a.session.Records = append(a.session.Records, memory.Record{
 			Timestamp: now.Add(time.Duration(i) * time.Minute),
 			Role:      "user",

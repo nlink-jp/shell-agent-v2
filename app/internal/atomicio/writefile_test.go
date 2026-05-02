@@ -78,9 +78,7 @@ func TestWriteFileAtomic_PreviousFileReadableUnderLoad(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Writer: alternate between two valid contents until reader signals stop.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		for i := 0; ; i++ {
 			select {
 			case <-stop:
@@ -96,11 +94,11 @@ func TestWriteFileAtomic_PreviousFileReadableUnderLoad(t *testing.T) {
 				return
 			}
 		}
-	}()
+	})
 
 	// Reader: confirm we never observe empty or partial contents,
 	// then signal the writer to exit before joining.
-	for i := 0; i < 1000; i++ {
+	for range 1000 {
 		b, err := os.ReadFile(path)
 		if err != nil {
 			close(stop)

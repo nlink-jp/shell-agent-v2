@@ -77,7 +77,7 @@ func TestBuild_AlwaysIncludesRecent_HugeMessage(t *testing.T) {
 func TestBuild_FoldsOlderIntoSummary(t *testing.T) {
 	now := time.Date(2026, 4, 27, 10, 0, 0, 0, utc)
 	var recs []memory.Record
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		recs = append(recs, mkRec(now.Add(time.Duration(i)*time.Minute), "user", strings.Repeat("word ", 50)))
 	}
 	s := &memory.Session{Records: recs}
@@ -232,7 +232,7 @@ func TestBuild_ExcludesCallingMarkers(t *testing.T) {
 func TestBuild_FitsInBudget_BasicSanity(t *testing.T) {
 	now := time.Date(2026, 4, 27, 10, 0, 0, 0, utc)
 	var recs []memory.Record
-	for i := 0; i < 30; i++ {
+	for i := range 30 {
 		recs = append(recs, mkRec(now.Add(time.Duration(i)*time.Minute), "user", strings.Repeat("word ", 30)))
 	}
 	res, _ := Build(stdcontext.Background(), &memory.Session{Records: recs}, &SummaryCache{}, BuildOptions{

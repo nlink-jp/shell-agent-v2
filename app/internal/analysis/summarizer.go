@@ -129,7 +129,7 @@ func (s *Summarizer) Analyze(ctx context.Context, perspective string, rows []str
 // GenerateReport creates a markdown report from analysis results.
 func GenerateReport(perspective string, result *AnalyzeResult) string {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("# Analysis Report\n\n"))
+	sb.WriteString("# Analysis Report\n\n")
 	sb.WriteString(fmt.Sprintf("> Perspective: %s\n", perspective))
 	sb.WriteString(fmt.Sprintf("> Windows: %d | Duration: %s\n\n", result.Windows, result.Duration.Round(time.Second)))
 

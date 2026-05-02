@@ -952,7 +952,7 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 
 	// Step 2: Agent loop (max rounds — configurable via Settings)
 	maxRounds := a.cfg.Agent.MaxToolRoundsResolved()
-	for round := 0; round < maxRounds; round++ {
+	for round := range maxRounds {
 		if err := ctx.Err(); err != nil {
 			return "(Cancelled)", nil
 		}
@@ -1659,15 +1659,27 @@ func (a *Agent) RestartLLMBackend() {
 func (a *Agent) setBackend(backend config.LLMBackend) {
 	var inner llm.Backend
 	var timeoutSec int
+	var maxAttempts, backoffBaseSec, backoffMaxSec, jitterSec int
 	switch backend {
 	case config.BackendVertexAI:
 		inner = llm.NewVertex(a.cfg.LLM.VertexAI)
 		timeoutSec = a.cfg.LLM.VertexAI.VertexRequestTimeout()
+		maxAttempts = a.cfg.LLM.VertexAI.RetryMaxAttempts
+		backoffBaseSec = a.cfg.LLM.VertexAI.RetryBackoffBaseSeconds
+		backoffMaxSec = a.cfg.LLM.VertexAI.RetryBackoffMaxSeconds
+		jitterSec = a.cfg.LLM.VertexAI.RetryJitterSeconds
 	default:
 		inner = llm.NewLocal(a.cfg.LLM.Local)
 		timeoutSec = a.cfg.LLM.Local.LocalRequestTimeout()
+		maxAttempts = a.cfg.LLM.Local.RetryMaxAttempts
+		backoffBaseSec = a.cfg.LLM.Local.RetryBackoffBaseSeconds
+		backoffMaxSec = a.cfg.LLM.Local.RetryBackoffMaxSeconds
+		jitterSec = a.cfg.LLM.Local.RetryJitterSeconds
 	}
-	policy := llm.DefaultRetryPolicy(time.Duration(timeoutSec) * time.Second)
+	policy := llm.RetryPolicyFrom(
+		time.Duration(timeoutSec)*time.Second,
+		maxAttempts, backoffBaseSec, backoffMaxSec, jitterSec,
+	)
 	// Surface retry backoffs to the UI so a slow round looks
 	// like "rate-limited, retrying…" instead of a hang.
 	policy.OnBackoff = func(attempt int, wait time.Duration, err error) {

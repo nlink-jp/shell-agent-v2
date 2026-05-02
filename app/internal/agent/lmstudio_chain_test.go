@@ -52,7 +52,7 @@ func TestLMStudio_Chain_ToolsEveryRound(t *testing.T) {
 
 	t.Log("=== Tools every round (v1 pattern) ===")
 
-	for round := 0; round < 5; round++ {
+	for round := range 5 {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		resp, err := client.Chat(ctx, messages, tools) // tools EVERY round
 		cancel()
@@ -136,7 +136,7 @@ func TestLMStudio_Chain_ToolsNilAfterExec(t *testing.T) {
 	t.Log("=== Tools nil after execution (v2 pattern) ===")
 
 	toolsExecuted := false
-	for round := 0; round < 5; round++ {
+	for round := range 5 {
 		var roundTools []llm.ToolDef
 		if toolsExecuted {
 			roundTools = nil
@@ -228,7 +228,7 @@ func TestLMStudio_Chain_LoopDetection(t *testing.T) {
 	t.Log("=== Loop detection: create-report with tools every round ===")
 
 	callCount := map[string]int{}
-	for round := 0; round < 6; round++ {
+	for round := range 6 {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		resp, err := client.Chat(ctx, messages, tools) // tools EVERY round
 		cancel()
@@ -300,7 +300,7 @@ func TestLMStudio_Chain_NoCallingContamination(t *testing.T) {
 
 	t.Log("=== Tools every round, NO [Calling:] in context ===")
 
-	for round := 0; round < 5; round++ {
+	for round := range 5 {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		resp, err := client.Chat(ctx, messages, tools)
 		cancel()
