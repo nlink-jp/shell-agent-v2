@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/nlink-jp/shell-agent-v2/internal/config"
+	"github.com/nlink-jp/shell-agent-v2/internal/logger"
 	"google.golang.org/genai"
 )
 
@@ -259,8 +260,24 @@ func (v *Vertex) parseResponse(resp *genai.GenerateContentResponse) *Response {
 		return result
 	}
 
+	parts := resp.Candidates[0].Content.Parts
+	logger.Debug("vertex parseResponse: %d parts", len(parts))
+
 	var textParts []string
-	for _, part := range resp.Candidates[0].Content.Parts {
+	for i, part := range parts {
+		// Diagnostic: dump enough about each part to tell whether
+		// "思考"/"THOUGHT" preambles arrive in their own Part with
+		// Thought=true (which we already filter) or get fused into
+		// a single text Part with the rest of the reply (which the
+		// filter cannot reach). Truncate to keep logs bounded.
+		head := part.Text
+		if len(head) > 80 {
+			head = head[:80]
+		}
+		hasFC := part.FunctionCall != nil
+		logger.Debug("vertex parseResponse part[%d]: thought=%v textLen=%d funcCall=%v textHead=%q",
+			i, part.Thought, len(part.Text), hasFC, head)
+
 		if part.Thought {
 			continue
 		}
