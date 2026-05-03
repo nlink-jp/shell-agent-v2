@@ -1556,6 +1556,11 @@ input, textarea {
     overflow-y: auto;
     padding: 12px;
     min-width: 0;
+    /* Opaque chat-pane background — earlier the surface inherited
+       the translucent bg-primary from the window root, which let
+       the desktop bleed through and made long messages / code
+       blocks hard to read. */
+    background: var(--bg-chat-pane);
     --wails-draggable: no-drag;
 }
 
