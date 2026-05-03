@@ -93,14 +93,22 @@ func TestDeleteByIDs_Empty(t *testing.T) {
 
 // TestStore_AddIsThreadSafe pins the H9 fix from v0.1.20 — concurrent
 // Add calls used to race on len(s.findings) for ID derivation.
+// v0.2.0: each Add call needs distinct content because Add now
+// dedups against existing entries; the test would otherwise reduce
+// to a single insert.
 func TestStore_AddIsThreadSafe(t *testing.T) {
 	s := newTestStore("race")
 
 	const N = 64
 	var wg sync.WaitGroup
-	for range N {
+	for i := range N {
+		idx := i
 		wg.Go(func() {
-			s.Add("content", nil, SourceLLMPromoted, false)
+			// Each entry needs disjoint word sets or v0.2.0
+			// dedup will collapse the run. The hex-derived
+			// suffix dominates the token set so Jaccard stays
+			// well below the 0.5 threshold between any two.
+			s.Add(fmt.Sprintf("threadtest tokenset%d marker%d slot%d", idx*7919+1, idx*4093+9, idx*1721), nil, SourceLLMPromoted, false)
 		})
 	}
 	wg.Wait()
@@ -119,18 +127,51 @@ func TestStore_AddIsThreadSafe(t *testing.T) {
 }
 
 // TestStore_AddOverflowFormat exercises the >999-per-day fallback
-// ID format. Bypass the FIFO cap by setting MaxFindings high.
+// ID format. Bypass the FIFO cap by setting MaxFindings high. Each
+// seed needs distinct word-set or v0.2.0 dedup will collapse the run.
 func TestStore_AddOverflowFormat(t *testing.T) {
 	s := &Store{path: "/tmp/test-findings-overflow.json", findings: []Finding{}, MaxFindings: 100000}
-	for range 999 {
-		s.Add("seed", nil, SourceLLMPromoted, false)
+	for i := range 999 {
+		s.Add(fmt.Sprintf("seedrow tokena%d tokenb%d tokenc%d", i*7919+1, i*4093+9, i*1721), nil, SourceLLMPromoted, false)
 	}
-	got := s.Add("after-overflow", nil, SourceLLMPromoted, false)
+	got := s.Add("overflowprobe distinct echo foxtrot golf hotel", nil, SourceLLMPromoted, false)
+	if got == nil {
+		t.Fatal("Add returned nil — content should be unique enough to bypass dedup")
+	}
 	if len(got.ID) <= 14 {
 		t.Errorf("overflow ID = %q (len %d), want extended format", got.ID, len(got.ID))
 	}
 	if !strings.HasPrefix(got.ID, "f-") {
 		t.Errorf("overflow ID = %q, missing f- prefix", got.ID)
+	}
+}
+
+// TestStore_AddDedup pins the v0.2.0 dedup contract.
+//   - exact equality: dropped
+//   - normalised (whitespace / case / punctuation) equality: dropped
+//   - high word-set Jaccard overlap: dropped
+//   - genuinely distinct content: kept
+func TestStore_AddDedup(t *testing.T) {
+	s := newTestStore("dedup")
+	first := s.Add("Tokyo Widget sales spiked to 99999 on 2026-02-16, an outlier", nil, SourceLLMPromoted, false)
+	if first == nil {
+		t.Fatal("first Add returned nil")
+	}
+	if got := s.Add("Tokyo Widget sales spiked to 99999 on 2026-02-16, an outlier", nil, SourceLLMPromoted, false); got != nil {
+		t.Error("exact-duplicate Add should return nil")
+	}
+	if got := s.Add("  Tokyo  Widget   sales spiked to 99999 on 2026-02-16: an outlier!", nil, SourceLLMPromoted, false); got != nil {
+		t.Error("normalised-duplicate Add (whitespace + punctuation) should return nil")
+	}
+	if got := s.Add("On 2026-02-16 the Tokyo Widget sales hit an outlier value of 99999", nil, SourceLLMPromoted, false); got != nil {
+		t.Errorf("Jaccard-similar Add should return nil; got %+v", got)
+	}
+	if got := s.Add("Osaka Gadget revenue plunged to 12 yen on 2026-03-09, a striking low value worth review", nil, SourceLLMPromoted, false); got == nil {
+		t.Error("genuinely distinct Add should be accepted")
+	}
+	all := s.All()
+	if len(all) != 2 {
+		t.Errorf("expected 2 findings after dedup, got %d", len(all))
 	}
 }
 
@@ -155,12 +196,20 @@ func TestAdd_RespectsMaxCap(t *testing.T) {
 }
 
 // TestFormatForPrompt_RespectsCharBudget confirms the rendered
-// output stays under FindingsFormatBudget.
+// output stays under FindingsFormatBudget. Each entry needs to
+// be word-set distinct from the others or v0.2.0 dedup rejects
+// them; pad each with a unique 500-char "u<i>" run so Jaccard
+// stays below the dedup threshold.
 func TestFormatForPrompt_RespectsCharBudget(t *testing.T) {
 	s := &Store{path: "/tmp/test-findings-budget.json", findings: []Finding{}, MaxFindings: 100000}
-	bigContent := strings.Repeat("x", 500)
 	for i := range 50 {
-		s.Add(fmt.Sprintf("%s-%d", bigContent, i), nil, SourceLLMPromoted, false)
+		// Each entry needs disjoint token sets or v0.2.0 dedup
+		// drops it. Generate 6 unique-per-i words plus one
+		// long padding token so size approximates the real
+		// "many findings" stress while staying below dedup.
+		s.Add(fmt.Sprintf("alpha%da beta%db gamma%dc delta%dd epsilon%de zeta%df %s",
+			i, i, i, i, i, i,
+			strings.Repeat(fmt.Sprintf("pad%dz", i), 80)), nil, SourceLLMPromoted, false)
 	}
 	out := s.FormatForPrompt()
 	if len(out) > FindingsFormatBudget+200 {

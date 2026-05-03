@@ -199,7 +199,7 @@ Rules:
 - Only report NEW findings not already covered in previous findings
 - Use severity levels appropriately: critical for urgent issues, info for general observations
 - Include specific evidence from the data
-- Write the summary and finding descriptions in the same language as the analysis perspective`, perspective, s.schema)
+- Write the summary and EVERY finding "description" in the same language as the analysis perspective above (e.g. if the perspective is in 日本語, every description must be in 日本語; do not silently switch to English even when describing numeric anomalies)`, perspective, s.schema)
 }
 
 func (s *Summarizer) buildUserPrompt(tag guard.Tag, summary string, findings []Finding, rows []string, windowIndex int) string {

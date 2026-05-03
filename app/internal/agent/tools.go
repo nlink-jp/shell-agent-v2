@@ -262,7 +262,7 @@ func analysisTools(hasData, hideUntilDataLoaded bool) []llm.ToolDef {
 		},
 		{
 			Name:        "promote-finding",
-			Description: "Promote an analysis insight to the global findings store so it can be referenced across sessions. Use this when you discover a significant result worth remembering.",
+			Description: "Promote an analysis insight to the per-session findings store. Use this when you discover a significant result worth remembering. Write `content` in the same language the user is using in the current conversation (e.g. 日本語 if the user is speaking Japanese) — these findings are surfaced directly in the user's chat-pane panel. Avoid promoting near-duplicates of insights already surfaced (the store dedups, but cosmetic re-wording wastes a tool round).",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -459,6 +459,13 @@ func (a *Agent) toolPromoteFinding(argsJSON string) (string, error) {
 	_ = sessionID
 	_ = sessionTitle
 	f := a.findings.Add(args.Content, args.Tags, findings.SourceLLMPromoted, true)
+	if f == nil {
+		// dedup hit — tell the LLM so it doesn't keep retrying
+		// with cosmetically different wording. analyze-data's
+		// auto-promote often races this when the user asks for
+		// promotion right after a sliding-window run.
+		return fmt.Sprintf("Finding already recorded (matches an existing observation): %q. No new entry created.", args.Content), nil
+	}
 	if err := a.findings.Save(); err != nil {
 		return "", fmt.Errorf("save finding: %w", err)
 	}

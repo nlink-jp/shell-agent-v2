@@ -17,10 +17,24 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/nlink-jp/shell-agent-v2/internal/atomicio"
 	"github.com/nlink-jp/shell-agent-v2/internal/memory"
 )
+
+// DedupJaccardThreshold is the word-set Jaccard ratio above which
+// two finding contents are treated as the same observation.
+//
+// Real-world LLM duplicates ("Tokyo Widget sales spiked to 99999
+// on 2026-02-16" vs "On 2026-02-16 the Tokyo Widget sales hit an
+// outlier value of 99999") share the load-bearing nouns and
+// numbers but diverge in connectives and verbs, landing around
+// 0.5–0.65 Jaccard. 0.5 was chosen empirically: it catches the
+// common rewording-but-same-insight case without eating
+// genuinely distinct observations on the same table (those
+// usually share at most ~3 nouns and land below 0.4).
+const DedupJaccardThreshold = 0.5
 
 // Source values for Finding.Source. All findings now originate
 // from analysis tools — there is no manual entry path
@@ -109,7 +123,9 @@ func (s *Store) Save() error {
 	return atomicio.WriteFileAtomic(s.path, data, 0600)
 }
 
-// Add appends a new finding.
+// Add appends a new finding. Returns nil when the content matches
+// (or is too similar to) an existing finding so the caller can
+// surface a meaningful "already recorded" message.
 //
 // ID format: f-YYYYMMDD-NNN for the first 999 findings of any
 // calendar day; if exceeded, fall back to f-YYYYMMDD-NNNNNN-<6 hex>
@@ -118,6 +134,9 @@ func (s *Store) Save() error {
 func (s *Store) Add(content string, tags []string, source string, toolOriginated bool) *Finding {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.isDuplicateLocked(content) {
+		return nil
+	}
 	now := time.Now()
 	day := now.Format("20060102")
 	count := s.countForDayLocked(day) + 1
@@ -253,6 +272,126 @@ func (s *Store) FormatForPrompt() string {
 		sb.WriteString(l)
 	}
 	return sb.String()
+}
+
+// isDuplicateLocked reports whether the given content describes
+// the same observation as an existing finding. Three layers:
+//   1. exact equality
+//   2. normalised equality (lowercased, whitespace collapsed,
+//      punctuation stripped) — catches whitespace / case noise
+//   3. word-set Jaccard ≥ DedupJaccardThreshold — catches the
+//      "same observation, slightly different wording" case the
+//      LLM produces when the user asks promote-finding after
+//      analyze-data already auto-promoted the same insight
+//
+// Caller must hold s.mu.
+func (s *Store) isDuplicateLocked(content string) bool {
+	if strings.TrimSpace(content) == "" {
+		return false
+	}
+	norm := normaliseFindingText(content)
+	tokens := tokeniseFinding(content)
+	for _, existing := range s.findings {
+		if existing.Content == content {
+			return true
+		}
+		if normaliseFindingText(existing.Content) == norm {
+			return true
+		}
+		if jaccard(tokens, tokeniseFinding(existing.Content)) >= DedupJaccardThreshold {
+			return true
+		}
+	}
+	return false
+}
+
+// normaliseFindingText lowercases the input, replaces any
+// non-letter / non-digit run with a single space, and trims.
+// Used by the layer-2 dedup check.
+func normaliseFindingText(s string) string {
+	s = strings.ToLower(s)
+	var b strings.Builder
+	prevSpace := true
+	for _, r := range s {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+			prevSpace = false
+		} else if !prevSpace {
+			b.WriteByte(' ')
+			prevSpace = true
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+// tokeniseFinding turns the input into a set of comparable
+// tokens for the layer-3 dedup check. ASCII letter/digit runs
+// of length ≥3 become a single token; CJK runs are windowed
+// into 3-character n-grams (mirrors extractCJKNgrams in agent
+// but kept independent so findings doesn't depend on agent).
+func tokeniseFinding(s string) map[string]struct{} {
+	out := map[string]struct{}{}
+	s = strings.ToLower(s)
+	var ascii strings.Builder
+	flushAscii := func() {
+		if ascii.Len() >= 3 {
+			out[ascii.String()] = struct{}{}
+		}
+		ascii.Reset()
+	}
+	var cjk []rune
+	flushCJK := func() {
+		if len(cjk) >= 3 {
+			for i := 0; i+3 <= len(cjk); i++ {
+				out[string(cjk[i:i+3])] = struct{}{}
+			}
+		}
+		cjk = nil
+	}
+	for _, r := range s {
+		switch {
+		case isCJK(r):
+			flushAscii()
+			cjk = append(cjk, r)
+		case (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'):
+			flushCJK()
+			ascii.WriteRune(r)
+		default:
+			flushAscii()
+			flushCJK()
+		}
+	}
+	flushAscii()
+	flushCJK()
+	return out
+}
+
+func isCJK(r rune) bool {
+	// Hiragana, Katakana, CJK Unified Ideographs (basic + ext A),
+	// CJK Symbols/Punctuation, full-width forms.
+	return (r >= 0x3000 && r <= 0x303F) || // CJK Symbols
+		(r >= 0x3040 && r <= 0x309F) || // Hiragana
+		(r >= 0x30A0 && r <= 0x30FF) || // Katakana
+		(r >= 0x3400 && r <= 0x4DBF) || // CJK Ext A
+		(r >= 0x4E00 && r <= 0x9FFF) || // CJK Unified
+		(r >= 0xFF00 && r <= 0xFFEF) // Halfwidth/Fullwidth
+}
+
+func jaccard(a, b map[string]struct{}) float64 {
+	if len(a) == 0 || len(b) == 0 {
+		return 0
+	}
+	inter := 0
+	for k := range a {
+		if _, ok := b[k]; ok {
+			inter++
+		}
+	}
+	union := len(a) + len(b) - inter
+	if union == 0 {
+		return 0
+	}
+	return float64(inter) / float64(union)
 }
 
 // sanitizeForPrompt removes control chars and newlines, caps
