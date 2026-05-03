@@ -140,13 +140,13 @@ shell-agent-v2/
   scripts spell out `30` for discoverability and `examples/web-search`
   + `examples/generate-image` use `120` because `gem-search` /
   `gem-image` round-trips routinely exceed 30s. See
-  [docs/en/tool-execution-timeout.md](docs/en/tool-execution-timeout.md).
+  [docs/en/history/tool-execution-timeout.md](docs/en/history/tool-execution-timeout.md).
 - Scripts can write artefacts to `$SHELL_AGENT_WORK_DIR` (the host
   path of the per-session work directory; same physical location
   the sandbox bind-mounts at `/work`). Files there appear in the
   Data → /work panel and can be promoted to objstore via the
   built-in `register-object` tool. See
-  [docs/en/work-dir-shell-bridge.md](docs/en/work-dir-shell-bridge.md).
+  [docs/en/history/work-dir-shell-bridge.md](docs/en/history/work-dir-shell-bridge.md).
 
 ### UI
 - Sidebar: icon navigation with two panels — **Sessions**
@@ -226,5 +226,5 @@ All implementation must follow these design documents:
 - `objstore.generateID` produces 16-byte (32 hex) IDs; legacy 12-hex IDs continue to load via the length-tolerant read path (H11)
 - `analysis.validateFilePath` uses `os.Lstat` and rejects symlinks outright — applies to `load-data` and any other host-path entry point (H14)
 - `guard.Wrap` is fail-closed: `chat.BuildMessages` / `BuildMessagesWithBudget` / `WrapUserToolContent` and `contextbuild.Build` return an error rather than silently falling back to unwrapped content. The agent loop surfaces the error to the user (security-hardening-2.md L1)
-- Analysis tools are exposed every round regardless of `hasData` since v0.1.21 (LLM can plan load-then-query workflows up front). Legacy hide-until-data-loaded behaviour is preserved behind `cfg.Tools.HideAnalysisToolsUntilDataLoaded` for users on weaker local backends. See `docs/en/agent-tool-visibility.md`.
-- `extractMemories` (v0.2.0, was `extractPinnedMemories`) rejects self-referential facts (`memory.IsSelfReferential`) and unknown categories (`memory.ValidExtractionCategories`), wraps both the conversation tail and the existing-facts list with `nlk/guard` so the extraction LLM treats them as data, and routes by category: `preference` / `decision` → GlobalMemoryStore, `fact` / `context` → SessionMemoryStore. The window walks back past tool records to keep at least 4 user/assistant turns in scope. `findings.Add` runs a 3-tier dedup (exact / normalised / Jaccard ≥ 0.5) and takes a `source` argument (`SourceLLMPromoted` for `promote-finding`, `SourceAnalyzeData` for the analyze-data auto-promote). `FormatForPrompt` for all three stores prefixes lines with `[user-stated]` (high trust) or `[derived]` (lower trust — content traces through the LLM and may carry attacker-influenced bytes). Retention caps via `MemoryConfig.MaxPinnedFacts` (default 100, applies to GlobalMemory) and per-session `MaxFindings` / `MaxSessionMemory` (defaults 100 / 50) prevent unbounded store growth (FIFO eviction). See `docs/en/memory-model.md` (v0.2.0) and `docs/en/memory-injection-hardening.md` (v0.1.26).
+- Analysis tools are exposed every round regardless of `hasData` since v0.1.21 (LLM can plan load-then-query workflows up front). Legacy hide-until-data-loaded behaviour is preserved behind `cfg.Tools.HideAnalysisToolsUntilDataLoaded` for users on weaker local backends. See `docs/en/history/agent-tool-visibility.md`.
+- `extractMemories` (v0.2.0, was `extractPinnedMemories`) rejects self-referential facts (`memory.IsSelfReferential`) and unknown categories (`memory.ValidExtractionCategories`), wraps both the conversation tail and the existing-facts list with `nlk/guard` so the extraction LLM treats them as data, and routes by category: `preference` / `decision` → GlobalMemoryStore, `fact` / `context` → SessionMemoryStore. The window walks back past tool records to keep at least 4 user/assistant turns in scope. `findings.Add` runs a 3-tier dedup (exact / normalised / Jaccard ≥ 0.5) and takes a `source` argument (`SourceLLMPromoted` for `promote-finding`, `SourceAnalyzeData` for the analyze-data auto-promote). `FormatForPrompt` for all three stores prefixes lines with `[user-stated]` (high trust) or `[derived]` (lower trust — content traces through the LLM and may carry attacker-influenced bytes). Retention caps via `MemoryConfig.MaxPinnedFacts` (default 100, applies to GlobalMemory) and per-session `MaxFindings` / `MaxSessionMemory` (defaults 100 / 50) prevent unbounded store growth (FIFO eviction). See `docs/en/memory-model.md` (v0.2.0) and `docs/en/history/memory-injection-hardening.md` (v0.1.26).

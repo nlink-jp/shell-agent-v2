@@ -8,19 +8,19 @@ and hybrid LLM backend (Local + Vertex AI).
 
 ## Features
 
-- **Interactive data analysis** — dialogue-driven exploration with embedded DuckDB. Every analysis tool (`load-data`, `query-sql`, `describe-data`, `analyze-data`, etc.) is exposed to the LLM every round so the model can plan multi-step workflows up front instead of discovering tools round-by-round. See [agent-tool-visibility.md](docs/en/agent-tool-visibility.md). Set `tools.hide_analysis_tools_until_data_loaded: true` in `config.json` to restore the pre-v0.1.21 hide-until-load behaviour (opt-in for weaker local backends).
+- **Interactive data analysis** — dialogue-driven exploration with embedded DuckDB. Every analysis tool (`load-data`, `query-sql`, `describe-data`, `analyze-data`, etc.) is exposed to the LLM every round so the model can plan multi-step workflows up front instead of discovering tools round-by-round. See [agent-tool-visibility.md](docs/en/history/agent-tool-visibility.md). Set `tools.hide_analysis_tools_until_data_loaded: true` in `config.json` to restore the pre-v0.1.21 hide-until-load behaviour (opt-in for weaker local backends).
 - **Session-scoped analysis** — each session owns its own database, no cross-session state leakage
 - **Agent execution model** — Idle/Busy states with UI lockout during processing
 - **Hybrid LLM backend** — Local LLM (LM Studio) and Vertex AI (Gemini), switchable at runtime via `/model`
 - **Per-backend context budgets** — `ContextBudget` configured separately for Local and Vertex (Settings → Local/Vertex AI).
 - **Memory model (v0.2.0 rewrite)** — four facilities work together. Records (immutable conversation history) live in `chat.json`. **Session Memory** auto-extracts `fact` / `context` per session. **Findings** are session-scoped data-analysis discoveries surfaced in a dedicated chat-pane panel. **Global Memory** holds `preference` / `decision` across sessions. Auto-extraction routes by category; "Pin to Global Memory" is the explicit user action that promotes a Session Memory entry or a Finding into the cross-session pool. Context-budget enforcement is non-destructive (`internal/contextbuild` summary cache). See [memory-model.md](docs/en/memory-model.md).
-- **Container sandbox (opt-in)** — eight `sandbox-*` tools that execute shell or Python in a per-session `podman`/`docker` container with `/work` mounted from the session's data dir, MITL-gated, network-off by default. Includes `sandbox-load-into-analysis` (CSV/JSON in `/work` → DuckDB) and `sandbox-export-sql` (SQL query → CSV in `/work`) so query results flow between analysis and Python without round-tripping through chat. See [sandbox-execution.md](docs/en/sandbox-execution.md) for the macOS setup guide.
+- **Container sandbox (opt-in)** — eight `sandbox-*` tools that execute shell or Python in a per-session `podman`/`docker` container with `/work` mounted from the session's data dir, MITL-gated, network-off by default. Includes `sandbox-load-into-analysis` (CSV/JSON in `/work` → DuckDB) and `sandbox-export-sql` (SQL query → CSV in `/work`) so query results flow between analysis and Python without round-tripping through chat. See [sandbox-execution.md](docs/en/history/sandbox-execution.md) for the macOS setup guide.
 - **Findings panel** — chat-pane disclosure with severity filter, free-text search, bulk delete, real-time refresh, and a Pin-to-Global-Memory star button per row.
-- **Shell script Tool Calling** — register scripts as tools with MITL approval for write/execute. Per-tool `@timeout: N` header (seconds) overrides the 30-second default for legitimately long-running tools — see [agent-tool-visibility.md](docs/en/agent-tool-visibility.md) and [tool-execution-timeout.md](docs/en/tool-execution-timeout.md). Scripts can write to `$SHELL_AGENT_WORK_DIR` (the same physical directory the sandbox bind-mounts at `/work`); use the built-in `register-object` tool to surface the artefact in chat as `object:<ID>` — see [work-dir-shell-bridge.md](docs/en/work-dir-shell-bridge.md).
-- **MITL approval, end-to-end** — every tool source (analysis / shell / sandbox / MCP) routes through one gate. Destructive analysis tools (`load-data`, `reset-analysis`, `promote-finding`) and SQL/analyze prompts are MITL-by-default; metadata reads (`describe-data`, `list-tables`, etc.) are not. Override per-tool from **Settings → Tools** — the toggle reflects the actual dispatcher default. See [security-hardening-2.md](docs/en/security-hardening-2.md).
+- **Shell script Tool Calling** — register scripts as tools with MITL approval for write/execute. Per-tool `@timeout: N` header (seconds) overrides the 30-second default for legitimately long-running tools — see [agent-tool-visibility.md](docs/en/history/agent-tool-visibility.md) and [tool-execution-timeout.md](docs/en/history/tool-execution-timeout.md). Scripts can write to `$SHELL_AGENT_WORK_DIR` (the same physical directory the sandbox bind-mounts at `/work`); use the built-in `register-object` tool to surface the artefact in chat as `object:<ID>` — see [work-dir-shell-bridge.md](docs/en/history/work-dir-shell-bridge.md).
+- **MITL approval, end-to-end** — every tool source (analysis / shell / sandbox / MCP) routes through one gate. Destructive analysis tools (`load-data`, `reset-analysis`, `promote-finding`) and SQL/analyze prompts are MITL-by-default; metadata reads (`describe-data`, `list-tables`, etc.) are not. Override per-tool from **Settings → Tools** — the toggle reflects the actual dispatcher default. See [security-hardening-2.md](docs/en/history/security-hardening-2.md).
 - **Bundled scripts** — `file-info`, `preview-file`, `list-files`, `weather`, `get-location`, `write-note`. Auto-installed on first launch via `go:embed`; user customizations are preserved.
-- **Tool-call timeline** — every tool start/end appears inline in the chat as a transient pill, in addition to the existing status-bar indicator. The pill is restored on session reload as a compact tool-name + status (success / error) bubble; live argument and result text remain ephemeral. See [tool-event-restore.md](docs/en/tool-event-restore.md).
-- **Background task visibility** — when the agent kicks off post-response work (title generation, memory extraction), a small badge appears in the input-status-bar naming what's running. The input field stays disabled until those tasks finish, so the next user message can't race them and lose extracted facts. See [background-task-indicator.md](docs/en/background-task-indicator.md).
+- **Tool-call timeline** — every tool start/end appears inline in the chat as a transient pill, in addition to the existing status-bar indicator. The pill is restored on session reload as a compact tool-name + status (success / error) bubble; live argument and result text remain ephemeral. See [tool-event-restore.md](docs/en/history/tool-event-restore.md).
+- **Background task visibility** — when the agent kicks off post-response work (title generation, memory extraction), a small badge appears in the input-status-bar naming what's running. The input field stays disabled until those tasks finish, so the next user message can't race them and lose extracted facts. See [background-task-indicator.md](docs/en/history/background-task-indicator.md).
 - **MCP support** — via mcp-guardian stdio proxy
 - **Multimodal** — image input via drag & drop, paste, or file picker
 - **Per-session Data panel** — collapsible disclosure at the top of the chat pane showing the current session's objects (images / reports / blobs as cards with thumbnails), DuckDB tables (click for a 20-row preview), and sandbox `/work` files. Click an image for the lightbox, a report for the markdown viewer, or a CSV / text blob for an in-app preview — CSV / TSV render as an HTML table, other text MIMEs (JSON, plain text, HTML, etc.) drop to a fixed-width pre. Bulk-select and delete with separate Yes / No confirmation.
@@ -117,7 +117,7 @@ panel show the badge inline. If a fact starts driving weird
 behaviour (the recoverable case being the THINK leak that prompted
 this hardening), open the relevant list, select the offending
 entries, and bulk-delete them. See
-[docs/en/memory-injection-hardening.md](docs/en/memory-injection-hardening.md)
+[docs/en/history/memory-injection-hardening.md](docs/en/history/memory-injection-hardening.md)
 for the full threat model and
 [docs/en/memory-model.md](docs/en/memory-model.md) for the v0.2.0
 4-facility design.
@@ -139,23 +139,25 @@ make test       # Run tests
 
 ## Documentation
 
-- [Architecture overview](docs/en/shell-agent-v2-architecture.md)
-- [Agent data flow & state control](docs/en/agent-data-flow.md)
-- [**Memory model — top-level overview**](docs/en/memory-model.md) ⭐ start here for memory questions
-- [Memory architecture v2 design](docs/en/memory-architecture-v2.md)
-- [Sandbox execution design + macOS setup](docs/en/sandbox-execution.md)
-- [Object storage design](docs/en/object-storage.md)
-- [LLM backend abstraction](docs/en/llm-abstraction.md)
-- [Background task indicator](docs/en/background-task-indicator.md)
-- [Tool-event restore on session reload](docs/en/tool-event-restore.md)
-- [Tool-call round-trip (Vertex / Local)](docs/en/tool-call-roundtrip.md)
-- [Security hardening (round 1, v0.1.18)](docs/en/security-hardening.md)
-- [Security hardening (round 2, v0.1.20)](docs/en/security-hardening-2.md)
-- [Agent tool visibility (v0.1.21)](docs/en/agent-tool-visibility.md)
-- [Shell tool execution timeout (`@timeout: N`)](docs/en/tool-execution-timeout.md)
-- [Shell tool ↔ /work bridge (`SHELL_AGENT_WORK_DIR`, `register-object`)](docs/en/work-dir-shell-bridge.md)
-- [Memory injection hardening (round 3, v0.1.26)](docs/en/memory-injection-hardening.md)
-- [RFP (English)](docs/en/shell-agent-v2-rfp.md) · [RFP (Japanese)](docs/ja/shell-agent-v2-rfp.ja.md)
+Current state of the system:
+
+- [**Architecture overview (v0.2.0)**](docs/en/architecture.md) ⭐ start here
+- [**Memory model**](docs/en/memory-model.md) — 4-facility design
+
+Past design notes are kept under [`docs/en/history/`](docs/en/history/)
+as the audit trail behind v0.2.0. Some no longer reflect current
+behaviour — see the README in that directory for an annotated
+index. Notable still-current ones:
+
+- [Sandbox execution + macOS setup](docs/en/history/sandbox-execution.md)
+- [Object storage design](docs/en/history/object-storage.md)
+- [LLM backend abstraction](docs/en/history/llm-abstraction.md)
+- [Tool-event restore on session reload](docs/en/history/tool-event-restore.md)
+- [Tool-call round-trip (Vertex / Local)](docs/en/history/tool-call-roundtrip.md)
+- [Security hardening (round 2, v0.1.20)](docs/en/history/security-hardening-2.md)
+- [Shell tool execution timeout (`@timeout: N`)](docs/en/history/tool-execution-timeout.md)
+- [Shell tool ↔ /work bridge (`SHELL_AGENT_WORK_DIR`, `register-object`)](docs/en/history/work-dir-shell-bridge.md)
+- [RFP (English)](docs/en/history/shell-agent-v2-rfp.md) · [RFP (Japanese)](docs/ja/history/shell-agent-v2-rfp.ja.md)
 
 Japanese mirrors live under `docs/ja/`.
 
