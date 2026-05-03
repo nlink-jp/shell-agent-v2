@@ -64,10 +64,15 @@ function ChatInput({onSend, disabled}: Props) {
             }
         }
         if (e.key === 'ArrowDown' && !composingRef.current) {
+            // ArrowDown は「履歴ナビ中」の時だけ反応する。
+            // historyIndexRef.current === -1 は履歴をたどっていない
+            // 通常入力状態。この場合に走らせると、空の draftRef で
+            // 入力が上書きされてユーザーの入力中テキストが消える。
+            if (historyIndexRef.current < 0) return
             const textarea = e.target as HTMLTextAreaElement
             if (textarea.selectionStart === textarea.value.length) {
                 e.preventDefault()
-                if (historyIndexRef.current <= 0) {
+                if (historyIndexRef.current === 0) {
                     historyIndexRef.current = -1
                     setInput(draftRef.current)
                 } else {
