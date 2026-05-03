@@ -53,7 +53,7 @@ func TestBuildMessages(t *testing.T) {
 func TestBuildSystemPrompt_IncludesAllChannels(t *testing.T) {
 	e := New("BASE PROMPT")
 	e.SetLocation("Tokyo")
-	got := e.BuildSystemPrompt("- pinned fact (learned 2026-04-15)", "- finding from 2026-04-20")
+	got := e.BuildSystemPrompt("- pinned fact (learned 2026-04-15)", "", "- finding from 2026-04-20")
 	for _, want := range []string{
 		"BASE PROMPT",
 		"Tokyo",
@@ -72,12 +72,12 @@ func TestBuildSystemPrompt_SandboxGuidanceConditional(t *testing.T) {
 	e := New("base prompt")
 
 	// Off by default: no sandbox section.
-	if got := e.BuildSystemPrompt("", ""); strings.Contains(got, "sandbox-run-shell") {
+	if got := e.BuildSystemPrompt("", "", ""); strings.Contains(got, "sandbox-run-shell") {
 		t.Error("sandbox guidance should be absent when SetSandboxEnabled was not called")
 	}
 
 	e.SetSandboxEnabled(true)
-	got := e.BuildSystemPrompt("", "")
+	got := e.BuildSystemPrompt("", "", "")
 	for _, want := range []string{"sandbox-run-shell", "sandbox-run-python", "sandbox-write-file", "sandbox-copy-object", "sandbox-register-object", "sandbox-info"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("expected sandbox guidance to mention %q", want)
@@ -86,14 +86,14 @@ func TestBuildSystemPrompt_SandboxGuidanceConditional(t *testing.T) {
 
 	// And turning it back off removes it.
 	e.SetSandboxEnabled(false)
-	if got := e.BuildSystemPrompt("", ""); strings.Contains(got, "sandbox-run-shell") {
+	if got := e.BuildSystemPrompt("", "", ""); strings.Contains(got, "sandbox-run-shell") {
 		t.Error("disabling should remove the sandbox guidance")
 	}
 }
 
 func TestWrapUserToolContent_RotatesWithSystemPrompt(t *testing.T) {
 	e := New("base")
-	_ = e.BuildSystemPrompt("", "")
+	_ = e.BuildSystemPrompt("", "", "")
 	wrapped1, err := e.WrapUserToolContent("hi")
 	if err != nil {
 		t.Fatalf("WrapUserToolContent: %v", err)
@@ -103,7 +103,7 @@ func TestWrapUserToolContent_RotatesWithSystemPrompt(t *testing.T) {
 	}
 	// Building the system prompt again rotates the guard tag, so a
 	// previously-wrapped string from the old tag would no longer match.
-	_ = e.BuildSystemPrompt("", "")
+	_ = e.BuildSystemPrompt("", "", "")
 	wrapped2, err := e.WrapUserToolContent("hi")
 	if err != nil {
 		t.Fatalf("WrapUserToolContent (2): %v", err)
@@ -135,7 +135,7 @@ func TestBuildMessagesWithBudget_DropOldMessages(t *testing.T) {
 		session.AddAssistantMessage(strings.Repeat("reply ", 100))
 	}
 
-	result, err := e.BuildMessagesWithBudget(session, "", "", BuildOptions{
+	result, err := e.BuildMessagesWithBudget(session, "", "", "", BuildOptions{
 		MaxConversationTokens: 2048,
 	})
 	if err != nil {
@@ -170,7 +170,7 @@ func TestBuildMessagesWithBudget_SkipCallingMessages(t *testing.T) {
 		},
 	}
 
-	result, err := e.BuildMessagesWithBudget(session, "", "", BuildOptions{
+	result, err := e.BuildMessagesWithBudget(session, "", "", "", BuildOptions{
 		MaxConversationTokens: 8192,
 	})
 	if err != nil {
@@ -200,7 +200,7 @@ func TestBuildMessagesWithBudget_TruncateToolResult(t *testing.T) {
 		},
 	}
 
-	result, err := e.BuildMessagesWithBudget(session, "", "", BuildOptions{
+	result, err := e.BuildMessagesWithBudget(session, "", "", "", BuildOptions{
 		MaxConversationTokens: 8192,
 		MaxToolResultTokens:   100,
 	})
@@ -232,7 +232,7 @@ func TestBuildMessagesWithBudget_WarmSummary(t *testing.T) {
 		},
 	}
 
-	result, err := e.BuildMessagesWithBudget(session, "", "", BuildOptions{
+	result, err := e.BuildMessagesWithBudget(session, "", "", "", BuildOptions{
 		MaxConversationTokens: 8192,
 		MaxWarmTokens:         1024,
 	})

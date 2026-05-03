@@ -105,20 +105,22 @@ type Agent struct {
 	// already-finished contexts, so we don't bother clearing it.
 	postCancel context.CancelFunc
 
-	backend  llm.Backend
-	chat     *chat.Engine
-	session  *memory.Session
-	findings *findings.Store
-	analysis *analysis.Engine
-	pinned   *memory.PinnedStore
-	objects  *objstore.Store
+	backend       llm.Backend
+	chat          *chat.Engine
+	session       *memory.Session
+	findings      *findings.Store
+	analysis      *analysis.Engine
+	pinned        *memory.PinnedStore         // legacy; will be removed in Phase 5
+	sessionMemory *memory.SessionMemoryStore  // v0.2.0: per-session fact/context
+	objects       *objstore.Store
 
-	streamHandler   StreamHandler
-	titleHandler    TitleHandler
-	mitlHandler     MITLHandler
-	reportHandler   func(title, content string)
-	pinnedHandler   func()
-	findingsHandler func()
+	streamHandler        StreamHandler
+	titleHandler         TitleHandler
+	mitlHandler          MITLHandler
+	reportHandler        func(title, content string)
+	pinnedHandler        func()
+	findingsHandler      func()
+	sessionMemoryHandler func()
 	activityHandler func(ActivityEvent)
 	bgTaskHandler   BgTaskHandler
 	toolRegistry    *toolcall.Registry
@@ -291,6 +293,25 @@ func (a *Agent) notifyFindingsUpdated() {
 	}
 }
 
+// SetSessionMemoryHandler sets the callback for session-memory
+// updates (v0.2.0). Mirrors SetPinnedHandler / SetFindingsHandler.
+func (a *Agent) SetSessionMemoryHandler(h func()) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.sessionMemoryHandler = h
+}
+
+// notifySessionMemoryUpdated fires the session-memory handler if
+// registered. Same nil-safe pattern as the other notify helpers.
+func (a *Agent) notifySessionMemoryUpdated() {
+	a.mu.Lock()
+	h := a.sessionMemoryHandler
+	a.mu.Unlock()
+	if h != nil {
+		h()
+	}
+}
+
 // ActivityEventStatus is a coarse outcome label attached to
 // tool_end events so the chat UI can render success / failure
 // distinctly. running events leave this empty; tool_start uses
@@ -400,6 +421,7 @@ func (a *Agent) buildMessagesV2(ctx context.Context, budget config.ContextBudget
 
 	systemPrompt := a.chat.BuildSystemPrompt(
 		a.pinned.FormatForPrompt(),
+		a.sessionMemoryPrompt(),
 		a.findingsPrompt(),
 	)
 
@@ -716,16 +738,17 @@ func (a *Agent) LoadSession(session *memory.Session) error {
 	a.promptTokens = 0
 	a.outputTokens = 0
 
-	// v0.2.0: Findings are per-session. Construct (or reload) the
-	// store for this session every time LoadSession is called.
-	// Cap stays consistent with the previous global cap config to
-	// avoid surprising the user with smaller per-session limits
-	// than they had set.
+	// v0.2.0: Findings and Session Memory are per-session.
+	// Construct (or reload) both stores every time LoadSession
+	// is called. Caps stay consistent with the previous global
+	// cap config so existing tuning carries over.
 	a.findings = findings.NewStore(session.ID)
 	if a.cfg.Memory.MaxFindings > 0 {
 		a.findings.MaxFindings = a.cfg.Memory.MaxFindings
 	}
 	_ = a.findings.Load()
+	a.sessionMemory = memory.NewSessionMemoryStore(session.ID)
+	_ = a.sessionMemory.Load()
 
 	// Ensure the per-session work directory exists regardless of
 	// whether the sandbox is enabled. Shell tools learn its host
@@ -784,6 +807,15 @@ func (a *Agent) findingsPrompt() string {
 		return ""
 	}
 	return a.findings.FormatForPrompt()
+}
+
+// sessionMemoryPrompt returns the session-memory system-prompt
+// block for the active session. Empty when no session.
+func (a *Agent) sessionMemoryPrompt() string {
+	if a.sessionMemory == nil {
+		return ""
+	}
+	return a.sessionMemory.FormatForPrompt()
 }
 
 // DeleteFindings removes findings by ID from the active
@@ -1078,6 +1110,7 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 			buildResult, err := a.chat.BuildMessagesWithBudget(
 				a.session,
 				a.pinned.FormatForPrompt(),
+				a.sessionMemoryPrompt(),
 				a.findingsPrompt(),
 				chat.BuildOptions{
 					MaxConversationTokens: budget.MaxContextTokens,
@@ -1252,7 +1285,7 @@ func (a *Agent) postResponseTasks(parentCtx context.Context) {
 	}()
 	go func() {
 		defer a.postTasksWg.Done()
-		a.trackBg(ctx, "pinned-extraction", func() error { return a.extractPinnedMemories(ctx) })
+		a.trackBg(ctx, "memory-extraction", func() error { return a.extractMemories(ctx) })
 	}()
 
 	// Trailing goroutine: wait for all three tasks to finish, then
@@ -1878,25 +1911,18 @@ To reference objects from the session:
 3. In reports, reference images with: ![description](object:ID)
 Never fabricate image URLs or object IDs.`
 
-// extractPinnedMemories runs after each response to auto-extract important facts.
-// This is a system task, not an LLM tool — the backend drives the extraction.
+// extractMemories runs after each response to auto-extract important
+// facts and route them to the appropriate store. v0.2.0:
 //
-// v0.1.26 hardening (docs/en/memory-injection-hardening.md):
-//   - Source stamping: each pinned fact records the originating turn
-//     role (user_turn / assistant_turn), session ID, turn index, and
-//     whether the surrounding window included a tool record. The
-//     extraction LLM is asked to tag each fact with `turn-N` so we
-//     can map it back to the originating Record.
-//   - Self-referential filter: facts mentioning the assistant or its
-//     internal markers (THINK, system prompt, tool call …) are
-//     dropped — these are the THINK-incident class of fact that
-//     would steer the assistant in every future session.
-//   - Category allowlist: only preference / decision / fact / context
-//     are accepted; arbitrary attacker-chosen categories are dropped.
-//   - Guard wrap: the conversation tail and existing-facts list are
-//     wrapped with nlk/guard so the extraction LLM treats them as
-//     data, not instructions.
-func (a *Agent) extractPinnedMemories(ctx context.Context) error {
+//   - preference / decision categories → a.pinned (Global Memory in
+//     Phase 5; still PinnedStore in this intermediate state)
+//   - fact / context categories → a.sessionMemory
+//
+// Defenses unchanged from v0.1.26: source stamping with turn-N
+// hint + content-overlap refinement, self-referential filter,
+// category allowlist, nlk/guard wrap on the conversation tail
+// and existing-facts list.
+func (a *Agent) extractMemories(ctx context.Context) error {
 	if a.session == nil {
 		return nil
 	}
@@ -1957,7 +1983,18 @@ func (a *Agent) extractPinnedMemories(ctx context.Context) error {
 		conversation.WriteString(fmt.Sprintf("[turn %d|%s]: %s\n", turnNumber, r.Role, r.Content))
 	}
 
+	// Combine "already known" lists from BOTH stores so the
+	// extraction LLM can dedup against either.
 	existing := a.pinned.FormatExistingForExtraction()
+	if a.sessionMemory != nil {
+		if sessionExisting := a.sessionMemory.FormatExistingForExtraction(); sessionExisting != "(none)" && sessionExisting != "" {
+			if existing == "(none)" {
+				existing = sessionExisting
+			} else {
+				existing += sessionExisting
+			}
+		}
+	}
 
 	// Wrap both the conversation tail and the existing-facts list
 	// with nlk/guard so the extraction LLM treats them as data, not
@@ -1976,8 +2013,17 @@ func (a *Agent) extractPinnedMemories(ctx context.Context) error {
 		return fmt.Errorf("guard wrap existing: %w", err)
 	}
 
-	systemPrompt := fmt.Sprintf(`Analyze the conversation below and extract important facts worth remembering long-term.
-Categories: preference, decision, fact, context
+	systemPrompt := fmt.Sprintf(`Analyze the conversation below and extract important facts worth remembering.
+Categories and their durability:
+- preference: long-term user preferences and habits (persists across all sessions, e.g. "User prefers Go over Python")
+- decision: long-term architectural / design decisions (persists across all sessions, e.g. "Chose DuckDB over SQLite")
+- fact: factual context for the current task (session-scoped, deleted with session, e.g. "User has three datasets loaded")
+- context: situational awareness for the current conversation (session-scoped, e.g. "User is analysing 2025 Q1 sales data")
+
+Choose the category that matches the durability you intend:
+- preference / decision → kept across all future sessions (cross-session global memory)
+- fact / context → kept only for the current session (session-scoped)
+
 Rules:
 - Only extract genuinely important, reusable information about the user (their preferences, goals, decisions, factual context)
 - Do NOT extract facts about the assistant, the model, the tools, the system prompt, or how output should be formatted — those describe transient implementation details, not persistent user state
@@ -2013,7 +2059,8 @@ Already known:
 		return nil
 	}
 
-	added := 0
+	addedToPinned := 0
+	addedToSession := 0
 	for _, line := range strings.Split(text, "\n") {
 		line = strings.TrimSpace(line)
 		category, turnTok, fact, native, ok := parseExtractionLine(line)
@@ -2021,83 +2068,100 @@ Already known:
 			continue
 		}
 
-		// B-3 — category allowlist. Reject anything outside the
-		// documented set so an attacker cannot invent
-		// "system_rule" / "user_authorised" categories that bypass
-		// downstream policy.
+		// B-3 — category allowlist. Reject anything outside
+		// the documented 4-category set so an attacker cannot
+		// invent "system_rule" etc.
 		if !memory.ValidPinnedCategories[category] {
-			logger.Info("extractPinnedMemories: dropped fact with invalid category %q: %q", category, fact)
+			logger.Info("extractMemories: dropped fact with invalid category %q: %q", category, fact)
 			continue
 		}
 		// B-2 — self-referential filter. THINK-incident class.
 		if memory.IsSelfReferential(fact) {
-			logger.Info("extractPinnedMemories: dropped self-referential fact: %q", fact)
+			logger.Info("extractMemories: dropped self-referential fact: %q", fact)
 			continue
 		}
 
-		// Map turn-N back to the originating record so we can stamp
-		// Source / SessionID / SourceTurnIndex. The LLM's claim is
-		// only a hint — we always cross-check against the actual
-		// record content (see inferSourceFromContent below).
-		var src string
+		// Map turn-N to originating record for Source / index stamping.
+		var role string
 		var recIdx int
 		if n, ok := parseTurnToken(turnTok); ok {
 			if entry, found := turnEntries[n]; found {
-				switch entry.record.Role {
-				case "user":
-					src = memory.PinnedSourceUserTurn
-				case "assistant":
-					src = memory.PinnedSourceAssistantTurn
-				}
+				role = entry.record.Role
 				recIdx = entry.recordIndex
 			}
 		}
-
-		// Content-based override: the extraction LLM frequently
-		// pulls user-stated facts from an *assistant* turn that
-		// merely echoes the user. The naïve attribution then
-		// mislabels genuinely user-stated facts as [derived],
-		// which the user reads as "由来不明" and (rightly) finds
-		// confusing. Cross-check by looking for the fact's
-		// content words in the user-role records of the same
-		// window — if the user actually said it, attribute to
-		// user_turn regardless of which turn the LLM picked.
-		// This does NOT weaken defense against CSV-injection
-		// scenarios: an attacker payload appears only in the
-		// assistant turn (the assistant quoted the malicious
-		// cell), so user records have zero overlap and we still
-		// label it [derived].
-		// See docs/en/memory-injection-hardening.md §5 Phase A
-		// (content-based attribution refinement, v0.1.26 follow-up).
+		// Content-based attribution refinement: if the fact's
+		// keywords overlap a user turn, treat as user-stated even
+		// when the LLM picked it from an assistant turn (defense
+		// stays intact for CSV-injection — the payload only
+		// appears in assistant turns and won't overlap user).
 		if userIdx, hit := matchFactToUserTurn(fact, native, hotIndexes, a.session.Records); hit {
-			src = memory.PinnedSourceUserTurn
+			role = "user"
 			recIdx = userIdx
 		}
 
-		if a.pinned.Add(memory.PinnedFact{
+		// v0.2.0: route by category.
+		// preference / decision → cross-session global pool.
+		// fact / context → per-session memory.
+		isGlobal := category == "preference" || category == "decision"
+		if isGlobal {
+			var src string
+			switch role {
+			case "user":
+				src = memory.PinnedSourceUserTurn
+			case "assistant":
+				src = memory.PinnedSourceAssistantTurn
+			}
+			if a.pinned.Add(memory.PinnedFact{
+				Fact:            fact,
+				NativeFact:      native,
+				Category:        category,
+				SessionID:       a.session.ID,
+				SourceTurnIndex: recIdx,
+				Source:          src,
+				ToolOriginated:  hasToolNeighbor,
+			}) {
+				addedToPinned++
+			}
+			continue
+		}
+		// fact / context → SessionMemory
+		if a.sessionMemory == nil {
+			continue // no session memory store (shouldn't happen — guarded by a.session != nil above)
+		}
+		var src string
+		switch role {
+		case "user":
+			src = memory.SessionSourceUserTurn
+		case "assistant":
+			src = memory.SessionSourceAssistantTurn
+		}
+		if a.sessionMemory.Add(memory.SessionMemoryEntry{
 			Fact:            fact,
 			NativeFact:      native,
 			Category:        category,
-			SessionID:       a.session.ID,
 			SourceTurnIndex: recIdx,
 			Source:          src,
 			ToolOriginated:  hasToolNeighbor,
 		}) {
-			added++
+			addedToSession++
 		}
 	}
 
-	if added > 0 {
-		logger.Info("extractPinnedMemories: added %d facts", added)
+	if addedToPinned > 0 {
+		logger.Info("extractMemories: added %d facts to global memory", addedToPinned)
 		_ = a.pinned.Save()
-
-		// Notify frontend
 		a.mu.Lock()
 		h := a.pinnedHandler
 		a.mu.Unlock()
 		if h != nil {
 			h()
 		}
+	}
+	if addedToSession > 0 {
+		logger.Info("extractMemories: added %d facts to session memory", addedToSession)
+		_ = a.sessionMemory.Save()
+		a.notifySessionMemoryUpdated()
 	}
 	return nil
 }

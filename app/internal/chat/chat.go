@@ -102,12 +102,19 @@ func sanitizeSystemContext(s string, maxLen int) string {
 	return strings.TrimSpace(b.String())
 }
 
-// BuildSystemPrompt assembles the full system block (base prompt + temporal
-// context + pinned + findings). Callers using contextbuild.Build directly
-// pass this as BuildOptions.SystemPrompt instead of going through
-// BuildMessages. The guard tag is rotated as a side effect, matching
-// BuildMessages' behavior.
-func (e *Engine) BuildSystemPrompt(pinnedContext, findingsContext string) string {
+// BuildSystemPrompt assembles the full system block:
+// base prompt + temporal context + Global Memory + Session Memory + Findings.
+// Callers using contextbuild.Build directly pass this as
+// BuildOptions.SystemPrompt instead of going through BuildMessages.
+// The guard tag is rotated as a side effect, matching BuildMessages.
+//
+// v0.2.0: 3-block memory injection (was 2 in v0.1.x). Empty
+// blocks are omitted entirely (no header without content).
+//
+//   - globalMemoryContext: cross-session user identity (preference/decision)
+//   - sessionMemoryContext: current-session context (fact/context)
+//   - findingsContext: current-session data-analysis discoveries
+func (e *Engine) BuildSystemPrompt(globalMemoryContext, sessionMemoryContext, findingsContext string) string {
 	e.guardTag = guard.NewTag()
 	timeContext := buildTemporalContext()
 	if e.location != "" {
@@ -117,11 +124,14 @@ func (e *Engine) BuildSystemPrompt(pinnedContext, findingsContext string) string
 	if e.sandboxEnabled {
 		full += sandboxGuidance
 	}
-	if pinnedContext != "" {
-		full += "\n\nImportant facts you remember about the user:\n" + pinnedContext
+	if globalMemoryContext != "" {
+		full += "\n\nImportant facts you remember about the user:\n" + globalMemoryContext
+	}
+	if sessionMemoryContext != "" {
+		full += "\n\nNotes about the current session:\n" + sessionMemoryContext
 	}
 	if findingsContext != "" {
-		full += "\n\nAnalysis findings from other sessions:\n" + findingsContext
+		full += "\n\nAnalysis findings in this session:\n" + findingsContext
 	}
 	return full
 }
@@ -225,7 +235,10 @@ type BuildResult struct {
 // (security-hardening-2.md L1).
 //
 // Design: docs/en/agent-data-flow.md Section 3.3
-func (e *Engine) BuildMessagesWithBudget(session *memory.Session, pinnedContext, findingsContext string, opts BuildOptions) (BuildResult, error) {
+//
+// v0.2.0: 3-block memory injection
+// (globalMemory + sessionMemory + findings).
+func (e *Engine) BuildMessagesWithBudget(session *memory.Session, globalMemoryContext, sessionMemoryContext, findingsContext string, opts BuildOptions) (BuildResult, error) {
 	e.guardTag = guard.NewTag()
 
 	// 1. Build system prompt (same as BuildMessages)
@@ -234,11 +247,14 @@ func (e *Engine) BuildMessagesWithBudget(session *memory.Session, pinnedContext,
 		timeContext += "\nLocation: " + e.location
 	}
 	fullSystem := fmt.Sprintf("%s\n\n%s", e.systemPrompt, timeContext)
-	if pinnedContext != "" {
-		fullSystem += "\n\nImportant facts you remember about the user:\n" + pinnedContext
+	if globalMemoryContext != "" {
+		fullSystem += "\n\nImportant facts you remember about the user:\n" + globalMemoryContext
+	}
+	if sessionMemoryContext != "" {
+		fullSystem += "\n\nNotes about the current session:\n" + sessionMemoryContext
 	}
 	if findingsContext != "" {
-		fullSystem += "\n\nAnalysis findings from other sessions:\n" + findingsContext
+		fullSystem += "\n\nAnalysis findings in this session:\n" + findingsContext
 	}
 
 	systemTokens := memory.EstimateTokens(fullSystem)
