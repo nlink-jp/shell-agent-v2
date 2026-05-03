@@ -739,7 +739,7 @@ input, textarea {
 }
 
 .pinned-pin:hover {
-    color: var(--accent-primary);
+    color: var(--text-accent);
     background: var(--bg-hover);
 }
 
@@ -2924,7 +2924,7 @@ input, textarea {
 .findings-filter-btn {
     padding: 2px 8px;
     border: 1px solid var(--border-primary);
-    background: var(--bg-secondary);
+    background: var(--bg-input-field);
     color: var(--text-muted);
     font-size: 11px;
     cursor: pointer;
@@ -2933,9 +2933,9 @@ input, textarea {
 }
 
 .findings-filter-btn.active {
-    background: var(--accent-primary);
-    color: var(--bg-primary);
-    border-color: var(--accent-primary);
+    background: var(--bg-btn-primary);
+    color: var(--text-accent);
+    border-color: var(--border-accent);
 }
 
 .findings-search {
@@ -2952,7 +2952,7 @@ input, textarea {
 .findings-bulk {
     padding: 4px 8px;
     border-radius: 4px;
-    background: var(--bg-secondary);
+    background: var(--bg-input-field);
     border: 1px solid var(--border-primary);
 }
 
@@ -2980,12 +2980,12 @@ input, textarea {
     align-items: flex-start;
     padding: 6px 8px;
     border-radius: 4px;
-    background: var(--bg-secondary);
+    background: var(--bg-input-field);
     border: 1px solid transparent;
 }
 
 .findings-row.selected {
-    border-color: var(--accent-primary);
+    border-color: var(--border-accent);
 }
 
 .findings-content {
@@ -3034,8 +3034,8 @@ input, textarea {
 }
 
 .findings-pin:hover {
-    color: var(--accent-primary);
-    border-color: var(--accent-primary);
+    color: var(--text-accent);
+    border-color: var(--border-accent);
 }
 
 .findings-delete:hover {
@@ -3111,8 +3111,8 @@ input, textarea {
 .pin-dialog-preview {
     margin: 0;
     padding: 8px 12px;
-    border-left: 3px solid var(--accent-primary);
-    background: var(--bg-secondary);
+    border-left: 3px solid var(--border-accent);
+    background: var(--bg-input-field);
     border-radius: 0 4px 4px 0;
     color: var(--text-primary);
     font-size: 13px;
@@ -3155,7 +3155,7 @@ input, textarea {
     gap: 8px;
     padding: 12px 18px;
     border-top: 1px solid var(--border-primary);
-    background: var(--bg-secondary);
+    background: var(--bg-input-field);
 }
 
 .pin-dialog-cancel,
@@ -3178,12 +3178,12 @@ input, textarea {
 }
 
 .pin-dialog-confirm {
-    background: var(--accent-primary);
-    color: var(--bg-primary);
-    border-color: var(--accent-primary);
+    background: var(--bg-btn-primary);
+    color: var(--text-primary);
+    border-color: var(--border-accent);
     font-weight: 600;
 }
 
 .pin-dialog-confirm:hover {
-    filter: brightness(1.1);
+    background: var(--bg-btn-primary-hover);
 }
