@@ -498,3 +498,21 @@ opts = BuildOptions{
 
 マイグレーションは段階化されており、各フェーズは独立してテスト可能、
 phase 2 では config flag で revert 可能。
+
+## 14. 脅威モデル — 注入経路としての pinned facts と findings
+
+セッションを跨ぐ pinned facts と findings は、すべての将来セッション
+のシステムプロンプトに権威ある context として再注入される。これは
+構造的なプロンプトインジェクション経路である: アシスタント発話に
+一度でも現れた文字列 (アシスタントが要約したツール出力 — CSV セル、
+MCP 応答、Web 取得、画像 OCR を含む) はすべて `extractPinnedMemories`
+または `promote-finding` の LLM コールで拾われ、将来全セッションを
+操舵しうる。
+
+v0.1.26 では provenance タグ (`[user-stated]` vs `[derived]`)、
+自己参照フィルタ、category allowlist、抽出プロンプトの guard
+wrap、リテンション上限でこれを強化した。自動抽出自体は UX 上残す
+(pin 単位 MITL は reject — 抽出はほぼ毎ターン走るためチャット UX
+を破壊する); 残留リスクはサイドバーの監査 + 削除経路で回収。
+脅威モデル全文と詳細メカニズム:
+[memory-injection-hardening.ja.md](memory-injection-hardening.ja.md)。

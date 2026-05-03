@@ -367,6 +367,15 @@ func truncateToTokens(text string, maxTokens int) string {
 }
 
 // CleanResponse removes thinking tags from LLM output.
+//
+// We deliberately do NOT auto-rewrite the input-anchor shape
+// `Image (object ID: <hex>):` to markdown image references here —
+// it would mangle legitimate prose where the model is talking
+// ABOUT an ID rather than asking to render it (e.g. "Image
+// (object ID: abc) is missing", explanations of the anchor
+// format itself, code-block quoting, IDs followed by filename
+// suffixes). Defense relies on the system-prompt rule alone,
+// which explicitly forbids emitting the anchor shape in output.
 func CleanResponse(content string) string {
 	return strip.ThinkTags(content)
 }

@@ -425,7 +425,7 @@ func TestE2E_FindingsCrossSession(t *testing.T) {
 	// Session A: promote a finding
 	sessionA := &memory.Session{ID: "sess-a", Title: "Sales Analysis", Records: []memory.Record{}}
 	a.LoadSession(sessionA)
-	a.findings.Add("Revenue doubled in Q3", "sess-a", "Sales Analysis", []string{"revenue"})
+	a.findings.Add("Revenue doubled in Q3", "sess-a", "Sales Analysis", []string{"revenue"}, findings.SourceLLMPromoted, true)
 
 	// Session B: findings should be visible in system prompt
 	sessionB := &memory.Session{ID: "sess-b", Title: "Planning", Records: []memory.Record{}}

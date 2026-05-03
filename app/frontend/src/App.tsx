@@ -112,6 +112,22 @@ function App() {
     const [bgTasks, setBgTasks] = useState<string[]>([])
     const [bgFailure, setBgFailure] = useState<{name: string; error: string} | null>(null)
     const messagesEndRef = useRef<HTMLDivElement>(null)
+    const messagesContainerRef = useRef<HTMLDivElement>(null)
+    // scrollMessagesToBottom forces the .messages container to its
+    // true scroll bottom. Using scrollTop = scrollHeight (rather
+    // than messagesEndRef.scrollIntoView) ensures the container's
+    // padding-bottom and the last bubble's margin-bottom are both
+    // honoured — scrollIntoView on a 0-height anchor stops short
+    // of those by ~28 px (one visual line).
+    const scrollMessagesToBottom = (smooth: boolean) => {
+        const el = messagesContainerRef.current
+        if (!el) return
+        if (smooth) {
+            el.scrollTo({top: el.scrollHeight, behavior: 'smooth'})
+        } else {
+            el.scrollTop = el.scrollHeight
+        }
+    }
 
     useEffect(() => {
         if (window.runtime) {
@@ -153,6 +169,19 @@ function App() {
                     setMessages(prev => [...prev, {role: 'tool-event', content: data.detail || '', status: 'running', timestamp: nowTime()}])
                 } else if (data.type === 'thinking') {
                     setProgressTool(data.detail || '')
+                } else if (data.type === 'assistant_text') {
+                    // Intermediate assistant text accompanying a
+                    // tool call. The system prompt asks the model
+                    // to explain what it's about to do; surface
+                    // that explanation as a real chat bubble in
+                    // the live conversation. Reload from disk
+                    // already shows the same content via
+                    // session.Records — this just brings the
+                    // live UX in line with what's persisted.
+                    const txt = (data.detail || '').trim()
+                    if (txt) {
+                        setMessages(prev => [...prev, {role: 'assistant', content: txt, timestamp: nowTime()}])
+                    }
                 } else if (data.type === 'retry_backoff') {
                     setRetryStatus(data.detail || 'retrying...')
                 }
@@ -228,8 +257,26 @@ function App() {
     }
 
     useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({behavior: 'smooth'})
+        scrollMessagesToBottom(true)
     }, [messages, streaming])
+
+    // Session-switch jump: when the user opens a different session
+    // we want the view to start at the latest message, not the
+    // beginning of history. The smooth-scroll effect above handles
+    // incremental message append fine, but for a full restore the
+    // long animation is interrupted by markdown/image layout
+    // settling and ends up parked somewhere in the middle (or at
+    // the top, since that's where the layout starts). Force an
+    // instant jump on session change, plus a delayed retry to
+    // catch late-rendering markdown/images that grew the page
+    // after the first jump.
+    useEffect(() => {
+        if (!currentSessionId) return
+        scrollMessagesToBottom(false)
+        const t1 = window.setTimeout(() => scrollMessagesToBottom(false), 50)
+        const t2 = window.setTimeout(() => scrollMessagesToBottom(false), 250)
+        return () => { window.clearTimeout(t1); window.clearTimeout(t2) }
+    }, [currentSessionId])
 
     // Persist sidebarCollapsed whenever it changes after the
     // initial load. Width is persisted at resize-end inside
@@ -308,6 +355,14 @@ function App() {
             content: m.content,
             timestamp: m.timestamp,
             ...(m.status ? {status: m.status} : {}),
+            // Restored user messages with attached images get
+            // imageUrls populated as `object:<id>` URLs. The
+            // MessageItem image renderer detects the prefix and
+            // routes through ObjectImage so the original images
+            // re-appear in the bubble.
+            ...(m.object_ids && m.object_ids.length > 0
+                ? {imageUrls: m.object_ids.map(id => `object:${id}`)}
+                : {}),
         }))
 
     const handleLoadSession = useCallback(async (id: string) => {
@@ -578,7 +633,7 @@ function App() {
                         }}
                     />
                 )}
-                <div className="messages">
+                <div className="messages" ref={messagesContainerRef}>
                     {messages.filter(msg => msg.role !== 'tool').map((msg, i) => (
                         <div key={i} className={`message ${msg.role}`}>
                             <MessageItem msg={msg} onLightbox={setLightboxImage} onExpandReport={setExpandedReport} />

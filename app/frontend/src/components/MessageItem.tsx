@@ -102,9 +102,16 @@ const MessageItem = memo(function MessageItem({msg, onLightbox, onExpandReport}:
             </div>
             {msg.imageUrls && msg.imageUrls.length > 0 && (
                 <div className="message-images">
-                    {msg.imageUrls.map((url, j) => (
-                        <img key={j} src={url} alt="" className="message-image" onClick={() => onLightbox(url)} />
-                    ))}
+                    {msg.imageUrls.map((url, j) => {
+                        // Live messages use data: URLs (immediate);
+                        // restored messages use object:<id> URLs that
+                        // ObjectImage resolves to a data URL via the
+                        // backend so the original images re-appear.
+                        if (url.startsWith('object:')) {
+                            return <ObjectImage key={j} id={url.slice(7)} onClick={onLightbox} />
+                        }
+                        return <img key={j} src={url} alt="" className="message-image" onClick={() => onLightbox(url)} />
+                    })}
                 </div>
             )}
             <div className="message-content">

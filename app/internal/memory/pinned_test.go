@@ -3,6 +3,7 @@ package memory
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestPinnedSetAndGet(t *testing.T) {
@@ -129,6 +130,148 @@ func TestPinnedFormatExistingForExtraction(t *testing.T) {
 	empty := (&PinnedStore{}).FormatExistingForExtraction()
 	if empty == "" {
 		t.Error("empty store should return a placeholder, not an empty string")
+	}
+}
+
+// TestAdd_RespectsMaxCap pins the v0.1.26 Phase C retention cap.
+// When Add overflows MaxFacts the oldest entry is evicted (FIFO).
+func TestAdd_RespectsMaxCap(t *testing.T) {
+	s := &PinnedStore{Entries: []PinnedFact{}, MaxFacts: 3}
+	s.Add(PinnedFact{Fact: "a", Category: "fact"})
+	s.Add(PinnedFact{Fact: "b", Category: "fact"})
+	s.Add(PinnedFact{Fact: "c", Category: "fact"})
+	s.Add(PinnedFact{Fact: "d", Category: "fact"}) // evicts "a"
+	if len(s.Entries) != 3 {
+		t.Fatalf("after overflow: got %d, want 3", len(s.Entries))
+	}
+	want := []string{"b", "c", "d"}
+	for i, w := range want {
+		if s.Entries[i].Fact != w {
+			t.Errorf("Entries[%d].Fact = %q, want %q", i, s.Entries[i].Fact, w)
+		}
+	}
+}
+
+// TestFormatForPrompt_RespectsCharBudget confirms the rendered output
+// stays under PinnedFormatBudget by eliding oldest entries.
+func TestFormatForPrompt_RespectsCharBudget(t *testing.T) {
+	s := &PinnedStore{Entries: []PinnedFact{}, MaxFacts: 100000}
+	bigFact := strings.Repeat("x", 290) // sanitizePinned caps at 300
+	for i := range 100 {
+		s.Add(PinnedFact{Fact: bigFact + "-" + string(rune('a'+i%26)) + "-" + string(rune('A'+i/26)), Category: "fact"})
+	}
+	out := s.FormatForPrompt()
+	if len(out) > PinnedFormatBudget+200 {
+		t.Errorf("FormatForPrompt = %d bytes, want <= ~%d", len(out), PinnedFormatBudget)
+	}
+	if !strings.Contains(out, "earlier facts elided") {
+		t.Error("expected elision marker in output")
+	}
+}
+
+// TestFormatForPrompt_TagsByTrust pins the v0.1.26 trust-tag rendering
+// behaviour. PinnedSourceUserTurn / PinnedSourceManual surface as
+// [user-stated]; PinnedSourceAssistantTurn and legacy entries with no
+// Source default to [derived] — the lower-trust label that signals
+// "content traces back through the LLM and may be attacker-influenced".
+// See docs/en/memory-injection-hardening.md §5 Phase A.
+func TestFormatForPrompt_TagsByTrust(t *testing.T) {
+	s := &PinnedStore{Entries: []PinnedFact{
+		{Fact: "user prefers Go", Category: "preference", Source: PinnedSourceUserTurn, CreatedAt: time.Now()},
+		{Fact: "user is in Tokyo", Category: "fact", Source: PinnedSourceManual, CreatedAt: time.Now()},
+		{Fact: "user analyses CSV files weekly", Category: "context", Source: PinnedSourceAssistantTurn, CreatedAt: time.Now()},
+		{Fact: "legacy entry without source", Category: "fact", CreatedAt: time.Now()},
+	}}
+	out := s.FormatForPrompt()
+	cases := []struct {
+		fact string
+		tag  string
+	}{
+		{"user prefers Go", "[user-stated]"},
+		{"user is in Tokyo", "[user-stated]"},
+		{"user analyses CSV files weekly", "[derived]"},
+		{"legacy entry without source", "[derived]"},
+	}
+	for _, c := range cases {
+		// Find the line containing the fact and confirm the tag
+		// appears before the fact text.
+		for _, line := range strings.Split(out, "\n") {
+			if !strings.Contains(line, c.fact) {
+				continue
+			}
+			if !strings.Contains(line, c.tag) {
+				t.Errorf("fact %q: line %q missing tag %s", c.fact, line, c.tag)
+			}
+			// The opposite tag must NOT also appear on the same line.
+			other := "[user-stated]"
+			if c.tag == "[user-stated]" {
+				other = "[derived]"
+			}
+			if strings.Contains(line, other) {
+				t.Errorf("fact %q: line %q has both tags", c.fact, line)
+			}
+		}
+	}
+}
+
+// TestIsSelfReferential covers the v0.1.26 Phase B-2 filter that
+// drops THINK-incident-class facts before they are pinned. Each
+// blocklist token has a positive case; negatives ensure ordinary
+// user facts are not flagged.
+func TestIsSelfReferential(t *testing.T) {
+	cases := []struct {
+		fact string
+		want bool
+	}{
+		// Positive: phrases that describe the assistant or its internals.
+		{"the assistant should not show its reasoning", true},
+		{"the model uses chain-of-thought internally", true},
+		{"the LLM has a context window of 1M tokens", true},
+		{"the AI must not break character", true},
+		{"system prompt instructs the assistant to be concise", true},
+		{"internal thought tag THINK should be hidden", true},
+		{"internal reasoning is private to the model", true},
+		{"<think>tag wraps the model's deliberation</think>", true},
+		{"</think> closes the reasoning block", true},
+		{"THINK is the marker for internal thought", true},
+		{"each tool call must be approved", true},
+		{"the tool output should be summarised", true},
+		{"shell-agent has 5 categories of tools", true},
+
+		// Negative: ordinary user-fact phrasing.
+		{"user prefers Go over Python", false},
+		{"user is based in Tokyo", false},
+		{"user works on data analysis pipelines", false},
+		{"user wants reports in markdown", false},
+		// "think" as a verb must not trigger by itself.
+		{"I think Python is fine", false},
+		{"the user does not think SQL is hard", false},
+	}
+	for _, c := range cases {
+		got := IsSelfReferential(c.fact)
+		if got != c.want {
+			t.Errorf("IsSelfReferential(%q) = %v, want %v", c.fact, got, c.want)
+		}
+	}
+}
+
+// TestValidPinnedCategories pins the allowlist contract. Any change
+// to ValidPinnedCategories must be accompanied by a deliberate update
+// to this test.
+func TestValidPinnedCategories(t *testing.T) {
+	want := map[string]bool{"preference": true, "decision": true, "fact": true, "context": true}
+	if len(ValidPinnedCategories) != len(want) {
+		t.Errorf("category count mismatch: got %v, want %v", ValidPinnedCategories, want)
+	}
+	for k, v := range want {
+		if ValidPinnedCategories[k] != v {
+			t.Errorf("category %q: got %v, want %v", k, ValidPinnedCategories[k], v)
+		}
+	}
+	for _, bad := range []string{"system_rule", "user_authorised", "rule", "policy", "instruction"} {
+		if ValidPinnedCategories[bad] {
+			t.Errorf("category %q must be rejected", bad)
+		}
 	}
 }
 

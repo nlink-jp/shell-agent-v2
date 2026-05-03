@@ -173,7 +173,7 @@ func TestFindingsAccessor(t *testing.T) {
 		t.Error("expected empty findings")
 	}
 
-	a.findings.Add("test finding", "sess-1", "Test", nil)
+	a.findings.Add("test finding", "sess-1", "Test", nil, findings.SourceManual, false)
 	if len(a.Findings()) != 1 {
 		t.Error("expected 1 finding")
 	}

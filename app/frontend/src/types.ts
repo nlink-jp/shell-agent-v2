@@ -32,6 +32,11 @@ export interface MessageData {
     // restored session. "success" / "error" — never "running",
     // because restored bubbles are always terminal.
     status?: 'success' | 'error';
+    // Populated for restored 'user' rows that originally attached
+    // images. Frontend converts these to `object:<id>` URLs and
+    // routes them through ObjectImage so the restored chat shows
+    // the same images the user originally attached.
+    object_ids?: string[];
 }
 
 export interface Finding {
@@ -41,6 +46,11 @@ export interface Finding {
     session_title: string;
     tags: string[];
     created_label: string;
+    /** "manual" (user-promoted) → high trust; "llm_promoted" or empty
+     *  (legacy) → derived (LLM-routed content, may be attacker-influenced).
+     *  See docs/en/memory-injection-hardening.md. */
+    source?: string;
+    tool_originated?: boolean;
 }
 
 export interface ToolInfo {
@@ -59,6 +69,15 @@ export interface PinnedMemory {
     fact: string;
     native_fact: string;
     category: string;
+    /** "user_turn" / "manual" → user-stated (high trust);
+     *  "assistant_turn" or empty (legacy) → derived (lower trust;
+     *  content traces back through the LLM and may be
+     *  attacker-influenced). See docs/en/memory-injection-hardening.md. */
+    source?: string;
+    session_id?: string;
+    tool_originated?: boolean;
+    /** RFC3339 timestamp when pinned, or empty for legacy entries. */
+    created_at?: string;
 }
 
 export interface LLMStatus {

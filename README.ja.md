@@ -96,6 +96,29 @@ gcloud auth application-default login
 | Memory limit | `sandbox.memory_limit` | `1g` | `--memory` に渡す。 |
 | Per-call timeout (秒) | `sandbox.timeout_seconds` | 60 | 1 回の `exec` あたりの上限。 |
 
+### セッション横断メモリの信頼レベル
+
+shell-agent-v2 は会話から重要事実を自動抽出し、セッションを跨ぐ
+ストアに pin する。pin された fact はすべての将来セッションの
+システムプロンプトに権威ある context として再注入される — これは
+**アシスタント発話に一度でも現れた文字列**（引用された CSV セル、
+MCP 応答、画像 OCR テキスト、取得した Web ページ）が将来セッション
+を構造的に操舵しうることを意味する。v0.1.26 以降、pinned fact と
+finding は provenance タグを持つ:
+
+- **user-stated** — ユーザー発話または手動 pin 由来。権威ある
+  情報として扱う。
+- **derived** — アシスタント発話からの抽出、または LLM が
+  `promote-finding` で昇格した finding。低信頼 — 内容は LLM を
+  経由しており、攻撃者影響下のバイトを含みうる。
+
+サイドバーに badge がインライン表示される。ある fact が変な
+振る舞いを誘発し始めたら（本対策の契機となった THINK 漏えいが
+このケース）、サイドバーの Pinned Memory または Findings リスト
+を開き、該当 entry を選択して一括削除する。脅威モデル全文は
+[docs/ja/memory-injection-hardening.ja.md](docs/ja/memory-injection-hardening.ja.md)
+を参照。
+
 ## 要件
 
 - macOS 10.15+
@@ -127,6 +150,7 @@ make test       # テスト実行
 - [Agent ツール可視性（v0.1.21）](docs/ja/agent-tool-visibility.ja.md)
 - [Shell tool 実行タイムアウト (`@timeout: N`)](docs/ja/tool-execution-timeout.ja.md)
 - [Shell tool ↔ /work ブリッジ (`SHELL_AGENT_WORK_DIR`, `register-object`)](docs/ja/work-dir-shell-bridge.ja.md)
+- [記憶汚染対策（第 3 ラウンド、v0.1.26）](docs/ja/memory-injection-hardening.ja.md)
 - [RFP (英語)](docs/en/shell-agent-v2-rfp.md) · [RFP (日本語)](docs/ja/shell-agent-v2-rfp.ja.md)
 
 英語ミラーは `docs/en/` 配下。

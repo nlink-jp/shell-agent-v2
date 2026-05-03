@@ -350,6 +350,22 @@ func (b *Bindings) LoadSession(sessionID string) ([]MessageData, error) {
 				Role: "summary", Content: content,
 				Timestamp: r.Timestamp.Format("15:04:05"),
 			})
+		case "user":
+			// User records keep their attached object IDs in
+			// Record.ObjectIDs at send time; surface them so the
+			// restored chat shows the same images the user
+			// originally attached. Without this the restored
+			// view is just text and the user can't follow what
+			// was being discussed (the assistant's reply may
+			// reference "this image" with no visual referent).
+			md := MessageData{
+				Role: r.Role, Content: r.Content,
+				Timestamp: r.Timestamp.Format("15:04:05"),
+			}
+			if len(r.ObjectIDs) > 0 {
+				md.ObjectIDs = append(md.ObjectIDs, r.ObjectIDs...)
+			}
+			msgs = append(msgs, md)
 		default:
 			msgs = append(msgs, MessageData{
 				Role: r.Role, Content: r.Content,
@@ -393,11 +409,19 @@ func (b *Bindings) DeleteSession(sessionID string) error {
 // Status is meaningful for `tool-event` rows reconstructed in
 // LoadSession (allowed values: "success" / "error"). Other roles
 // leave it empty and the frontend ignores it.
+//
+// ObjectIDs is populated for user records that had attached images
+// at send time (Record.ObjectIDs). The frontend turns them into
+// `object:<id>` URLs and renders them via ObjectImage so a
+// restored conversation shows the same images the user originally
+// attached. Without this, restored sessions lose all visual
+// context of what the user was discussing.
 type MessageData struct {
-	Role      string `json:"role"`
-	Content   string `json:"content"`
-	Timestamp string `json:"timestamp"`
-	Status    string `json:"status,omitempty"`
+	Role      string   `json:"role"`
+	Content   string   `json:"content"`
+	Timestamp string   `json:"timestamp"`
+	Status    string   `json:"status,omitempty"`
+	ObjectIDs []string `json:"object_ids,omitempty"`
 }
 
 // --- MITL bindings ---
@@ -455,13 +479,20 @@ func (b *Bindings) HasData() bool {
 // --- Findings bindings ---
 
 // FindingsResult is the JSON-serializable findings data for the frontend.
+//
+// Source / ToolOriginated were added in v0.1.26 so the sidebar can
+// render a trust badge alongside each finding. Empty Source on
+// legacy entries renders as the lower-trust [derived] badge.
+// See docs/en/memory-injection-hardening.md §5 Phase A / D.
 type FindingsResult struct {
-	ID            string   `json:"id"`
-	Content       string   `json:"content"`
-	SessionID     string   `json:"session_id"`
-	SessionTitle  string   `json:"session_title"`
-	Tags          []string `json:"tags"`
-	CreatedLabel  string   `json:"created_label"`
+	ID             string   `json:"id"`
+	Content        string   `json:"content"`
+	SessionID      string   `json:"session_id"`
+	SessionTitle   string   `json:"session_title"`
+	Tags           []string `json:"tags"`
+	CreatedLabel   string   `json:"created_label"`
+	Source         string   `json:"source"`
+	ToolOriginated bool     `json:"tool_originated"`
 }
 
 // GetFindings returns all global findings.
@@ -470,12 +501,14 @@ func (b *Bindings) GetFindings() []FindingsResult {
 	results := make([]FindingsResult, len(all))
 	for i, f := range all {
 		results[i] = FindingsResult{
-			ID:           f.ID,
-			Content:      f.Content,
-			SessionID:    f.OriginSessionID,
-			SessionTitle: f.OriginSessionTitle,
-			Tags:         f.Tags,
-			CreatedLabel: f.CreatedLabel,
+			ID:             f.ID,
+			Content:        f.Content,
+			SessionID:      f.OriginSessionID,
+			SessionTitle:   f.OriginSessionTitle,
+			Tags:           f.Tags,
+			CreatedLabel:   f.CreatedLabel,
+			Source:         f.Source,
+			ToolOriginated: f.ToolOriginated,
 		}
 	}
 	return results
@@ -1293,10 +1326,20 @@ func (b *Bindings) GetTools() []ToolInfo {
 // --- Pinned Memory bindings ---
 
 // PinnedMemoryData is a pinned fact for the frontend.
+//
+// Source / SessionID / ToolOriginated / CreatedAt were added in
+// v0.1.26 so the sidebar can render a trust badge and learned-date
+// alongside each pinned fact. Legacy entries without Source render
+// as the lower-trust [derived] badge.
+// See docs/en/memory-injection-hardening.md §5 Phase A / D.
 type PinnedMemoryData struct {
-	Fact       string `json:"fact"`
-	NativeFact string `json:"native_fact"`
-	Category   string `json:"category"`
+	Fact           string `json:"fact"`
+	NativeFact     string `json:"native_fact"`
+	Category       string `json:"category"`
+	Source         string `json:"source"`
+	SessionID      string `json:"session_id"`
+	ToolOriginated bool   `json:"tool_originated"`
+	CreatedAt      string `json:"created_at"` // RFC3339 if present, empty otherwise
 }
 
 // GetPinnedMemories returns all pinned facts.
@@ -1304,10 +1347,18 @@ func (b *Bindings) GetPinnedMemories() []PinnedMemoryData {
 	all := b.agent.PinnedAll()
 	result := make([]PinnedMemoryData, len(all))
 	for i, f := range all {
+		createdAt := ""
+		if !f.CreatedAt.IsZero() {
+			createdAt = f.CreatedAt.Format(time.RFC3339)
+		}
 		result[i] = PinnedMemoryData{
-			Fact:       f.Fact,
-			NativeFact: f.NativeFact,
-			Category:   f.Category,
+			Fact:           f.Fact,
+			NativeFact:     f.NativeFact,
+			Category:       f.Category,
+			Source:         f.Source,
+			SessionID:      f.SessionID,
+			ToolOriginated: f.ToolOriginated,
+			CreatedAt:      createdAt,
 		}
 	}
 	return result

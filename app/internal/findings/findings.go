@@ -17,7 +17,19 @@ import (
 	"github.com/nlink-jp/shell-agent-v2/internal/config"
 )
 
+// Source values for Finding.Source. See
+// docs/en/memory-injection-hardening.md §5 Phase A.
+const (
+	SourceLLMPromoted = "llm_promoted" // promoted by an LLM tool call (promote-finding)
+	SourceManual      = "manual"       // promoted manually via Settings UI / API
+)
+
 // Finding is an analysis insight with origin provenance.
+//
+// Source/ToolOriginated were added in v0.1.26 for memory-injection
+// provenance. See docs/en/memory-injection-hardening.md §5 Phase A.
+// Existing entries from earlier versions have empty Source — those
+// are rendered with the lower-trust [derived] tag in FormatForPrompt.
 type Finding struct {
 	ID                 string   `json:"id"`
 	Content            string   `json:"content"`
@@ -26,7 +38,21 @@ type Finding struct {
 	Tags               []string `json:"tags"`
 	CreatedAt          string   `json:"created_at"`
 	CreatedLabel       string   `json:"created_label"`
+
+	// Provenance (v0.1.26+).
+	Source         string `json:"source,omitempty"`          // Source* constants
+	ToolOriginated bool   `json:"tool_originated,omitempty"` // surrounding turn included tool output
 }
+
+// DefaultMaxFindings is the soft cap on Store.findings when no
+// explicit MaxFindings override is set. The oldest entry is evicted
+// on overflow. See docs/en/memory-injection-hardening.md §5 Phase C.
+const DefaultMaxFindings = 200
+
+// FindingsFormatBudget caps the total size of FormatForPrompt output.
+// When rendered findings exceed this budget the OLDEST entries are
+// elided (most-recent are most likely to be relevant).
+const FindingsFormatBudget = 16 * 1024 // 16 KiB
 
 // Store manages the global findings collection.
 //
@@ -42,12 +68,17 @@ type Store struct {
 	mu       sync.Mutex
 	path     string
 	findings []Finding
+
+	// MaxFindings is the soft cap on findings. Zero falls back to
+	// DefaultMaxFindings. FIFO eviction.
+	MaxFindings int
 }
 
 // NewStore creates a store backed by the default findings file.
 func NewStore() *Store {
 	return &Store{
-		path: filepath.Join(config.DataDir(), "findings.json"),
+		path:        filepath.Join(config.DataDir(), "findings.json"),
+		MaxFindings: DefaultMaxFindings,
 	}
 }
 
@@ -87,7 +118,12 @@ func (s *Store) Save() error {
 // calendar day; if a busy day exceeds that, fall back to
 // f-YYYYMMDD-NNNNNN-<6 hex> so the ID stays unique without colliding
 // with the legacy fixed-width format.
-func (s *Store) Add(content, sessionID, sessionTitle string, tags []string) *Finding {
+//
+// source/toolOriginated record the provenance of the finding's
+// content. Pass SourceLLMPromoted for promote-finding tool calls
+// (potentially attacker-influenced content) and SourceManual for
+// user-initiated promotion via the UI.
+func (s *Store) Add(content, sessionID, sessionTitle string, tags []string, source string, toolOriginated bool) *Finding {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now()
@@ -107,8 +143,18 @@ func (s *Store) Add(content, sessionID, sessionTitle string, tags []string) *Fin
 		Tags:               tags,
 		CreatedAt:          now.Format(time.RFC3339),
 		CreatedLabel:       fmt.Sprintf("%s (%s)", now.Format("2006-01-02"), now.Format("Monday")),
+		Source:             source,
+		ToolOriginated:     toolOriginated,
 	}
 	s.findings = append(s.findings, f)
+
+	cap := s.MaxFindings
+	if cap <= 0 {
+		cap = DefaultMaxFindings
+	}
+	if len(s.findings) > cap {
+		s.findings = s.findings[1:]
+	}
 	return &f
 }
 
@@ -187,20 +233,59 @@ func (s *Store) DeleteByIDs(ids []string) int {
 // FormatForPrompt returns findings formatted for system prompt injection.
 // Content is sanitized: newlines collapsed, length capped per finding,
 // to prevent prompt injection via user-influenced finding content.
+//
+// Each line carries a trust tag derived from Source:
+//
+//   - [user-stated]: SourceManual — promoted by the user via UI.
+//   - [derived]: SourceLLMPromoted or empty (legacy) — content traces
+//     back through the LLM and may be attacker-influenced. See
+//     docs/en/memory-injection-hardening.md.
 func (s *Store) FormatForPrompt() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if len(s.findings) == 0 {
 		return ""
 	}
-	result := ""
-	for _, f := range s.findings {
+	lines := make([]string, len(s.findings))
+	for i, f := range s.findings {
 		content := sanitizeForPrompt(f.Content, 500)
 		title := sanitizeForPrompt(f.OriginSessionTitle, 100)
-		result += fmt.Sprintf("- [%s] %s (from: %s, session: %s)\n",
-			f.CreatedLabel, content, title, f.OriginSessionID)
+		lines[i] = fmt.Sprintf("- %s [%s] %s (from: %s, session: %s)\n",
+			trustTag(f.Source), f.CreatedLabel, content, title, f.OriginSessionID)
 	}
-	return result
+	// Walk newest → oldest, including lines until the budget runs
+	// out. Most-recent findings are most likely to be relevant.
+	included := make([]string, 0, len(lines))
+	used := 0
+	for i := len(lines) - 1; i >= 0; i-- {
+		if used+len(lines[i]) > FindingsFormatBudget {
+			break
+		}
+		included = append([]string{lines[i]}, included...)
+		used += len(lines[i])
+	}
+	elided := len(lines) - len(included)
+
+	var sb strings.Builder
+	if elided > 0 {
+		sb.WriteString(fmt.Sprintf("(%d earlier findings elided to fit budget)\n", elided))
+	}
+	for _, l := range included {
+		sb.WriteString(l)
+	}
+	return sb.String()
+}
+
+// trustTag maps a Finding.Source to the leading bracketed token in
+// FormatForPrompt. Anything unknown (including legacy empty Source
+// and SourceLLMPromoted) gets [derived] — the lower-trust default,
+// since LLM-promoted findings may carry content originally derived
+// from attacker-controlled tool output.
+func trustTag(source string) string {
+	if source == SourceManual {
+		return "[user-stated]"
+	}
+	return "[derived]"
 }
 
 // sanitizeForPrompt removes control chars and newlines, caps length.

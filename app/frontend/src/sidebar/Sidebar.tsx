@@ -15,6 +15,25 @@ import {useRef, useState} from 'react'
 import BulkActions from '../components/BulkActions'
 import type {Finding, PinnedMemory, SessionInfo, SidebarPanel} from '../types'
 
+// Trust badge surfaces the v0.1.26 memory-injection provenance fields.
+// "user-stated" facts came from a user turn or a manual pin and are
+// the trustable category. "derived" covers assistant-turn extraction
+// and legacy entries (no Source set), both of which may carry
+// attacker-influenced content from tool output. See
+// docs/en/memory-injection-hardening.md §5 Phase A / D.
+function pinnedTrust(source?: string): {label: string; cls: string} {
+    if (source === 'user_turn' || source === 'manual') {
+        return {label: 'user-stated', cls: 'trust-user'}
+    }
+    return {label: 'derived', cls: 'trust-derived'}
+}
+function findingTrust(source?: string): {label: string; cls: string} {
+    if (source === 'manual') {
+        return {label: 'user-stated', cls: 'trust-user'}
+    }
+    return {label: 'derived', cls: 'trust-derived'}
+}
+
 interface Props {
     // Layout / collapse
     sidebarPanel: SidebarPanel;
@@ -173,6 +192,17 @@ export default function Sidebar({
                                             <div className="finding-body">
                                                 <div className="finding-content">{f.content}</div>
                                                 <div className="finding-meta">
+                                                    {(() => {
+                                                        const t = findingTrust(f.source)
+                                                        const tip = t.cls === 'trust-user'
+                                                            ? 'user-stated: ユーザー操作で promote された finding。高信頼。'
+                                                            : 'derived: LLM が promote-finding で登録した finding。内容は LLM を経由しており、攻撃者影響下のバイトを含みうる。'
+                                                        return (
+                                                            <span className={`trust-badge ${t.cls}`} data-tooltip={tip}>
+                                                                {t.label}
+                                                            </span>
+                                                        )
+                                                    })()}
                                                     <span className="finding-date">{f.created_label}</span>
                                                     {f.session_title && (
                                                         <span className="finding-origin" title={`Session: ${f.session_id}`}>{f.session_title}</span>
@@ -224,6 +254,17 @@ export default function Sidebar({
                                             }}
                                         />
                                         <span className={`pinned-category ${p.category}`}>{p.category}</span>
+                                        {(() => {
+                                            const t = pinnedTrust(p.source)
+                                            const tip = t.cls === 'trust-user'
+                                                ? 'user-stated: ユーザー発話または手動 pin 由来の fact。高信頼。'
+                                                : 'derived: アシスタント発話から抽出された fact、または source 未設定の legacy entry。内容は LLM 経由でツール出力 (CSV セル / MCP 応答 / 画像 OCR / Web 取得) を含みうる。'
+                                            return (
+                                                <span className={`trust-badge ${t.cls}`} data-tooltip={tip}>
+                                                    {t.label}
+                                                </span>
+                                            )
+                                        })()}
                                         <div className="pinned-content">
                                             <span className="pinned-fact">{p.native_fact || p.fact}</span>
                                             {p.native_fact && p.native_fact !== p.fact && (

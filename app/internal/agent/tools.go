@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/nlink-jp/shell-agent-v2/internal/analysis"
+	"github.com/nlink-jp/shell-agent-v2/internal/findings"
 	"github.com/nlink-jp/shell-agent-v2/internal/llm"
 	"github.com/nlink-jp/shell-agent-v2/internal/objstore"
 	"github.com/nlink-jp/shell-agent-v2/internal/sandbox"
@@ -452,7 +453,7 @@ func (a *Agent) toolPromoteFinding(argsJSON string) (string, error) {
 		sessionTitle = a.session.Title
 	}
 
-	f := a.findings.Add(args.Content, sessionID, sessionTitle, args.Tags)
+	f := a.findings.Add(args.Content, sessionID, sessionTitle, args.Tags, findings.SourceLLMPromoted, true)
 	if err := a.findings.Save(); err != nil {
 		return "", fmt.Errorf("save finding: %w", err)
 	}
@@ -822,7 +823,7 @@ func (a *Agent) toolAnalyzeData(ctx context.Context, argsJSON string) (string, e
 		if f.Evidence != "" {
 			content += "\nEvidence: " + f.Evidence
 		}
-		a.findings.Add(content, sessionID, sessionTitle, []string{sev, tableName})
+		a.findings.Add(content, sessionID, sessionTitle, []string{sev, tableName}, findings.SourceLLMPromoted, true)
 	}
 	_ = a.findings.Save()
 

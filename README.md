@@ -96,6 +96,30 @@ override the legacy top-level fallbacks in `config.json`.
 | Memory limit | `sandbox.memory_limit` | `1g` | Passed to `--memory`. |
 | Per-call timeout (s) | `sandbox.timeout_seconds` | 60 | Per-`exec` cap. |
 
+### Cross-session memory trust
+
+shell-agent-v2 auto-extracts important facts from each conversation
+and pins them to a cross-session store. Pinned facts are re-injected
+into every future session's system prompt as authoritative context —
+which means anything that ever appears in an *assistant* turn (a
+quoted CSV cell, an MCP response, OCR'd image text, a fetched web
+page) can structurally end up steering future sessions. As of
+v0.1.26, pinned facts and findings carry a provenance tag:
+
+- **user-stated** — came from a user turn or a manual pin.
+  Treated as authoritative.
+- **derived** — extracted from an assistant turn, or a finding the
+  LLM promoted via `promote-finding`. Lower trust because the
+  content traces back through the LLM and may carry attacker-
+  influenced bytes.
+
+The sidebar shows the badge inline. If a fact starts driving weird
+behaviour (the recoverable case being the THINK leak that prompted
+this hardening), open the sidebar Pinned Memory or Findings list,
+select the offending entries, and bulk-delete them. See
+[docs/en/memory-injection-hardening.md](docs/en/memory-injection-hardening.md)
+for the full threat model.
+
 ## Requirements
 
 - macOS 10.15+
@@ -127,6 +151,7 @@ make test       # Run tests
 - [Agent tool visibility (v0.1.21)](docs/en/agent-tool-visibility.md)
 - [Shell tool execution timeout (`@timeout: N`)](docs/en/tool-execution-timeout.md)
 - [Shell tool ↔ /work bridge (`SHELL_AGENT_WORK_DIR`, `register-object`)](docs/en/work-dir-shell-bridge.md)
+- [Memory injection hardening (round 3, v0.1.26)](docs/en/memory-injection-hardening.md)
 - [RFP (English)](docs/en/shell-agent-v2-rfp.md) · [RFP (Japanese)](docs/ja/shell-agent-v2-rfp.ja.md)
 
 Japanese mirrors live under `docs/ja/`.

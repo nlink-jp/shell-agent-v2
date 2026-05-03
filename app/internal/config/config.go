@@ -106,6 +106,15 @@ type MemoryConfig struct {
 	WarmRetention string `json:"warm_retention"`
 	ColdRetention string `json:"cold_retention"`
 	UseV2         bool   `json:"use_v2,omitempty"` // contextbuild package; opt-in
+
+	// Retention caps for cross-session stores. Zero falls back to
+	// the package defaults (see internal/memory and internal/findings).
+	// Bounds keep a noisy or hostile session from inflating the
+	// pinned-facts or findings lists indefinitely and crowding out
+	// other system-prompt context.
+	// See docs/en/memory-injection-hardening.md §5 Phase C.
+	MaxPinnedFacts int `json:"max_pinned_facts,omitempty"` // default 100
+	MaxFindings    int `json:"max_findings,omitempty"`     // default 200
 }
 
 // MCPProfileConfig holds a single mcp-guardian profile configuration.
@@ -262,9 +271,11 @@ func Default() *Config {
 			},
 		},
 		Memory: MemoryConfig{
-			HotTokenLimit: 4096, // legacy fallback
-			WarmRetention: "24h",
-			ColdRetention: "7d",
+			HotTokenLimit:  4096, // legacy fallback
+			WarmRetention:  "24h",
+			ColdRetention:  "7d",
+			MaxPinnedFacts: 100,
+			MaxFindings:    200,
 		},
 		ContextBudget: ContextBudgetConfig{ // legacy fallback
 			MaxContextTokens:    0,

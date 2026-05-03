@@ -503,3 +503,22 @@ summaries that are content-keyed for safe reuse.
 
 The migration is staged so each phase can be tested independently and
 reverted via the config flag in phase 2.
+
+## 14. Threat model — pinned facts and findings as injection vectors
+
+Cross-session pinned facts and findings are re-injected into every
+future session's system prompt as authoritative context. That makes
+them a structural prompt-injection vector: anything that ever appears
+in an *assistant* turn — including assistant-summarised tool output
+(CSV cells, MCP responses, web fetches, image OCR) — can be picked
+up by `extractPinnedMemories` or by a `promote-finding` LLM call and
+then steer every future session.
+
+v0.1.26 hardens this with provenance tagging (`[user-stated]` vs
+`[derived]`), a self-referential filter, a category allowlist, guard
+wrapping of the extraction prompt, and retention caps. Auto-extraction
+remains on for UX reasons (per-pin MITL was rejected — extraction
+runs most turns and would destroy the chat experience); the residual
+risk is recovered through the sidebar audit + delete path. Full
+threat model and mechanism trace:
+[memory-injection-hardening.md](memory-injection-hardening.md).
