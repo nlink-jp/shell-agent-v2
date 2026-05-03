@@ -139,6 +139,7 @@ make test       # Run tests
 
 - [Architecture overview](docs/en/shell-agent-v2-architecture.md)
 - [Agent data flow & state control](docs/en/agent-data-flow.md)
+- [**Memory model — top-level overview**](docs/en/memory-model.md) ⭐ start here for memory questions
 - [Memory architecture v2 design](docs/en/memory-architecture-v2.md)
 - [Sandbox execution design + macOS setup](docs/en/sandbox-execution.md)
 - [Object storage design](docs/en/object-storage.md)

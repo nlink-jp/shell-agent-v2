@@ -1,5 +1,9 @@
 # Memory Architecture v2 — Design Document
 
+> **Top-level overview**: see [memory-model.md](memory-model.md)
+> for how Records, Pinned Memory, and Findings fit together.
+> This document is the deep dive on the Records side.
+>
 > Date: 2026-04-27
 > Status: Shipped (opt-in) — `internal/contextbuild/`,
 > `agent.buildMessagesV2`, and the `sessions/<id>/summaries.json`

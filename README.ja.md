@@ -138,6 +138,7 @@ make test       # テスト実行
 
 - [アーキテクチャ概要](docs/ja/shell-agent-v2-architecture.ja.md)
 - [エージェントデータフロー & ステート制御](docs/ja/agent-data-flow.ja.md)
+- [**メモリモデル — 全体俯瞰**](docs/ja/memory-model.ja.md) ⭐ メモリ周りはここから
 - [メモリアーキテクチャ v2 設計](docs/ja/memory-architecture-v2.ja.md)
 - [サンドボックス実行設計 + macOS セットアップ](docs/ja/sandbox-execution.ja.md)
 - [オブジェクトストレージ設計](docs/ja/object-storage.ja.md)

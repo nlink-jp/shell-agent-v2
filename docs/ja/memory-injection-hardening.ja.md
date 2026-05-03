@@ -1,5 +1,9 @@
 # 記憶汚染対策設計書
 
+> **全体俯瞰**: 3 つのメモリ機能の関係は
+> [memory-model.ja.md](memory-model.ja.md) を参照。本書は
+> Pinned/Findings のセキュリティモデル詳細編。
+>
 > 日付: 2026-05-03
 > ステータス: 提案 (v0.1.26 / Security Round 3)
 > 継続: `security-hardening.ja.md` (v0.1.18) および

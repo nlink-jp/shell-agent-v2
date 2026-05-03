@@ -1,5 +1,10 @@
 # Memory Injection Hardening — Design Document
 
+> **Top-level overview**: see [memory-model.md](memory-model.md)
+> for how the three memory facilities fit together. This
+> document is the deep dive on the Pinned/Findings security
+> model.
+>
 > Date: 2026-05-03
 > Status: Proposed (v0.1.26 / Security Round 3)
 > Continues: `security-hardening.md` (v0.1.18) and `security-hardening-2.md` (v0.1.20).

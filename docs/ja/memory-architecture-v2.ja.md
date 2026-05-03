@@ -1,5 +1,9 @@
 # メモリアーキテクチャ v2 — 設計ドキュメント
 
+> **全体俯瞰**: Records / Pinned Memory / Findings の関係は
+> [memory-model.ja.md](memory-model.ja.md) を参照。本書は
+> Records 側の詳細編。
+>
 > 作成日: 2026-04-27
 > ステータス: 実装済み (opt-in) — `internal/contextbuild/`,
 > `agent.buildMessagesV2`, `sessions/<id>/summaries.json`
