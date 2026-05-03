@@ -70,7 +70,7 @@ interface Props {
     onGlobalMemoryDeleteOne: (fact: string) => Promise<void>;
     sessionMemories: SessionMemory[];
     onSessionMemoryDelete: (facts: string[]) => Promise<void>;
-    onPinSessionMemory: (fact: string, category: string) => Promise<void>;
+    onPinSessionMemory: (fact: string) => void;
 
     // Settings
     onOpenSettings: () => void;
@@ -286,13 +286,7 @@ export default function Sidebar({
                                         <button
                                             className="pinned-pin"
                                             title="Pin to Global Memory"
-                                            onClick={() => {
-                                                // Default to "decision" category — user can
-                                                // re-categorise from the Global Memory list
-                                                // afterwards. Phase 9 replaces this with a
-                                                // category-picker dialog.
-                                                onPinSessionMemory(p.fact, 'decision')
-                                            }}
+                                            onClick={() => onPinSessionMemory(p.fact)}
                                         >
                                             &#x2605;
                                         </button>

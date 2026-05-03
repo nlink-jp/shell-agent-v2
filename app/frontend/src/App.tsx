@@ -15,6 +15,7 @@ import MITLDialog from './dialogs/MITLDialog'
 import Lightbox from './dialogs/Lightbox'
 import ReportViewer from './dialogs/ReportViewer'
 import BlobPreview, {type BlobPreviewData} from './dialogs/BlobPreview'
+import PinToGlobalDialog, {type PinSource} from './dialogs/PinToGlobalDialog'
 import 'highlight.js/styles/github-dark.css'
 import 'katex/dist/katex.min.css'
 import './themes.css'
@@ -100,6 +101,14 @@ function App() {
     const [lightboxImage, setLightboxImage] = useState<string | null>(null)
     const [blobPreview, setBlobPreview] = useState<BlobPreviewData | null>(null)
     const [expandedReport, setExpandedReport] = useState<ExpandedReport | null>(null)
+    // Pin to Global Memory dialog state. The dialog is reused for
+    // both Session Memory rows and Findings; the kind discriminates
+    // which backend binding to call on confirm.
+    const [pinDialog, setPinDialog] = useState<{
+        kind: PinSource;
+        id: string;       // fact text for session_memory; finding ID for finding
+        preview: string;  // shown verbatim in the dialog body
+    } | null>(null)
     const [settings, setSettings] = useState<Settings | null>(null)
     // settingsTab state moved into SettingsDialog (Phase 3 of
     // frontend-decomposition: it's a local-only concern).
@@ -605,10 +614,12 @@ function App() {
                     const updated = await window.go.main.Bindings.GetSessionMemories()
                     setSessionMemories(updated)
                 }}
-                onPinSessionMemory={async (fact, category) => {
-                    await window.go.main.Bindings.PinSessionMemory(fact, category)
-                    const updatedG = await window.go.main.Bindings.GetGlobalMemories()
-                    setGlobalMemories(updatedG)
+                onPinSessionMemory={(fact) => {
+                    // Open the category-picker dialog. The actual
+                    // PinSessionMemory call lives in the dialog
+                    // confirm handler so both kinds (session-memory /
+                    // finding) take the same path.
+                    setPinDialog({kind: 'session_memory', id: fact, preview: fact})
                 }}
                 onOpenSettings={openSettings}
             />
@@ -656,18 +667,8 @@ function App() {
                     <FindingsDisclosure
                         sessionId={currentSessionId}
                         refreshTick={dataRefreshTick}
-                        onPinFinding={async (f) => {
-                            // Phase 9 will replace this default with a
-                            // category picker. For Phase 8 we promote
-                            // straight to "decision" so the round-trip
-                            // works end-to-end.
-                            try {
-                                await window.go.main.Bindings.PinFinding(f.id, 'decision')
-                                const updatedG = await window.go.main.Bindings.GetGlobalMemories()
-                                setGlobalMemories(updatedG)
-                            } catch (err) {
-                                alert('Pin failed: ' + ((err as any)?.message ?? String(err)))
-                            }
+                        onPinFinding={(f) => {
+                            setPinDialog({kind: 'finding', id: f.id, preview: f.content})
                         }}
                     />
                 )}
@@ -799,6 +800,29 @@ function App() {
                     onClose={() => setExpandedReport(null)}
                     onLightbox={setLightboxImage}
                     onSaveReport={(content, filename) => window.go?.main.Bindings.SaveReport(content, filename)}
+                />
+            )}
+
+            {pinDialog && (
+                <PinToGlobalDialog
+                    factPreview={pinDialog.preview}
+                    sourceKind={pinDialog.kind}
+                    onCancel={() => setPinDialog(null)}
+                    onConfirm={async (category) => {
+                        const target = pinDialog
+                        setPinDialog(null)
+                        try {
+                            if (target.kind === 'session_memory') {
+                                await window.go.main.Bindings.PinSessionMemory(target.id, category)
+                            } else {
+                                await window.go.main.Bindings.PinFinding(target.id, category)
+                            }
+                            const updatedG = await window.go.main.Bindings.GetGlobalMemories()
+                            setGlobalMemories(updatedG)
+                        } catch (err) {
+                            alert('Pin failed: ' + ((err as any)?.message ?? String(err)))
+                        }
+                    }}
                 />
             )}
         </div>
