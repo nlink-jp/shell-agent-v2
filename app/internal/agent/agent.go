@@ -1893,16 +1893,29 @@ func (a *Agent) extractMemories(ctx context.Context) error {
 		turnNumber   int  // 1-based, only assigned to non-tool entries
 		toolNeighbor bool // true if a tool record is in the surrounding 2-turn window
 	}
-	// v0.2.0: every record is "hot" (Tier removed). Walk the
-	// last few records as the extraction window.
+	// v0.2.0: every record is "hot" (Tier removed). Walk
+	// backward so the window contains the last few non-tool
+	// (user / assistant) turns regardless of how many tool
+	// records are interleaved. Earlier code took the trailing 4
+	// records flat — when an assistant did 2-3 tool calls in a
+	// row, those tool records pushed the user / assistant
+	// turns out of the window and extraction had nothing
+	// non-tool to chew on. Cap the absolute walk so a session
+	// with hundreds of tool records doesn't blow up the prompt.
+	const targetNonTool = 4
+	const maxWalk = 40
 	var hotIndexes []int
-	for i := range a.session.Records {
-		hotIndexes = append(hotIndexes, i)
+	nonToolCount := 0
+	for i := len(a.session.Records) - 1; i >= 0 && len(hotIndexes) < maxWalk; i-- {
+		hotIndexes = append([]int{i}, hotIndexes...)
+		if a.session.Records[i].Role != "tool" {
+			nonToolCount++
+			if nonToolCount >= targetNonTool {
+				break
+			}
+		}
 	}
-	if len(hotIndexes) > 4 {
-		hotIndexes = hotIndexes[len(hotIndexes)-4:]
-	}
-	if len(hotIndexes) < 2 {
+	if nonToolCount < 2 {
 		return nil // need at least a user + assistant exchange
 	}
 
@@ -2012,6 +2025,15 @@ Already known:
 	}
 
 	text := strings.TrimSpace(resp.Content)
+	// Trace the raw extraction LLM reply so the operator can see
+	// why nothing landed in either store. Truncated to keep the
+	// log line bounded; full payload is available in the LLM
+	// transcript anyway.
+	traceResp := text
+	if len(traceResp) > 400 {
+		traceResp = traceResp[:400] + "…"
+	}
+	logger.Info("extractMemories: LLM reply (%d chars): %q", len(text), traceResp)
 	if text == "" || strings.ToUpper(text) == "NONE" {
 		return nil
 	}
@@ -2020,8 +2042,12 @@ Already known:
 	addedToSession := 0
 	for _, line := range strings.Split(text, "\n") {
 		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
 		category, turnTok, fact, native, ok := parseExtractionLine(line)
 		if !ok {
+			logger.Info("extractMemories: dropped unparseable line: %q", line)
 			continue
 		}
 
@@ -2079,6 +2105,8 @@ Already known:
 				ToolOriginated:  hasToolNeighbor,
 			}) {
 				addedToPinned++
+			} else {
+				logger.Info("extractMemories: globalMemory.Add returned false (dedup) for %q", fact)
 			}
 			continue
 		}
@@ -2102,6 +2130,8 @@ Already known:
 			ToolOriginated:  hasToolNeighbor,
 		}) {
 			addedToSession++
+		} else {
+			logger.Info("extractMemories: sessionMemory.Add returned false (dedup) for %q", fact)
 		}
 	}
 

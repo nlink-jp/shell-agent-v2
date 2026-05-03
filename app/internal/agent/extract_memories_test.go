@@ -223,6 +223,43 @@ func TestExtractMemories_RoutesByCategory(t *testing.T) {
 	}
 }
 
+// TestExtractMemories_WindowSkipsToolRecords pins the v0.2.0
+// fix for the tool-flood regression: when the trailing records
+// are dominated by tool results (e.g. assistant did 2-3 tool
+// calls in a row), the extraction window has to walk further
+// back to capture the user / assistant turns that hold the
+// extractable content. With the old "last 4 records flat" rule,
+// the LLM was handed an almost-empty conversation and returned
+// NONE; nothing landed in either store.
+func TestExtractMemories_WindowSkipsToolRecords(t *testing.T) {
+	mock := llm.NewMockBackend(llm.MockResponse{
+		Content: "preference|turn-1|user prefers vibrant color palettes|ユーザーは鮮やかな配色を好む",
+	})
+	a := newExtractAgent(t, mock,
+		memory.Record{Role: "user", Content: "I prefer vibrant color palettes for charts"},
+		memory.Record{Role: "assistant", Content: "noted, I'll suggest brighter palettes."},
+		// Three tool records in a row would have flushed the user /
+		// assistant turns above out of a flat 4-record window.
+		memory.Record{Role: "tool", Content: "tool result 1"},
+		memory.Record{Role: "tool", Content: "tool result 2"},
+		memory.Record{Role: "tool", Content: "tool result 3"},
+		memory.Record{Role: "assistant", Content: "Here's the updated chart."},
+	)
+	if err := a.extractMemories(context.Background()); err != nil {
+		t.Fatalf("extractMemories: %v", err)
+	}
+	if len(a.globalMemory.Entries) != 1 {
+		t.Fatalf("expected 1 global memory entry, got %d", len(a.globalMemory.Entries))
+	}
+	if a.globalMemory.Entries[0].Source != memory.GlobalSourceUserTurn {
+		t.Errorf("Source = %q, want %q (the original user turn must remain in the window)",
+			a.globalMemory.Entries[0].Source, memory.GlobalSourceUserTurn)
+	}
+	if !a.globalMemory.Entries[0].ToolOriginated {
+		t.Error("ToolOriginated should be true: tool records sit inside the extraction window")
+	}
+}
+
 // TestParseTurnToken pins the parser contract directly.
 func TestParseTurnToken(t *testing.T) {
 	cases := []struct {
