@@ -398,9 +398,10 @@ func (b *Bindings) DeleteSession(sessionID string) error {
 	if b.objects != nil {
 		_ = b.objects.DeleteBySession(sessionID)
 	}
-	// Clean up findings originating from this session
+	// v0.2.0: per-session findings live under sessions/<id>/
+	// and are removed by DeleteSessionDir below — no separate
+	// DeleteFindingsBySession call needed.
 	if b.agent != nil {
-		b.agent.DeleteFindingsBySession(sessionID)
 		// Tear down the session's sandbox container, if any.
 		_ = b.agent.SandboxStop(b.ctx, sessionID)
 	}
@@ -483,22 +484,20 @@ func (b *Bindings) HasData() bool {
 
 // FindingsResult is the JSON-serializable findings data for the frontend.
 //
-// Source / ToolOriginated were added in v0.1.26 so the sidebar can
-// render a trust badge alongside each finding. Empty Source on
-// legacy entries renders as the lower-trust [derived] badge.
-// See docs/en/memory-injection-hardening.md §5 Phase A / D.
+// FindingsResult is a per-session finding for the frontend.
+// v0.2.0: SessionID/SessionTitle removed (findings are per-session
+// now, the active session is implicit). See docs/en/memory-model.md §4.
 type FindingsResult struct {
 	ID             string   `json:"id"`
 	Content        string   `json:"content"`
-	SessionID      string   `json:"session_id"`
-	SessionTitle   string   `json:"session_title"`
 	Tags           []string `json:"tags"`
 	CreatedLabel   string   `json:"created_label"`
 	Source         string   `json:"source"`
 	ToolOriginated bool     `json:"tool_originated"`
 }
 
-// GetFindings returns all global findings.
+// GetFindings returns the active session's findings (or empty
+// if no session loaded).
 func (b *Bindings) GetFindings() []FindingsResult {
 	all := b.agent.Findings()
 	results := make([]FindingsResult, len(all))
@@ -506,8 +505,6 @@ func (b *Bindings) GetFindings() []FindingsResult {
 		results[i] = FindingsResult{
 			ID:             f.ID,
 			Content:        f.Content,
-			SessionID:      f.OriginSessionID,
-			SessionTitle:   f.OriginSessionTitle,
 			Tags:           f.Tags,
 			CreatedLabel:   f.CreatedLabel,
 			Source:         f.Source,

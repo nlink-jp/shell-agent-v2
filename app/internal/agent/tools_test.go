@@ -8,6 +8,7 @@ import (
 
 	"github.com/nlink-jp/shell-agent-v2/internal/analysis"
 	"github.com/nlink-jp/shell-agent-v2/internal/config"
+	"github.com/nlink-jp/shell-agent-v2/internal/findings"
 	"github.com/nlink-jp/shell-agent-v2/internal/llm"
 	"github.com/nlink-jp/shell-agent-v2/internal/memory"
 	"github.com/nlink-jp/shell-agent-v2/internal/objstore"
@@ -19,6 +20,10 @@ func setupAgentWithAnalysis(t *testing.T) (*Agent, string) {
 
 	a := New(config.Default())
 	a.session = &memory.Session{ID: "test", Title: "Test Session"}
+	// v0.2.0: per-session findings store. setupAgentWithAnalysis
+	// is used by tests that don't go through LoadSession, so
+	// wire it up directly.
+	a.findings = findings.NewStore(a.session.ID)
 
 	engine := &analysis.Engine{}
 	// Use reflection-free approach: create via New then override path

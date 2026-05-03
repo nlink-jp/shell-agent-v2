@@ -115,14 +115,15 @@ func TestFindingCommand(t *testing.T) {
 
 func TestFindingsCommandEmpty(t *testing.T) {
 	a := New(config.Default())
-	a.findings = findings.NewStore() // fresh store
+	a.findings = findings.NewStore("test-empty") // per-session store
+	a.session = &memory.Session{ID: "test-empty"}
 
 	result, err := a.handleCommand("/findings")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
-	if result != "No findings yet." {
-		t.Errorf("result = %v, want 'No findings yet.'", result)
+	if result != "No findings in this session yet." {
+		t.Errorf("result = %v, want 'No findings in this session yet.'", result)
 	}
 }
 

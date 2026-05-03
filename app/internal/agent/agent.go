@@ -148,14 +148,11 @@ func New(cfg *config.Config) *Agent {
 	if cfg.Memory.MaxPinnedFacts > 0 {
 		pinnedStore.MaxFacts = cfg.Memory.MaxPinnedFacts
 	}
-	findingsStore := findings.NewStore()
-	if cfg.Memory.MaxFindings > 0 {
-		findingsStore.MaxFindings = cfg.Memory.MaxFindings
-	}
+	// findings is now per-session (v0.2.0); deferred until LoadSession.
 	a := &Agent{
 		cfg:          cfg,
 		state:        StateIdle,
-		findings:     findingsStore,
+		findings:     nil, // set by LoadSession
 		pinned:       pinnedStore,
 		chat:         chatEngine,
 		toolRegistry: registry,
@@ -164,7 +161,6 @@ func New(cfg *config.Config) *Agent {
 	a.startGuardians()
 	a.maybeStartSandbox()
 	a.setBackend(cfg.LLM.DefaultBackend)
-	_ = a.findings.Load()
 	_ = a.pinned.Load()
 	return a
 }
@@ -404,7 +400,7 @@ func (a *Agent) buildMessagesV2(ctx context.Context, budget config.ContextBudget
 
 	systemPrompt := a.chat.BuildSystemPrompt(
 		a.pinned.FormatForPrompt(),
-		a.findings.FormatForPrompt(),
+		a.findingsPrompt(),
 	)
 
 	summarize := func(c context.Context, records []memory.Record) (string, error) {
@@ -720,6 +716,17 @@ func (a *Agent) LoadSession(session *memory.Session) error {
 	a.promptTokens = 0
 	a.outputTokens = 0
 
+	// v0.2.0: Findings are per-session. Construct (or reload) the
+	// store for this session every time LoadSession is called.
+	// Cap stays consistent with the previous global cap config to
+	// avoid surprising the user with smaller per-session limits
+	// than they had set.
+	a.findings = findings.NewStore(session.ID)
+	if a.cfg.Memory.MaxFindings > 0 {
+		a.findings.MaxFindings = a.cfg.Memory.MaxFindings
+	}
+	_ = a.findings.Load()
+
 	// Ensure the per-session work directory exists regardless of
 	// whether the sandbox is enabled. Shell tools learn its host
 	// path via SHELL_AGENT_WORK_DIR and may write artefacts there
@@ -758,15 +765,36 @@ func (a *Agent) SetAnalysis(engine *analysis.Engine) {
 	a.analysis = engine
 }
 
-// Findings returns all global findings.
+// Findings returns the active session's findings, or empty if
+// no session is loaded. v0.2.0: per-session storage means
+// findings are scoped to the current session — see
+// docs/en/memory-model.md §4.
 func (a *Agent) Findings() []findings.Finding {
+	if a.findings == nil {
+		return nil
+	}
 	return a.findings.All()
 }
 
-// DeleteFindingsBySession removes all findings originating from the given session.
-func (a *Agent) DeleteFindingsBySession(sessionID string) {
-	a.findings.DeleteBySession(sessionID)
+// findingsPrompt returns the findings system-prompt block for
+// the active session. Returns empty when no session is loaded
+// (no findings can exist outside a session in v0.2.0).
+func (a *Agent) findingsPrompt() string {
+	if a.findings == nil {
+		return ""
+	}
+	return a.findings.FormatForPrompt()
+}
+
+// DeleteFindings removes findings by ID from the active
+// session. Returns the count actually deleted.
+func (a *Agent) DeleteFindings(ids []string) int {
+	if a.findings == nil {
+		return 0
+	}
+	n := a.findings.DeleteByIDs(ids)
 	_ = a.findings.Save()
+	return n
 }
 
 // ToolInfoItem describes a tool for listing.
@@ -907,8 +935,12 @@ func (a *Agent) PinnedDeleteByKeys(keys []string) (int, error) {
 	return n, a.pinned.Save()
 }
 
-// FindingsDeleteByIDs bulk-removes findings. Returns the count actually deleted.
+// FindingsDeleteByIDs bulk-removes findings from the active
+// session. Returns the count actually deleted.
 func (a *Agent) FindingsDeleteByIDs(ids []string) (int, error) {
+	if a.findings == nil {
+		return 0, nil
+	}
 	n := a.findings.DeleteByIDs(ids)
 	if n == 0 {
 		return 0, nil
@@ -1046,7 +1078,7 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 			buildResult, err := a.chat.BuildMessagesWithBudget(
 				a.session,
 				a.pinned.FormatForPrompt(),
-				a.findings.FormatForPrompt(),
+				a.findingsPrompt(),
 				chat.BuildOptions{
 					MaxConversationTokens: budget.MaxContextTokens,
 					MaxWarmTokens:         budget.MaxWarmTokens,
@@ -1685,18 +1717,21 @@ func (a *Agent) handleModelCommand(args []string) (string, error) {
 	}
 }
 
+// handleFindingCommand and handleFindingsCommand are slated for
+// deletion in Phase 5 (slash commands are removed in v0.2.0).
+// They're kept compiling here in Phase 2 so the test suite
+// stays green during the intermediate phases. The /finding text
+// path now stamps SourceLLMPromoted (no more SourceManual in
+// v0.2.0); this is fine because the command is going away.
 func (a *Agent) handleFindingCommand(args []string) (string, error) {
 	if len(args) == 0 {
 		return "Usage: /finding <text to remember>", nil
 	}
-	content := strings.Join(args, " ")
-	sessionID := ""
-	sessionTitle := ""
-	if a.session != nil {
-		sessionID = a.session.ID
-		sessionTitle = a.session.Title
+	if a.findings == nil {
+		return "", fmt.Errorf("no session loaded")
 	}
-	f := a.findings.Add(content, sessionID, sessionTitle, nil, findings.SourceManual, false)
+	content := strings.Join(args, " ")
+	f := a.findings.Add(content, nil, findings.SourceLLMPromoted, false)
 	if err := a.findings.Save(); err != nil {
 		return "", fmt.Errorf("save finding: %w", err)
 	}
@@ -1705,21 +1740,21 @@ func (a *Agent) handleFindingCommand(args []string) (string, error) {
 }
 
 func (a *Agent) handleFindingsCommand() (string, error) {
+	if a.findings == nil {
+		return "No session loaded.", nil
+	}
 	all := a.findings.All()
 	if len(all) == 0 {
-		return "No findings yet.", nil
+		return "No findings in this session yet.", nil
 	}
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("**Findings** (%d)\n\n", len(all)))
+	sb.WriteString(fmt.Sprintf("**Findings** (%d, current session)\n\n", len(all)))
 	for _, f := range all {
 		tags := ""
 		if len(f.Tags) > 0 {
 			tags = " `" + strings.Join(f.Tags, "` `") + "`"
 		}
-		sb.WriteString(fmt.Sprintf("- %s%s\n", f.Content, tags))
-		if f.OriginSessionTitle != "" {
-			sb.WriteString(fmt.Sprintf("  *%s — %s*\n", f.OriginSessionTitle, f.CreatedLabel))
-		}
+		sb.WriteString(fmt.Sprintf("- %s%s — %s\n", f.Content, tags, f.CreatedLabel))
 	}
 	return sb.String(), nil
 }

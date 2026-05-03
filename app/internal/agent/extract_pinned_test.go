@@ -419,7 +419,7 @@ func TestParseExtractionLine(t *testing.T) {
 // how pinnedHandler already behaves for pinned-memory updates.
 func TestPromoteFinding_TriggersFindingsHandler(t *testing.T) {
 	a := New(config.Default())
-	a.findings = findings.NewStore()
+	a.findings = findings.NewStore("test-pin")
 	a.session = &memory.Session{ID: "h-test", Title: "Handler Test", Records: []memory.Record{}}
 
 	calls := 0

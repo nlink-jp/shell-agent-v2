@@ -39,7 +39,7 @@ func TestE2E_QueryPreview(t *testing.T) {
 
 	a := New(config.Default())
 	a.backend = mock
-	a.findings = findings.NewStore()
+	a.findings = findings.NewStore("test")
 	a.session = &memory.Session{ID: "test", Title: "Test", Records: []memory.Record{}}
 	engine := analysis.NewWithPath("test", filepath.Join(tmpDir, "test.duckdb"))
 	a.SetAnalysis(engine)
@@ -73,7 +73,7 @@ func TestE2E_SuggestAnalysis(t *testing.T) {
 
 	a := New(config.Default())
 	a.backend = mock
-	a.findings = findings.NewStore()
+	a.findings = findings.NewStore("test")
 	a.session = &memory.Session{ID: "test", Title: "Test", Records: []memory.Record{}}
 	engine := analysis.NewWithPath("test", filepath.Join(tmpDir, "test.duckdb"))
 	a.SetAnalysis(engine)
@@ -109,7 +109,7 @@ func TestE2E_QuickSummary(t *testing.T) {
 
 	a := New(config.Default())
 	a.backend = mock
-	a.findings = findings.NewStore()
+	a.findings = findings.NewStore("test")
 	a.session = &memory.Session{ID: "test", Title: "Test", Records: []memory.Record{}}
 	engine := analysis.NewWithPath("test", filepath.Join(tmpDir, "test.duckdb"))
 	a.SetAnalysis(engine)
@@ -138,7 +138,7 @@ func TestE2E_LoadJSON(t *testing.T) {
 
 	a := New(config.Default())
 	a.backend = mock
-	a.findings = findings.NewStore()
+	a.findings = findings.NewStore("test")
 	a.session = &memory.Session{ID: "test", Title: "Test", Records: []memory.Record{}}
 	engine := analysis.NewWithPath("test", filepath.Join(tmpDir, "test.duckdb"))
 	a.SetAnalysis(engine)
@@ -156,7 +156,7 @@ func TestE2E_LoadJSON(t *testing.T) {
 
 func TestE2E_MITLApprove(t *testing.T) {
 	a := New(config.Default())
-	a.findings = findings.NewStore()
+	a.findings = findings.NewStore("test")
 	a.session = &memory.Session{ID: "test", Title: "Test", Records: []memory.Record{}}
 
 	mitlCalled := false
@@ -180,7 +180,7 @@ func TestE2E_MITLApprove(t *testing.T) {
 
 func TestE2E_MITLReject(t *testing.T) {
 	a := New(config.Default())
-	a.findings = findings.NewStore()
+	a.findings = findings.NewStore("test")
 	a.session = &memory.Session{ID: "test", Title: "Test", Records: []memory.Record{}}
 
 	a.SetMITLHandler(func(req MITLRequest) MITLResponse {

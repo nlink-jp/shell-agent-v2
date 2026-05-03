@@ -453,7 +453,12 @@ func (a *Agent) toolPromoteFinding(argsJSON string) (string, error) {
 		sessionTitle = a.session.Title
 	}
 
-	f := a.findings.Add(args.Content, sessionID, sessionTitle, args.Tags, findings.SourceLLMPromoted, true)
+	if a.findings == nil {
+		return "", fmt.Errorf("no session loaded")
+	}
+	_ = sessionID
+	_ = sessionTitle
+	f := a.findings.Add(args.Content, args.Tags, findings.SourceLLMPromoted, true)
 	if err := a.findings.Save(); err != nil {
 		return "", fmt.Errorf("save finding: %w", err)
 	}
@@ -811,12 +816,9 @@ func (a *Agent) toolAnalyzeData(ctx context.Context, argsJSON string) (string, e
 		return "", fmt.Errorf("analysis: %w", err)
 	}
 
-	// Auto-promote significant findings to global findings store
-	sessionID := ""
-	sessionTitle := ""
-	if a.session != nil {
-		sessionID = a.session.ID
-		sessionTitle = a.session.Title
+	// Auto-promote analyze-data findings to the per-session findings store
+	if a.findings == nil {
+		return "", fmt.Errorf("no session loaded")
 	}
 	for _, f := range result.Findings {
 		sev := strings.ToLower(f.Severity)
@@ -824,7 +826,7 @@ func (a *Agent) toolAnalyzeData(ctx context.Context, argsJSON string) (string, e
 		if f.Evidence != "" {
 			content += "\nEvidence: " + f.Evidence
 		}
-		a.findings.Add(content, sessionID, sessionTitle, []string{sev, tableName}, findings.SourceLLMPromoted, true)
+		a.findings.Add(content, []string{sev, tableName}, findings.SourceAnalyzeData, true)
 	}
 	_ = a.findings.Save()
 	if len(result.Findings) > 0 {

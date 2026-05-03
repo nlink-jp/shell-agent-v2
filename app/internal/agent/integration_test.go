@@ -167,13 +167,13 @@ func TestDynamicToolFiltering(t *testing.T) {
 
 func TestFindingsAccessor(t *testing.T) {
 	a := New(config.Default())
-	a.findings = findings.NewStore()
+	a.findings = findings.NewStore("integration-test")
 
 	if len(a.Findings()) != 0 {
 		t.Error("expected empty findings")
 	}
 
-	a.findings.Add("test finding", "sess-1", "Test", nil, findings.SourceManual, false)
+	a.findings.Add("test finding", nil, findings.SourceLLMPromoted, false)
 	if len(a.Findings()) != 1 {
 		t.Error("expected 1 finding")
 	}

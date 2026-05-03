@@ -1,5 +1,10 @@
-// Package findings manages the global findings store.
-// Findings are analysis-derived insights promoted from sessions.
+// Package findings manages per-session data-analysis discoveries.
+//
+// v0.2.0 redesign: findings are session-scoped, not cross-session.
+// Each session owns its own `sessions/<id>/findings.json`. Cross-
+// session promotion is handled by the user explicitly via the
+// "Pin to Global Memory" UI action, which creates a corresponding
+// entry in GlobalMemoryStore. See docs/en/memory-model.md §4.
 package findings
 
 import (
@@ -14,75 +19,68 @@ import (
 	"time"
 
 	"github.com/nlink-jp/shell-agent-v2/internal/atomicio"
-	"github.com/nlink-jp/shell-agent-v2/internal/config"
+	"github.com/nlink-jp/shell-agent-v2/internal/memory"
 )
 
-// Source values for Finding.Source. See
-// docs/en/memory-injection-hardening.md §5 Phase A.
+// Source values for Finding.Source. All findings now originate
+// from analysis tools — there is no manual entry path
+// (the v0.1.x `/finding` slash command was removed in v0.2.0).
 const (
-	SourceLLMPromoted = "llm_promoted" // promoted by an LLM tool call (promote-finding)
-	SourceManual      = "manual"       // promoted manually via Settings UI / API
+	SourceLLMPromoted = "llm_promoted" // promoted by the promote-finding tool
+	SourceAnalyzeData = "analyze_data" // emitted by analyze-data sliding-window
 )
 
-// Finding is an analysis insight with origin provenance.
+// Finding is a session-scoped data-analysis discovery.
 //
-// Source/ToolOriginated were added in v0.1.26 for memory-injection
-// provenance. See docs/en/memory-injection-hardening.md §5 Phase A.
-// Existing entries from earlier versions have empty Source — those
-// are rendered with the lower-trust [derived] tag in FormatForPrompt.
+// Per-session storage means OriginSessionID / OriginSessionTitle
+// are no longer needed (the file location implies the session).
 type Finding struct {
-	ID                 string   `json:"id"`
-	Content            string   `json:"content"`
-	OriginSessionID    string   `json:"origin_session_id"`
-	OriginSessionTitle string   `json:"origin_session_title"`
-	Tags               []string `json:"tags"`
-	CreatedAt          string   `json:"created_at"`
-	CreatedLabel       string   `json:"created_label"`
+	ID           string   `json:"id"`
+	Content      string   `json:"content"`
+	Tags         []string `json:"tags"`
+	CreatedAt    string   `json:"created_at"`
+	CreatedLabel string   `json:"created_label"`
 
-	// Provenance (v0.1.26+).
-	Source         string `json:"source,omitempty"`          // Source* constants
-	ToolOriginated bool   `json:"tool_originated,omitempty"` // surrounding turn included tool output
+	// Provenance.
+	Source         string `json:"source,omitempty"`
+	ToolOriginated bool   `json:"tool_originated,omitempty"`
 }
 
-// DefaultMaxFindings is the soft cap on Store.findings when no
-// explicit MaxFindings override is set. The oldest entry is evicted
-// on overflow. See docs/en/memory-injection-hardening.md §5 Phase C.
-const DefaultMaxFindings = 200
+// DefaultMaxFindings is the soft cap on per-session findings.
+// FIFO eviction past this. Lower than v0.1.x's global 200
+// because it's now per session.
+const DefaultMaxFindings = 100
 
-// FindingsFormatBudget caps the total size of FormatForPrompt output.
-// When rendered findings exceed this budget the OLDEST entries are
-// elided (most-recent are most likely to be relevant).
+// FindingsFormatBudget caps the rendered output size when
+// injected into the system prompt.
 const FindingsFormatBudget = 16 * 1024 // 16 KiB
 
-// Store manages the global findings collection.
+// Store manages per-session findings.
 //
-// Concurrency: every entry point that mutates s.findings or reads it
-// to derive a derived value (ID generation in particular) takes
-// s.mu. Add originally derived ID from len(s.findings) without any
-// lock — racing Add calls would generate duplicate IDs and a later
-// DeleteByIDs would remove the wrong record
-// (security-hardening-2.md H9). Save and Load also take the lock so
-// the on-disk file matches the in-memory state at a single point in
-// time.
+// Concurrency: Add / DeleteByIDs / All / Save / Load / FormatForPrompt
+// all take s.mu so concurrent callers see consistent state and
+// the on-disk file matches the in-memory snapshot at a single
+// point in time.
 type Store struct {
 	mu       sync.Mutex
 	path     string
 	findings []Finding
 
-	// MaxFindings is the soft cap on findings. Zero falls back to
-	// DefaultMaxFindings. FIFO eviction.
+	// MaxFindings is the soft cap. Zero falls back to
+	// DefaultMaxFindings.
 	MaxFindings int
 }
 
-// NewStore creates a store backed by the default findings file.
-func NewStore() *Store {
+// NewStore creates a per-session store backed by
+// `sessions/<sessionID>/findings.json`.
+func NewStore(sessionID string) *Store {
 	return &Store{
-		path:        filepath.Join(config.DataDir(), "findings.json"),
+		path:        filepath.Join(memory.SessionDir(sessionID), "findings.json"),
 		MaxFindings: DefaultMaxFindings,
 	}
 }
 
-// Load reads findings from disk.
+// Load reads findings from disk. Missing file = empty store.
 func (s *Store) Load() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -97,8 +95,7 @@ func (s *Store) Load() error {
 	return json.Unmarshal(data, &s.findings)
 }
 
-// Save writes findings to disk atomically (tmp+rename) so a reader
-// always sees either the previous or new file, never partial.
+// Save writes findings to disk atomically (tmp+rename).
 func (s *Store) Save() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -112,18 +109,13 @@ func (s *Store) Save() error {
 	return atomicio.WriteFileAtomic(s.path, data, 0600)
 }
 
-// Add promotes a new finding to the global store.
+// Add appends a new finding.
 //
 // ID format: f-YYYYMMDD-NNN for the first 999 findings of any
-// calendar day; if a busy day exceeds that, fall back to
-// f-YYYYMMDD-NNNNNN-<6 hex> so the ID stays unique without colliding
-// with the legacy fixed-width format.
-//
-// source/toolOriginated record the provenance of the finding's
-// content. Pass SourceLLMPromoted for promote-finding tool calls
-// (potentially attacker-influenced content) and SourceManual for
-// user-initiated promotion via the UI.
-func (s *Store) Add(content, sessionID, sessionTitle string, tags []string, source string, toolOriginated bool) *Finding {
+// calendar day; if exceeded, fall back to f-YYYYMMDD-NNNNNN-<6 hex>
+// so the ID stays unique without colliding with the legacy
+// fixed-width format.
+func (s *Store) Add(content string, tags []string, source string, toolOriginated bool) *Finding {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now()
@@ -136,15 +128,13 @@ func (s *Store) Add(content, sessionID, sessionTitle string, tags []string, sour
 	}
 
 	f := Finding{
-		ID:                 id,
-		Content:            content,
-		OriginSessionID:    sessionID,
-		OriginSessionTitle: sessionTitle,
-		Tags:               tags,
-		CreatedAt:          now.Format(time.RFC3339),
-		CreatedLabel:       fmt.Sprintf("%s (%s)", now.Format("2006-01-02"), now.Format("Monday")),
-		Source:             source,
-		ToolOriginated:     toolOriginated,
+		ID:             id,
+		Content:        content,
+		Tags:           tags,
+		CreatedAt:      now.Format(time.RFC3339),
+		CreatedLabel:   fmt.Sprintf("%s (%s)", now.Format("2006-01-02"), now.Format("Monday")),
+		Source:         source,
+		ToolOriginated: toolOriginated,
 	}
 	s.findings = append(s.findings, f)
 
@@ -158,8 +148,8 @@ func (s *Store) Add(content, sessionID, sessionTitle string, tags []string, sour
 	return &f
 }
 
-// countForDayLocked returns how many existing findings already use
-// the f-<day>- prefix. Caller must hold s.mu.
+// countForDayLocked returns how many existing findings already
+// use the f-<day>- prefix. Caller must hold s.mu.
 func (s *Store) countForDayLocked(day string) int {
 	prefix := "f-" + day + "-"
 	count := 0
@@ -171,10 +161,7 @@ func (s *Store) countForDayLocked(day string) int {
 	return count
 }
 
-// randomHex returns 2*n hex chars from crypto/rand. Used as a
-// uniqueness suffix on overflow IDs; if rand fails (essentially
-// never) we fall back to a timestamp-derived value so ID generation
-// stays infallible.
+// randomHex returns 2*n hex chars from crypto/rand.
 func randomHex(n int) string {
 	b := make([]byte, n)
 	if _, err := rand.Read(b); err != nil {
@@ -192,21 +179,21 @@ func (s *Store) All() []Finding {
 	return out
 }
 
-// DeleteBySession removes all findings originating from the given session.
-func (s *Store) DeleteBySession(sessionID string) {
+// Get retrieves a finding by ID. Used by the Pin to Global
+// Memory flow.
+func (s *Store) Get(id string) (Finding, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var kept []Finding
 	for _, f := range s.findings {
-		if f.OriginSessionID != sessionID {
-			kept = append(kept, f)
+		if f.ID == id {
+			return f, true
 		}
 	}
-	s.findings = kept
+	return Finding{}, false
 }
 
-// DeleteByIDs removes findings whose ID is in the given set. Returns the
-// number actually deleted.
+// DeleteByIDs removes findings whose ID is in the given set.
+// Returns the number actually deleted.
 func (s *Store) DeleteByIDs(ids []string) int {
 	if len(ids) == 0 {
 		return 0
@@ -230,16 +217,12 @@ func (s *Store) DeleteByIDs(ids []string) int {
 	return deleted
 }
 
-// FormatForPrompt returns findings formatted for system prompt injection.
-// Content is sanitized: newlines collapsed, length capped per finding,
-// to prevent prompt injection via user-influenced finding content.
+// FormatForPrompt returns findings formatted for system prompt
+// injection. All findings are LLM-derived (no manual source) so
+// every entry renders with the lower-trust [derived] tag.
 //
-// Each line carries a trust tag derived from Source:
-//
-//   - [user-stated]: SourceManual — promoted by the user via UI.
-//   - [derived]: SourceLLMPromoted or empty (legacy) — content traces
-//     back through the LLM and may be attacker-influenced. See
-//     docs/en/memory-injection-hardening.md.
+// Per-session storage means we no longer emit "from: ... session: ..."
+// suffixes — the calling session is the only context.
 func (s *Store) FormatForPrompt() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -249,12 +232,8 @@ func (s *Store) FormatForPrompt() string {
 	lines := make([]string, len(s.findings))
 	for i, f := range s.findings {
 		content := sanitizeForPrompt(f.Content, 500)
-		title := sanitizeForPrompt(f.OriginSessionTitle, 100)
-		lines[i] = fmt.Sprintf("- %s [%s] %s (from: %s, session: %s)\n",
-			trustTag(f.Source), f.CreatedLabel, content, title, f.OriginSessionID)
+		lines[i] = fmt.Sprintf("- [derived] [%s] %s\n", f.CreatedLabel, content)
 	}
-	// Walk newest → oldest, including lines until the budget runs
-	// out. Most-recent findings are most likely to be relevant.
 	included := make([]string, 0, len(lines))
 	used := 0
 	for i := len(lines) - 1; i >= 0; i-- {
@@ -276,20 +255,9 @@ func (s *Store) FormatForPrompt() string {
 	return sb.String()
 }
 
-// trustTag maps a Finding.Source to the leading bracketed token in
-// FormatForPrompt. Anything unknown (including legacy empty Source
-// and SourceLLMPromoted) gets [derived] — the lower-trust default,
-// since LLM-promoted findings may carry content originally derived
-// from attacker-controlled tool output.
-func trustTag(source string) string {
-	if source == SourceManual {
-		return "[user-stated]"
-	}
-	return "[derived]"
-}
-
-// sanitizeForPrompt removes control chars and newlines, caps length.
-// Used when user-influenced content is embedded in system prompt.
+// sanitizeForPrompt removes control chars and newlines, caps
+// length. Used when LLM-influenced content is embedded in the
+// system prompt.
 func sanitizeForPrompt(s string, maxLen int) string {
 	var b []rune
 	for _, r := range s {

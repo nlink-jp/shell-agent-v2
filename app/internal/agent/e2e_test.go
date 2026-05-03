@@ -16,12 +16,13 @@ import (
 )
 
 // newTestAgent creates an agent with a mock backend for E2E testing.
+// v0.2.0: findings is per-session, constructed with the session ID.
 func newTestAgent(t *testing.T, mock *llm.MockBackend) *Agent {
 	t.Helper()
 	a := New(config.Default())
 	a.backend = mock
-	a.findings = findings.NewStore()
 	a.session = &memory.Session{ID: "e2e-test", Title: "E2E Test", Records: []memory.Record{}}
+	a.findings = findings.NewStore(a.session.ID)
 	return a
 }
 
@@ -213,9 +214,8 @@ func TestE2E_FindingPromotion(t *testing.T) {
 	if len(all[0].Tags) != 2 {
 		t.Errorf("finding tags = %v", all[0].Tags)
 	}
-	if all[0].OriginSessionID != "e2e-test" {
-		t.Errorf("origin session = %v", all[0].OriginSessionID)
-	}
+	// v0.2.0: per-session storage means OriginSessionID is gone.
+	// The session-binding is implicit via the file location.
 }
 
 // --- E2E: Session Isolation ---
@@ -237,10 +237,9 @@ func TestE2E_SessionIsolation(t *testing.T) {
 
 	a := New(config.Default())
 	a.backend = mockA
-	a.findings = findings.NewStore()
 
 	sessionA := &memory.Session{ID: "sess-a", Title: "Session A", Records: []memory.Record{}}
-	a.LoadSession(sessionA)
+	a.LoadSession(sessionA) // also constructs per-session findings store
 	engineA := analysis.NewWithPath("sess-a", filepath.Join(tmpDir, "a.duckdb"))
 	a.SetAnalysis(engineA)
 
@@ -391,8 +390,8 @@ func TestE2E_ToolChainResponse(t *testing.T) {
 
 func TestE2E_ModelSwitchThenChat(t *testing.T) {
 	a := New(config.Default())
-	a.findings = findings.NewStore()
 	a.session = &memory.Session{ID: "e2e-test", Records: []memory.Record{}}
+	a.findings = findings.NewStore(a.session.ID)
 
 	// Switch to vertex
 	result, err := a.Send(context.Background(), "/model vertex")
@@ -416,27 +415,24 @@ func TestE2E_ModelSwitchThenChat(t *testing.T) {
 	}
 }
 
-// --- E2E: Findings Cross-Session ---
+// --- E2E: Findings Session Isolation (v0.2.0 inverted from v0.1.x) ---
 
-func TestE2E_FindingsCrossSession(t *testing.T) {
+// In v0.1.x findings were global and visible across sessions.
+// In v0.2.0 they're per-session — promoting a finding in session
+// A must NOT make it visible from session B.
+func TestE2E_FindingsAreSessionScoped(t *testing.T) {
 	a := New(config.Default())
-	a.findings = findings.NewStore()
 
-	// Session A: promote a finding
 	sessionA := &memory.Session{ID: "sess-a", Title: "Sales Analysis", Records: []memory.Record{}}
 	a.LoadSession(sessionA)
-	a.findings.Add("Revenue doubled in Q3", "sess-a", "Sales Analysis", []string{"revenue"}, findings.SourceLLMPromoted, true)
+	a.findings.Add("Revenue doubled in Q3", []string{"revenue"}, findings.SourceLLMPromoted, true)
 
-	// Session B: findings should be visible in system prompt
 	sessionB := &memory.Session{ID: "sess-b", Title: "Planning", Records: []memory.Record{}}
 	a.LoadSession(sessionB)
 
 	prompt := a.findings.FormatForPrompt()
-	if !strings.Contains(prompt, "Revenue doubled in Q3") {
-		t.Error("finding from session A not visible in session B context")
-	}
-	if !strings.Contains(prompt, "Sales Analysis") {
-		t.Error("finding origin session title not in prompt")
+	if strings.Contains(prompt, "Revenue doubled in Q3") {
+		t.Errorf("session A finding leaked into session B context: %q", prompt)
 	}
 }
 

@@ -266,19 +266,28 @@ func TestBindings_DeleteObject_AndDeleteObjects(t *testing.T) {
 
 
 func TestBindings_DeleteFindings_AndPinned(t *testing.T) {
-	// Seed findings.json and pinned.json on disk before agent.New so the
-	// agent's stores load them automatically.
+	// v0.2.0: findings live per-session at
+	// sessions/<id>/findings.json. Seed the per-session file and
+	// load the session before asserting against b.GetFindings().
+	// Pinned still lives at the global pinned.json.
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	dataDir := filepath.Join(home, "Library", "Application Support", "shell-agent-v2")
-	if err := os.MkdirAll(dataDir, 0700); err != nil {
+	sessionID := "test-session-1"
+	sessionDir := filepath.Join(dataDir, "sessions", sessionID)
+	if err := os.MkdirAll(sessionDir, 0700); err != nil {
 		t.Fatal(err)
 	}
 	findingsJSON := `[
-		{"id":"f-1","content":"first finding","origin_session_id":"s","origin_session_title":"S","tags":["info"],"created_at":"2026-04-28T00:00:00Z","created_label":"2026-04-28"},
-		{"id":"f-2","content":"second finding","origin_session_id":"s","origin_session_title":"S","tags":["info"],"created_at":"2026-04-28T00:01:00Z","created_label":"2026-04-28"}
+		{"id":"f-1","content":"first finding","tags":["info"],"created_at":"2026-04-28T00:00:00Z","created_label":"2026-04-28","source":"llm_promoted"},
+		{"id":"f-2","content":"second finding","tags":["info"],"created_at":"2026-04-28T00:01:00Z","created_label":"2026-04-28","source":"llm_promoted"}
 	]`
-	if err := os.WriteFile(filepath.Join(dataDir, "findings.json"), []byte(findingsJSON), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(sessionDir, "findings.json"), []byte(findingsJSON), 0600); err != nil {
+		t.Fatal(err)
+	}
+	// Seed a minimal chat.json so the session is loadable.
+	chatJSON := `{"id":"` + sessionID + `","title":"Test","records":[]}`
+	if err := os.WriteFile(filepath.Join(sessionDir, "chat.json"), []byte(chatJSON), 0600); err != nil {
 		t.Fatal(err)
 	}
 	pinnedJSON := `[
@@ -294,6 +303,15 @@ func TestBindings_DeleteFindings_AndPinned(t *testing.T) {
 	store := objstore.NewStoreAt(filepath.Join(home, "objects"))
 	a.SetObjects(store)
 	b := &Bindings{agent: a, cfg: cfg, objects: store}
+
+	// Load the session so the per-session findings store is populated.
+	session, err := memory.LoadSession(sessionID)
+	if err != nil {
+		t.Fatalf("LoadSession: %v", err)
+	}
+	if err := a.LoadSession(session); err != nil {
+		t.Fatalf("agent.LoadSession: %v", err)
+	}
 
 	findings := b.GetFindings()
 	if len(findings) != 2 {
