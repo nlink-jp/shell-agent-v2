@@ -77,7 +77,12 @@ func main() {
 				HideTitle:                 true,
 				FullSizeContent:           true,
 			},
-			WebviewIsTransparent: true,
+			// Window-level translucency requires private macOS APIs
+			// (NSVisualEffectView et al) and pulls the desktop
+			// through long messages / code blocks, which made the
+			// chat pane hard to read. Keep the WebView opaque; CSS
+			// inside still uses rgba on top of an opaque base.
+			WebviewIsTransparent: false,
 			WindowIsTranslucent:  false,
 		},
 	})

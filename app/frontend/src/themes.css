@@ -2,9 +2,13 @@
 
 :root,
 [data-theme="dark"] {
-  --bg-primary: rgba(20, 20, 20, 0.9);
-  --bg-sidebar: rgba(30, 30, 30, 0.95);
-  --bg-input: rgba(25, 25, 25, 0.95);
+  /* Surface backgrounds are opaque — window-level translucency is
+     disabled in main.go (WebviewIsTransparent: false). The bg-msg-*
+     and bg-input-field tokens stay rgba because those layer on top
+     of these opaque surfaces. */
+  --bg-primary: rgb(20, 20, 20);
+  --bg-sidebar: rgb(30, 30, 30);
+  --bg-input: rgb(25, 25, 25);
   --bg-input-field: rgba(40, 40, 40, 0.8);
   --bg-msg-user: rgba(80, 120, 200, 0.25);
   --bg-msg-assistant: rgba(60, 60, 60, 0.6);
@@ -16,11 +20,6 @@
      them lets data rows bleed through during scroll. Use for sticky
      thead only; ordinary surfaces should keep using bg-primary. */
   --bg-sticky-header: rgb(36, 36, 36);
-  /* Opaque background for the chat-pane scroll region. The
-     translucent --bg-primary lets the desktop bleed through and
-     made code blocks / long messages hard to read; the chat
-     pane is the focal surface so use a solid colour. */
-  --bg-chat-pane: rgb(28, 28, 28);
   --bg-code: rgba(0, 0, 0, 0.4);
   --bg-inline-code: rgba(255, 255, 255, 0.1);
   --bg-btn-primary: rgba(80, 120, 200, 0.4);
@@ -51,9 +50,9 @@
 }
 
 [data-theme="light"] {
-  --bg-primary: rgba(232, 232, 225, 0.96);
-  --bg-sidebar: rgba(222, 222, 215, 0.98);
-  --bg-input: rgba(226, 226, 219, 0.98);
+  --bg-primary: rgb(232, 232, 225);
+  --bg-sidebar: rgb(222, 222, 215);
+  --bg-input: rgb(226, 226, 219);
   --bg-input-field: rgba(240, 240, 234, 0.95);
   --bg-msg-user: rgba(50, 110, 180, 0.1);
   --bg-msg-assistant: rgba(240, 240, 234, 0.85);
@@ -61,7 +60,6 @@
   --bg-msg-tool: rgba(40, 130, 50, 0.08);
   --bg-hover: rgba(50, 110, 180, 0.06);
   --bg-sticky-header: rgb(225, 225, 215);
-  --bg-chat-pane: rgb(236, 236, 230);
   --bg-code: rgba(50, 110, 180, 0.05);
   --bg-inline-code: rgba(50, 110, 180, 0.08);
   --bg-btn-primary: rgba(30, 100, 200, 0.2);
@@ -92,9 +90,9 @@
 }
 
 [data-theme="warm"] {
-  --bg-primary: rgba(35, 28, 22, 0.95);
-  --bg-sidebar: rgba(40, 32, 25, 0.98);
-  --bg-input: rgba(38, 30, 24, 0.98);
+  --bg-primary: rgb(35, 28, 22);
+  --bg-sidebar: rgb(40, 32, 25);
+  --bg-input: rgb(38, 30, 24);
   --bg-input-field: rgba(50, 40, 32, 0.8);
   --bg-msg-user: rgba(160, 110, 60, 0.18);
   --bg-msg-assistant: rgba(55, 45, 35, 0.7);
@@ -102,7 +100,6 @@
   --bg-msg-tool: rgba(60, 100, 50, 0.18);
   --bg-hover: rgba(200, 160, 100, 0.08);
   --bg-sticky-header: rgb(48, 38, 30);
-  --bg-chat-pane: rgb(40, 32, 25);
   --bg-code: rgba(0, 0, 0, 0.25);
   --bg-inline-code: rgba(200, 160, 100, 0.12);
   --bg-btn-primary: rgba(180, 120, 60, 0.3);
@@ -133,9 +130,9 @@
 }
 
 [data-theme="midnight"] {
-  --bg-primary: rgba(10, 12, 20, 0.95);
-  --bg-sidebar: rgba(15, 18, 30, 0.98);
-  --bg-input: rgba(12, 15, 25, 0.98);
+  --bg-primary: rgb(10, 12, 20);
+  --bg-sidebar: rgb(15, 18, 30);
+  --bg-input: rgb(12, 15, 25);
   --bg-input-field: rgba(20, 25, 40, 0.8);
   --bg-msg-user: rgba(60, 80, 180, 0.2);
   --bg-msg-assistant: rgba(25, 30, 50, 0.7);
@@ -143,7 +140,6 @@
   --bg-msg-tool: rgba(30, 60, 30, 0.3);
   --bg-hover: rgba(100, 120, 200, 0.1);
   --bg-sticky-header: rgb(20, 24, 36);
-  --bg-chat-pane: rgb(15, 18, 28);
   --bg-code: rgba(0, 0, 0, 0.5);
   --bg-inline-code: rgba(100, 120, 200, 0.12);
   --bg-btn-primary: rgba(60, 80, 180, 0.35);
