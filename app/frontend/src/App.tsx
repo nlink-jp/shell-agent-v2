@@ -23,13 +23,14 @@ import type {
     ChatMessage,
     ExpandedReport,
     Finding,
+    GlobalMemory,
     LLMStatus,
     MCPStatus,
     MessageData,
     MITLRequest,
     ObjectInfo,
-    PinnedMemory,
     SessionInfo,
+    SessionMemory,
     Settings,
     SidebarPanel,
     ToolInfo,
@@ -83,13 +84,14 @@ function App() {
     const [showSettings, setShowSettings] = useState(false)
     // editingSession / editTitle state moved into Sidebar (rename
     // is a sidebar-local concern). Same for the bulk-select sets
-    // for findings and pinned memory.
+    // for findings and global / session memory.
     const [mitlRequest, setMitlRequest] = useState<MITLRequest | null>(null)
     // mitlFeedback state moved into MITLDialog (local concern).
     const [cmdResult, setCmdResult] = useState<string | null>(null)
     const [tools, setTools] = useState<ToolInfo[]>([])
     const [mcpStatus, setMcpStatus] = useState<MCPStatus[]>([])
-    const [pinnedMemories, setPinnedMemories] = useState<PinnedMemory[]>([])
+    const [globalMemories, setGlobalMemories] = useState<GlobalMemory[]>([])
+    const [sessionMemories, setSessionMemories] = useState<SessionMemory[]>([])
     // Objects panel state was removed in info-display redesign Phase 3 —
     // bulk selection, confirmation, and the global object list now live
     // inside the per-session DataDisclosure component.
@@ -186,14 +188,16 @@ function App() {
                     setRetryStatus(data.detail || 'retrying...')
                 }
             })
-            const cleanupPinned = window.runtime.EventsOn('pinned:updated', () => {
-                if (window.go) window.go.main.Bindings.GetPinnedMemories().then(setPinnedMemories)
+            const cleanupGlobalMemory = window.runtime.EventsOn('global_memory:updated', () => {
+                if (window.go) window.go.main.Bindings.GetGlobalMemories().then(setGlobalMemories)
             })
-            // Mirror of pinned:updated for findings — emitted by
-            // the backend after promote-finding, /finding slash,
-            // and analyze-data auto-promote so the sidebar
-            // reflects new findings without waiting for a session
-            // switch.
+            const cleanupSessionMemory = window.runtime.EventsOn('session_memory:updated', () => {
+                if (window.go) window.go.main.Bindings.GetSessionMemories().then(setSessionMemories)
+            })
+            // Mirror of *_memory:updated for findings — emitted by
+            // the backend after promote-finding and analyze-data
+            // auto-promote so the panel reflects new findings
+            // without waiting for a session switch.
             const cleanupFindings = window.runtime.EventsOn('findings:updated', () => {
                 if (window.go) window.go.main.Bindings.GetFindings().then(setFindings)
             })
@@ -232,7 +236,7 @@ function App() {
                     }, 5000)
                 }
             })
-            return () => { cleanupStream(); cleanupActivity(); cleanupPinned(); cleanupFindings(); cleanupReport(); cleanupMitl(); cleanupTitle(); cleanupBgStart(); cleanupBgEnd() }
+            return () => { cleanupStream(); cleanupActivity(); cleanupGlobalMemory(); cleanupSessionMemory(); cleanupFindings(); cleanupReport(); cleanupMitl(); cleanupTitle(); cleanupBgStart(); cleanupBgEnd() }
         }
     }, [])
 
@@ -259,7 +263,7 @@ function App() {
         switch (code) {
             case 'title': return 'Title generation'
             case 'memory-compaction': return 'Memory compaction'
-            case 'pinned-extraction': return 'Pinned-memory extraction'
+            case 'pinned-extraction': return 'Memory extraction'
             default: return code
         }
     }
@@ -441,7 +445,8 @@ function App() {
         if (sidebarPanel === 'memory' && window.go) {
             refreshFindings()
             window.go.main.Bindings.GetLLMStatus().then(setLLMStatus)
-            window.go.main.Bindings.GetPinnedMemories().then(setPinnedMemories)
+            window.go.main.Bindings.GetGlobalMemories().then(setGlobalMemories)
+            window.go.main.Bindings.GetSessionMemories().then(setSessionMemories)
         }
     }, [sidebarPanel, refreshFindings])
 
@@ -588,16 +593,27 @@ function App() {
                     const updated = await window.go.main.Bindings.GetFindings()
                     setFindings(updated)
                 }}
-                pinnedMemories={pinnedMemories}
-                onPinnedDelete={async keys => {
-                    await window.go.main.Bindings.DeletePinnedMemories(keys)
-                    const updated = await window.go.main.Bindings.GetPinnedMemories()
-                    setPinnedMemories(updated)
+                globalMemories={globalMemories}
+                onGlobalMemoryDelete={async facts => {
+                    await window.go.main.Bindings.DeleteGlobalMemories(facts)
+                    const updated = await window.go.main.Bindings.GetGlobalMemories()
+                    setGlobalMemories(updated)
                 }}
-                onPinnedDeleteOne={async fact => {
-                    await window.go.main.Bindings.DeletePinnedMemory(fact)
-                    const updated = await window.go.main.Bindings.GetPinnedMemories()
-                    setPinnedMemories(updated)
+                onGlobalMemoryDeleteOne={async fact => {
+                    await window.go.main.Bindings.DeleteGlobalMemory(fact)
+                    const updated = await window.go.main.Bindings.GetGlobalMemories()
+                    setGlobalMemories(updated)
+                }}
+                sessionMemories={sessionMemories}
+                onSessionMemoryDelete={async facts => {
+                    await window.go.main.Bindings.DeleteSessionMemories(facts)
+                    const updated = await window.go.main.Bindings.GetSessionMemories()
+                    setSessionMemories(updated)
+                }}
+                onPinSessionMemory={async (fact, category) => {
+                    await window.go.main.Bindings.PinSessionMemory(fact, category)
+                    const updatedG = await window.go.main.Bindings.GetGlobalMemories()
+                    setGlobalMemories(updatedG)
                 }}
                 onOpenSettings={openSettings}
             />

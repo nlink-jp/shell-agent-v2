@@ -42,13 +42,12 @@ export interface MessageData {
 export interface Finding {
     id: string;
     content: string;
-    session_id: string;
-    session_title: string;
     tags: string[];
     created_label: string;
-    /** "manual" (user-promoted) → high trust; "llm_promoted" or empty
-     *  (legacy) → derived (LLM-routed content, may be attacker-influenced).
-     *  See docs/en/memory-injection-hardening.md. */
+    /** v0.2.0: "llm_promoted" (promote-finding tool) or
+     *  "analyze_data" (sliding-window auto-emit). Legacy entries
+     *  may have empty source. SourceManual is gone — the /finding
+     *  slash command was removed. */
     source?: string;
     tool_originated?: boolean;
 }
@@ -65,18 +64,33 @@ export interface ToolInfo {
     mitl_default: boolean;
 }
 
-export interface PinnedMemory {
+/** Cross-session memory entry (preference / decision categories
+ *  only). Renamed from PinnedMemory in v0.2.0. */
+export interface GlobalMemory {
     fact: string;
     native_fact: string;
     category: string;
-    /** "user_turn" / "manual" → user-stated (high trust);
-     *  "assistant_turn" or empty (legacy) → derived (lower trust;
-     *  content traces back through the LLM and may be
-     *  attacker-influenced). See docs/en/memory-injection-hardening.md. */
+    /** "user_turn" / "manual" / "promoted_from_*" → user-stated
+     *  (high trust); "assistant_turn" or empty (legacy) → derived
+     *  (lower trust; content traces back through the LLM and may
+     *  be attacker-influenced). See docs/en/memory-model.md. */
     source?: string;
     session_id?: string;
     tool_originated?: boolean;
-    /** RFC3339 timestamp when pinned, or empty for legacy entries. */
+    /** RFC3339 timestamp when learned, or empty for legacy entries. */
+    created_at?: string;
+}
+
+/** Per-session memory entry (fact / context categories only).
+ *  Dies with the session unless promoted to GlobalMemory via the
+ *  Pin to Global Memory action. */
+export interface SessionMemory {
+    fact: string;
+    native_fact: string;
+    category: string;
+    /** "user_turn" → user-stated; "assistant_turn" → derived. */
+    source?: string;
+    tool_originated?: boolean;
     created_at?: string;
 }
 
@@ -115,7 +129,6 @@ export interface ExpandedReport {
 }
 
 export interface BackendBudget {
-    hot_token_limit: number;
     max_context_tokens: number;
     max_warm_tokens: number;
     max_tool_result_tokens: number;
@@ -181,7 +194,6 @@ export interface Settings {
     mcp_profiles: MCPProfile[];
     disabled_tools: string[];
     mitl_overrides: Record<string, boolean>;
-    memory_use_v2: boolean;
     sandbox: SandboxSettings;
     max_tool_rounds: number;
 }

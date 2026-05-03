@@ -121,14 +121,6 @@ export default function SettingsDialog({settings, tools, mcpStatus, onUpdate, on
                             </label>
                         </div>
                         <div className="settings-section">
-                            <h3>Memory</h3>
-                            <label>
-                                <input type="checkbox" checked={!!settings.memory_use_v2} onChange={e => onUpdate({memory_use_v2: e.target.checked})} />
-                                <span>Use v2 context builder (experimental)</span>
-                            </label>
-                            <p className="sidebar-hint">Records stay immutable; older context is summarized on demand and cached. Time-range markers added for LLM temporal awareness. See docs/en/memory-architecture-v2.md.</p>
-                        </div>
-                        <div className="settings-section">
                             <h3>Agent loop</h3>
                             <label>
                                 <span>Max tool rounds per message</span>

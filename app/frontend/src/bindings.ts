@@ -11,11 +11,12 @@
 
 import type {
     Finding,
+    GlobalMemory,
     LLMStatus,
     MessageData,
     ObjectInfo,
-    PinnedMemory,
     SessionInfo,
+    SessionMemory,
     Settings,
     SandboxImageStatus,
     SandboxImageInfo,
@@ -40,7 +41,8 @@ declare global {
                     HasData(): Promise<boolean>;
                     GetFindings(): Promise<Finding[]>;
                     DeleteFindings(ids: string[]): Promise<number>;
-                    DeletePinnedMemories(keys: string[]): Promise<number>;
+                    DeleteGlobalMemories(facts: string[]): Promise<number>;
+                    DeleteSessionMemories(facts: string[]): Promise<number>;
                     ListObjects(): Promise<ObjectInfo[]>;
                     DeleteObject(id: string): Promise<void>;
                     DeleteObjects(ids: string[]): Promise<number>;
@@ -60,9 +62,12 @@ declare global {
                     SaveImage(dataURL: string): Promise<string>;
                     GetImageDataURL(id: string): Promise<string>;
                     GetTools(): Promise<ToolInfo[]>;
-                    GetPinnedMemories(): Promise<PinnedMemory[]>;
-                    UpdatePinnedMemory(key: string, content: string): Promise<void>;
-                    DeletePinnedMemory(key: string): Promise<void>;
+                    GetGlobalMemories(): Promise<GlobalMemory[]>;
+                    UpdateGlobalMemory(fact: string, native: string, category: string): Promise<void>;
+                    DeleteGlobalMemory(fact: string): Promise<void>;
+                    GetSessionMemories(): Promise<SessionMemory[]>;
+                    PinSessionMemory(fact: string, category: string): Promise<void>;
+                    PinFinding(id: string, category: string): Promise<void>;
                     GetLLMStatus(): Promise<LLMStatus>;
                     SaveReport(content: string, filename: string): Promise<void>;
                     RestartMCP(): Promise<void>;
