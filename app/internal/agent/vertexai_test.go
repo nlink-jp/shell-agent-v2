@@ -38,11 +38,11 @@ func newVertexAgent(t *testing.T) *Agent {
 	cfg.LLM.VertexAI.Model = "gemini-2.5-pro"
 
 	a := New(cfg)
-	a.findings = findings.NewStore()
 	a.session = &memory.Session{
 		ID:      fmt.Sprintf("vtx-%d", time.Now().UnixMilli()),
 		Records: []memory.Record{},
 	}
+	a.findings = findings.NewStore(a.session.ID)
 	return a
 }
 

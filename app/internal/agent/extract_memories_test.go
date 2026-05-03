@@ -20,7 +20,7 @@ func newExtractAgent(t *testing.T, mock *llm.MockBackend, records ...memory.Reco
 	t.Helper()
 	a := New(config.Default())
 	a.backend = mock
-	a.pinned = &memory.PinnedStore{}
+	a.globalMemory = &memory.GlobalMemoryStore{}
 	a.sessionMemory = &memory.SessionMemoryStore{Entries: []memory.SessionMemoryEntry{}}
 	a.session = &memory.Session{ID: "extract-test", Title: "T", Records: records}
 	return a
@@ -44,8 +44,8 @@ func TestExtractPinned_RejectsSelfReferential(t *testing.T) {
 	if err := a.extractMemories(context.Background()); err != nil {
 		t.Fatalf("extractPinnedMemories: %v", err)
 	}
-	if len(a.pinned.Entries) != 0 {
-		t.Errorf("expected 0 pinned facts (self-referential filter), got %d: %+v", len(a.pinned.Entries), a.pinned.Entries)
+	if len(a.globalMemory.Entries) != 0 {
+		t.Errorf("expected 0 pinned facts (self-referential filter), got %d: %+v", len(a.globalMemory.Entries), a.globalMemory.Entries)
 	}
 }
 
@@ -66,8 +66,8 @@ func TestExtractPinned_RejectsUnknownCategory(t *testing.T) {
 	if err := a.extractMemories(context.Background()); err != nil {
 		t.Fatalf("extractPinnedMemories: %v", err)
 	}
-	if len(a.pinned.Entries) != 0 {
-		t.Errorf("expected 0 pinned facts (category allowlist), got %d: %+v", len(a.pinned.Entries), a.pinned.Entries)
+	if len(a.globalMemory.Entries) != 0 {
+		t.Errorf("expected 0 pinned facts (category allowlist), got %d: %+v", len(a.globalMemory.Entries), a.globalMemory.Entries)
 	}
 }
 
@@ -86,12 +86,12 @@ func TestExtractPinned_StampsSourceFromUserTurn(t *testing.T) {
 	if err := a.extractMemories(context.Background()); err != nil {
 		t.Fatalf("extractPinnedMemories: %v", err)
 	}
-	if len(a.pinned.Entries) != 1 {
-		t.Fatalf("expected 1 pinned fact, got %d: %+v", len(a.pinned.Entries), a.pinned.Entries)
+	if len(a.globalMemory.Entries) != 1 {
+		t.Fatalf("expected 1 pinned fact, got %d: %+v", len(a.globalMemory.Entries), a.globalMemory.Entries)
 	}
-	got := a.pinned.Entries[0]
-	if got.Source != memory.PinnedSourceUserTurn {
-		t.Errorf("Source = %q, want %q", got.Source, memory.PinnedSourceUserTurn)
+	got := a.globalMemory.Entries[0]
+	if got.Source != memory.GlobalSourceUserTurn {
+		t.Errorf("Source = %q, want %q", got.Source, memory.GlobalSourceUserTurn)
 	}
 	if got.SessionID != "extract-test" {
 		t.Errorf("SessionID = %q, want extract-test", got.SessionID)
@@ -114,8 +114,8 @@ func TestExtractPinned_StampsSourceFromAssistantTurn(t *testing.T) {
 	if err := a.extractMemories(context.Background()); err != nil {
 		t.Fatalf("extractMemories: %v", err)
 	}
-	if len(a.pinned.Entries) != 0 {
-		t.Errorf("v0.2.0: fact category should NOT route to Global; got %d global entries", len(a.pinned.Entries))
+	if len(a.globalMemory.Entries) != 0 {
+		t.Errorf("v0.2.0: fact category should NOT route to Global; got %d global entries", len(a.globalMemory.Entries))
 	}
 	if len(a.sessionMemory.Entries) != 1 {
 		t.Fatalf("expected 1 session-memory entry, got %d", len(a.sessionMemory.Entries))
@@ -178,11 +178,11 @@ func TestExtractPinned_TolaratesUnparseableTurnToken(t *testing.T) {
 	if err := a.extractMemories(context.Background()); err != nil {
 		t.Fatalf("extractPinnedMemories: %v", err)
 	}
-	if len(a.pinned.Entries) != 1 {
-		t.Fatalf("expected 1 pinned fact, got %d", len(a.pinned.Entries))
+	if len(a.globalMemory.Entries) != 1 {
+		t.Fatalf("expected 1 pinned fact, got %d", len(a.globalMemory.Entries))
 	}
-	if a.pinned.Entries[0].Source != "" {
-		t.Errorf("expected empty Source for unparseable turn, got %q", a.pinned.Entries[0].Source)
+	if a.globalMemory.Entries[0].Source != "" {
+		t.Errorf("expected empty Source for unparseable turn, got %q", a.globalMemory.Entries[0].Source)
 	}
 }
 
@@ -203,14 +203,14 @@ func TestExtractMemories_RoutesByCategory(t *testing.T) {
 	if err := a.extractMemories(context.Background()); err != nil {
 		t.Fatalf("extractMemories: %v", err)
 	}
-	if len(a.pinned.Entries) != 2 {
-		t.Errorf("Global Memory: got %d, want 2 (preference + decision)", len(a.pinned.Entries))
+	if len(a.globalMemory.Entries) != 2 {
+		t.Errorf("Global Memory: got %d, want 2 (preference + decision)", len(a.globalMemory.Entries))
 	}
 	if len(a.sessionMemory.Entries) != 2 {
 		t.Errorf("Session Memory: got %d, want 2 (fact + context)", len(a.sessionMemory.Entries))
 	}
 	gotCats := map[string]string{}
-	for _, e := range a.pinned.Entries {
+	for _, e := range a.globalMemory.Entries {
 		gotCats["pinned/"+e.Category] = e.Fact
 	}
 	for _, e := range a.sessionMemory.Entries {
@@ -270,12 +270,12 @@ func TestExtractPinned_ContentOverrideAssistantToUser(t *testing.T) {
 	if err := a.extractMemories(context.Background()); err != nil {
 		t.Fatalf("extractPinnedMemories: %v", err)
 	}
-	if len(a.pinned.Entries) != 1 {
-		t.Fatalf("expected 1 pinned fact, got %d", len(a.pinned.Entries))
+	if len(a.globalMemory.Entries) != 1 {
+		t.Fatalf("expected 1 pinned fact, got %d", len(a.globalMemory.Entries))
 	}
-	if a.pinned.Entries[0].Source != memory.PinnedSourceUserTurn {
+	if a.globalMemory.Entries[0].Source != memory.GlobalSourceUserTurn {
 		t.Errorf("Source = %q, want %q (content override should have promoted from assistant_turn)",
-			a.pinned.Entries[0].Source, memory.PinnedSourceUserTurn)
+			a.globalMemory.Entries[0].Source, memory.GlobalSourceUserTurn)
 	}
 }
 
@@ -296,12 +296,12 @@ func TestExtractPinned_ContentDoesNotOverrideForAssistantOnlyContent(t *testing.
 	if err := a.extractMemories(context.Background()); err != nil {
 		t.Fatalf("extractPinnedMemories: %v", err)
 	}
-	if len(a.pinned.Entries) != 1 {
-		t.Fatalf("expected 1 pinned fact, got %d", len(a.pinned.Entries))
+	if len(a.globalMemory.Entries) != 1 {
+		t.Fatalf("expected 1 pinned fact, got %d", len(a.globalMemory.Entries))
 	}
-	if a.pinned.Entries[0].Source != memory.PinnedSourceAssistantTurn {
+	if a.globalMemory.Entries[0].Source != memory.GlobalSourceAssistantTurn {
 		t.Errorf("Source = %q, want %q (CSV-quoted content must stay as assistant_turn)",
-			a.pinned.Entries[0].Source, memory.PinnedSourceAssistantTurn)
+			a.globalMemory.Entries[0].Source, memory.GlobalSourceAssistantTurn)
 	}
 }
 
@@ -453,7 +453,9 @@ func TestParseExtractionLine(t *testing.T) {
 // real-time UI sync: every successful findings.Add via the
 // promote-finding tool call must invoke the registered findings
 // handler so the frontend sidebar refreshes immediately, mirroring
-// how pinnedHandler already behaves for pinned-memory updates.
+// how globalMemoryHandler already behaves for global-memory updates.
+// v0.2.0: /finding slash command was removed; only the tool path
+// remains.
 func TestPromoteFinding_TriggersFindingsHandler(t *testing.T) {
 	a := New(config.Default())
 	a.findings = findings.NewStore("test-pin")
@@ -468,14 +470,6 @@ func TestPromoteFinding_TriggersFindingsHandler(t *testing.T) {
 	}
 	if calls != 1 {
 		t.Errorf("findings handler called %d times, want 1", calls)
-	}
-
-	// /finding slash also fires.
-	if _, err := a.handleFindingCommand([]string{"manual", "note"}); err != nil {
-		t.Fatalf("handleFindingCommand: %v", err)
-	}
-	if calls != 2 {
-		t.Errorf("after slash command, handler called %d times, want 2", calls)
 	}
 }
 

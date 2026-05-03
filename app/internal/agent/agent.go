@@ -110,7 +110,7 @@ type Agent struct {
 	session       *memory.Session
 	findings      *findings.Store
 	analysis      *analysis.Engine
-	pinned        *memory.PinnedStore         // legacy; will be removed in Phase 5
+	globalMemory  *memory.GlobalMemoryStore   // v0.2.0: cross-session preference/decision facts
 	sessionMemory *memory.SessionMemoryStore  // v0.2.0: per-session fact/context
 	objects       *objstore.Store
 
@@ -118,7 +118,7 @@ type Agent struct {
 	titleHandler         TitleHandler
 	mitlHandler          MITLHandler
 	reportHandler        func(title, content string)
-	pinnedHandler        func()
+	globalMemoryHandler        func()
 	findingsHandler      func()
 	sessionMemoryHandler func()
 	activityHandler func(ActivityEvent)
@@ -146,16 +146,17 @@ func New(cfg *config.Config) *Agent {
 		chatEngine.SetLocation(cfg.Location)
 	}
 
-	pinnedStore := memory.NewPinnedStore()
+	globalStore := memory.NewGlobalMemoryStore()
 	if cfg.Memory.MaxPinnedFacts > 0 {
-		pinnedStore.MaxFacts = cfg.Memory.MaxPinnedFacts
+		globalStore.MaxEntries = cfg.Memory.MaxPinnedFacts
 	}
-	// findings is now per-session (v0.2.0); deferred until LoadSession.
+	// findings + sessionMemory are per-session (v0.2.0);
+	// constructed by LoadSession.
 	a := &Agent{
 		cfg:          cfg,
 		state:        StateIdle,
 		findings:     nil, // set by LoadSession
-		pinned:       pinnedStore,
+		globalMemory: globalStore,
 		chat:         chatEngine,
 		toolRegistry: registry,
 		guardians:    make(map[string]*mcp.Guardian),
@@ -163,7 +164,7 @@ func New(cfg *config.Config) *Agent {
 	a.startGuardians()
 	a.maybeStartSandbox()
 	a.setBackend(cfg.LLM.DefaultBackend)
-	_ = a.pinned.Load()
+	_ = a.globalMemory.Load()
 	return a
 }
 
@@ -263,18 +264,18 @@ func (a *Agent) SetReportHandler(h func(title, content string)) {
 	a.reportHandler = h
 }
 
-// SetPinnedHandler sets the callback for pinned memory updates.
-func (a *Agent) SetPinnedHandler(h func()) {
+// SetGlobalMemoryHandler sets the callback for global memory updates.
+func (a *Agent) SetGlobalMemoryHandler(h func()) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.pinnedHandler = h
+	a.globalMemoryHandler = h
 }
 
 // SetFindingsHandler sets the callback for findings updates. The
 // callback is invoked after every successful findings.Add (whether
 // triggered by promote-finding, /finding slash, or analyze-data
 // auto-promote) so the frontend sidebar can refresh in real time
-// instead of waiting for a session switch. Mirrors SetPinnedHandler.
+// instead of waiting for a session switch. Mirrors SetGlobalMemoryHandler.
 func (a *Agent) SetFindingsHandler(h func()) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -294,7 +295,7 @@ func (a *Agent) notifyFindingsUpdated() {
 }
 
 // SetSessionMemoryHandler sets the callback for session-memory
-// updates (v0.2.0). Mirrors SetPinnedHandler / SetFindingsHandler.
+// updates (v0.2.0). Mirrors SetGlobalMemoryHandler / SetFindingsHandler.
 func (a *Agent) SetSessionMemoryHandler(h func()) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -420,7 +421,7 @@ func (a *Agent) buildMessagesV2(ctx context.Context, budget config.ContextBudget
 	}
 
 	systemPrompt := a.chat.BuildSystemPrompt(
-		a.pinned.FormatForPrompt(),
+		a.globalMemory.FormatForPrompt(),
 		a.sessionMemoryPrompt(),
 		a.findingsPrompt(),
 	)
@@ -936,30 +937,55 @@ func (a *Agent) toolMITLDefault(name, category, source string) bool {
 	return false
 }
 
-// PinnedAll returns all pinned facts.
-func (a *Agent) PinnedAll() []memory.PinnedFact {
-	return a.pinned.All()
+// GlobalMemoryAll returns all entries in the cross-session
+// Global Memory store.
+func (a *Agent) GlobalMemoryAll() []memory.GlobalMemoryEntry {
+	return a.globalMemory.All()
 }
 
-// PinnedSet creates or updates a pinned fact.
-func (a *Agent) PinnedSet(key, content string) error {
-	a.pinned.Set(key, content)
-	return a.pinned.Save()
+// GlobalMemorySet creates or updates a Global Memory entry by
+// fact text. Used by the settings UI direct-edit path.
+func (a *Agent) GlobalMemorySet(fact, native, category string) error {
+	a.globalMemory.Set(fact, native, category)
+	return a.globalMemory.Save()
 }
 
-// PinnedDelete removes a pinned fact.
-func (a *Agent) PinnedDelete(key string) error {
-	a.pinned.Delete(key)
-	return a.pinned.Save()
+// GlobalMemoryDelete removes a Global Memory entry by fact text.
+func (a *Agent) GlobalMemoryDelete(fact string) error {
+	a.globalMemory.Delete(fact)
+	return a.globalMemory.Save()
 }
 
-// PinnedDeleteByKeys bulk-removes pinned facts. Returns the count actually deleted.
-func (a *Agent) PinnedDeleteByKeys(keys []string) (int, error) {
-	n := a.pinned.DeleteByKeys(keys)
+// GlobalMemoryDeleteByFacts bulk-removes Global Memory entries.
+// Returns the count actually deleted.
+func (a *Agent) GlobalMemoryDeleteByFacts(facts []string) (int, error) {
+	n := a.globalMemory.DeleteByFacts(facts)
 	if n == 0 {
 		return 0, nil
 	}
-	return n, a.pinned.Save()
+	return n, a.globalMemory.Save()
+}
+
+// SessionMemoryAll returns the active session's Session Memory
+// entries, or empty when no session is loaded.
+func (a *Agent) SessionMemoryAll() []memory.SessionMemoryEntry {
+	if a.sessionMemory == nil {
+		return nil
+	}
+	return a.sessionMemory.All()
+}
+
+// SessionMemoryDeleteByFacts bulk-removes Session Memory entries
+// from the active session. Returns the count actually deleted.
+func (a *Agent) SessionMemoryDeleteByFacts(facts []string) (int, error) {
+	if a.sessionMemory == nil {
+		return 0, nil
+	}
+	n := a.sessionMemory.DeleteByFacts(facts)
+	if n == 0 {
+		return 0, nil
+	}
+	return n, a.sessionMemory.Save()
 }
 
 // FindingsDeleteByIDs bulk-removes findings from the active
@@ -973,6 +999,90 @@ func (a *Agent) FindingsDeleteByIDs(ids []string) (int, error) {
 		return 0, nil
 	}
 	return n, a.findings.Save()
+}
+
+// PromoteSessionMemoryToGlobal copies the named Session Memory
+// entry into the cross-session Global Memory store under the
+// chosen category (preference|decision). The original Session
+// Memory entry stays in place — promotion is additive, not a
+// move. Source is stamped as promoted_from_session_memory.
+func (a *Agent) PromoteSessionMemoryToGlobal(fact, category string) error {
+	if a.sessionMemory == nil {
+		return fmt.Errorf("no session loaded")
+	}
+	if !memory.ValidGlobalMemoryCategories[category] {
+		return fmt.Errorf("invalid global category %q", category)
+	}
+	entry, ok := a.sessionMemory.GetByFact(fact)
+	if !ok {
+		return fmt.Errorf("session memory entry not found: %q", fact)
+	}
+	sessionID := ""
+	if a.session != nil {
+		sessionID = a.session.ID
+	}
+	added := a.globalMemory.Add(memory.GlobalMemoryEntry{
+		Fact:           entry.Fact,
+		NativeFact:     entry.NativeFact,
+		Category:       category,
+		SessionID:      sessionID,
+		Source:         memory.GlobalSourcePromotedFromSession,
+		ToolOriginated: entry.ToolOriginated,
+	})
+	if !added {
+		return nil
+	}
+	if err := a.globalMemory.Save(); err != nil {
+		return err
+	}
+	a.mu.Lock()
+	h := a.globalMemoryHandler
+	a.mu.Unlock()
+	if h != nil {
+		h()
+	}
+	return nil
+}
+
+// PromoteFindingToGlobal copies the named Finding into Global
+// Memory under the chosen category. The original Finding stays
+// in place. Source is stamped as promoted_from_finding.
+func (a *Agent) PromoteFindingToGlobal(id, category string) error {
+	if a.findings == nil {
+		return fmt.Errorf("no session loaded")
+	}
+	if !memory.ValidGlobalMemoryCategories[category] {
+		return fmt.Errorf("invalid global category %q", category)
+	}
+	f, ok := a.findings.Get(id)
+	if !ok {
+		return fmt.Errorf("finding not found: %q", id)
+	}
+	sessionID := ""
+	if a.session != nil {
+		sessionID = a.session.ID
+	}
+	added := a.globalMemory.Add(memory.GlobalMemoryEntry{
+		Fact:           f.Content,
+		NativeFact:     f.Content,
+		Category:       category,
+		SessionID:      sessionID,
+		Source:         memory.GlobalSourcePromotedFromFinding,
+		ToolOriginated: f.ToolOriginated,
+	})
+	if !added {
+		return nil
+	}
+	if err := a.globalMemory.Save(); err != nil {
+		return err
+	}
+	a.mu.Lock()
+	h := a.globalMemoryHandler
+	a.mu.Unlock()
+	if h != nil {
+		h()
+	}
+	return nil
 }
 
 // LLMStatus returns current LLM and memory status.
@@ -1605,10 +1715,6 @@ func (a *Agent) handleCommand(message string) (string, error) {
 		return a.handleHelpCommand()
 	case "/model":
 		return a.handleModelCommand(parts[1:])
-	case "/finding":
-		return a.handleFindingCommand(parts[1:])
-	case "/findings":
-		return a.handleFindingsCommand()
 	default:
 		return fmt.Sprintf("Unknown command: %s\nType /help for available commands.", cmd), nil
 	}
@@ -1622,9 +1728,7 @@ func (a *Agent) handleHelpCommand() (string, error) {
 | /help | Show this help |
 | /model | Show current backend |
 | /model local | Switch to local LLM |
-| /model vertex | Switch to Vertex AI |
-| /finding <text> | Manually add a finding |
-| /findings | List all findings |`, nil
+| /model vertex | Switch to Vertex AI |`, nil
 }
 
 func (a *Agent) handleModelCommand(args []string) (string, error) {
@@ -1643,48 +1747,6 @@ func (a *Agent) handleModelCommand(args []string) (string, error) {
 	default:
 		return fmt.Sprintf("Unknown backend: %s. Available: local, vertex", target), nil
 	}
-}
-
-// handleFindingCommand and handleFindingsCommand are slated for
-// deletion in Phase 5 (slash commands are removed in v0.2.0).
-// They're kept compiling here in Phase 2 so the test suite
-// stays green during the intermediate phases. The /finding text
-// path now stamps SourceLLMPromoted (no more SourceManual in
-// v0.2.0); this is fine because the command is going away.
-func (a *Agent) handleFindingCommand(args []string) (string, error) {
-	if len(args) == 0 {
-		return "Usage: /finding <text to remember>", nil
-	}
-	if a.findings == nil {
-		return "", fmt.Errorf("no session loaded")
-	}
-	content := strings.Join(args, " ")
-	f := a.findings.Add(content, nil, findings.SourceLLMPromoted, false)
-	if err := a.findings.Save(); err != nil {
-		return "", fmt.Errorf("save finding: %w", err)
-	}
-	a.notifyFindingsUpdated()
-	return fmt.Sprintf("Finding saved: %s (%s)", f.Content, f.CreatedLabel), nil
-}
-
-func (a *Agent) handleFindingsCommand() (string, error) {
-	if a.findings == nil {
-		return "No session loaded.", nil
-	}
-	all := a.findings.All()
-	if len(all) == 0 {
-		return "No findings in this session yet.", nil
-	}
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("**Findings** (%d, current session)\n\n", len(all)))
-	for _, f := range all {
-		tags := ""
-		if len(f.Tags) > 0 {
-			tags = " `" + strings.Join(f.Tags, "` `") + "`"
-		}
-		sb.WriteString(fmt.Sprintf("- %s%s — %s\n", f.Content, tags, f.CreatedLabel))
-	}
-	return sb.String(), nil
 }
 
 // RestartLLMBackend rebuilds a.backend from the current cfg so
@@ -1880,7 +1942,7 @@ func (a *Agent) extractMemories(ctx context.Context) error {
 
 	// Combine "already known" lists from BOTH stores so the
 	// extraction LLM can dedup against either.
-	existing := a.pinned.FormatExistingForExtraction()
+	existing := a.globalMemory.FormatExistingForExtraction()
 	if a.sessionMemory != nil {
 		if sessionExisting := a.sessionMemory.FormatExistingForExtraction(); sessionExisting != "(none)" && sessionExisting != "" {
 			if existing == "(none)" {
@@ -1966,7 +2028,7 @@ Already known:
 		// B-3 — category allowlist. Reject anything outside
 		// the documented 4-category set so an attacker cannot
 		// invent "system_rule" etc.
-		if !memory.ValidPinnedCategories[category] {
+		if !memory.ValidExtractionCategories[category] {
 			logger.Info("extractMemories: dropped fact with invalid category %q: %q", category, fact)
 			continue
 		}
@@ -2003,11 +2065,11 @@ Already known:
 			var src string
 			switch role {
 			case "user":
-				src = memory.PinnedSourceUserTurn
+				src = memory.GlobalSourceUserTurn
 			case "assistant":
-				src = memory.PinnedSourceAssistantTurn
+				src = memory.GlobalSourceAssistantTurn
 			}
-			if a.pinned.Add(memory.PinnedFact{
+			if a.globalMemory.Add(memory.GlobalMemoryEntry{
 				Fact:            fact,
 				NativeFact:      native,
 				Category:        category,
@@ -2045,9 +2107,9 @@ Already known:
 
 	if addedToPinned > 0 {
 		logger.Info("extractMemories: added %d facts to global memory", addedToPinned)
-		_ = a.pinned.Save()
+		_ = a.globalMemory.Save()
 		a.mu.Lock()
-		h := a.pinnedHandler
+		h := a.globalMemoryHandler
 		a.mu.Unlock()
 		if h != nil {
 			h()

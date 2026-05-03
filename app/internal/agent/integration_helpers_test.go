@@ -15,14 +15,11 @@ func countSessionTokensH(s *memory.Session) int {
 	return total
 }
 
-func countWarmH(s *memory.Session) int {
-	count := 0
-	for _, r := range s.Records {
-		if r.Tier == memory.TierWarm {
-			count++
-		}
-	}
-	return count
+// v0.2.0: Tier was removed; warm summaries no longer live on
+// records (contextbuild caches them outside the conversation).
+// Helper kept as a no-op so existing call sites compile.
+func countWarmH(_ *memory.Session) int {
+	return 0
 }
 
 func wasToolCalledInLastTurnH(s *memory.Session) bool {

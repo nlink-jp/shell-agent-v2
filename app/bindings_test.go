@@ -265,11 +265,12 @@ func TestBindings_DeleteObject_AndDeleteObjects(t *testing.T) {
 }
 
 
-func TestBindings_DeleteFindings_AndPinned(t *testing.T) {
+func TestBindings_DeleteFindings_AndGlobalMemory(t *testing.T) {
 	// v0.2.0: findings live per-session at
-	// sessions/<id>/findings.json. Seed the per-session file and
-	// load the session before asserting against b.GetFindings().
-	// Pinned still lives at the global pinned.json.
+	// sessions/<id>/findings.json; global memory lives at the
+	// data dir's global_memory.json. Seed both and verify the
+	// renamed binding methods (GetGlobalMemories /
+	// DeleteGlobalMemories) operate against the new file layout.
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	dataDir := filepath.Join(home, "Library", "Application Support", "shell-agent-v2")
@@ -285,16 +286,15 @@ func TestBindings_DeleteFindings_AndPinned(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(sessionDir, "findings.json"), []byte(findingsJSON), 0600); err != nil {
 		t.Fatal(err)
 	}
-	// Seed a minimal chat.json so the session is loadable.
 	chatJSON := `{"id":"` + sessionID + `","title":"Test","records":[]}`
 	if err := os.WriteFile(filepath.Join(sessionDir, "chat.json"), []byte(chatJSON), 0600); err != nil {
 		t.Fatal(err)
 	}
-	pinnedJSON := `[
-		{"key":"name","fact":"name","native_fact":"Alice","content":"Alice","category":"fact","created_at":"2026-04-28T00:00:00Z","source_time":"2026-04-28T00:00:00Z"},
-		{"key":"city","fact":"city","native_fact":"Tokyo","content":"Tokyo","category":"fact","created_at":"2026-04-28T00:01:00Z","source_time":"2026-04-28T00:01:00Z"}
+	globalJSON := `[
+		{"fact":"User prefers Go","native_fact":"ユーザーはGoを好む","category":"preference","source":"user_turn","session_id":"prev","created_at":"2026-04-28T00:00:00Z"},
+		{"fact":"Chose DuckDB for storage","native_fact":"DuckDBをストレージに採用","category":"decision","source":"user_turn","session_id":"prev","created_at":"2026-04-28T00:01:00Z"}
 	]`
-	if err := os.WriteFile(filepath.Join(dataDir, "pinned.json"), []byte(pinnedJSON), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(dataDir, "global_memory.json"), []byte(globalJSON), 0600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -304,7 +304,6 @@ func TestBindings_DeleteFindings_AndPinned(t *testing.T) {
 	a.SetObjects(store)
 	b := &Bindings{agent: a, cfg: cfg, objects: store}
 
-	// Load the session so the per-session findings store is populated.
 	session, err := memory.LoadSession(sessionID)
 	if err != nil {
 		t.Fatalf("LoadSession: %v", err)
@@ -328,19 +327,19 @@ func TestBindings_DeleteFindings_AndPinned(t *testing.T) {
 		t.Errorf("remaining findings = %d, want 1", got)
 	}
 
-	pinned := b.GetPinnedMemories()
-	if len(pinned) != 2 {
-		t.Fatalf("seed pinned = %d", len(pinned))
+	globals := b.GetGlobalMemories()
+	if len(globals) != 2 {
+		t.Fatalf("seed global memories = %d", len(globals))
 	}
-	pdel, err := b.DeletePinnedMemories([]string{"name"})
+	pdel, err := b.DeleteGlobalMemories([]string{"User prefers Go"})
 	if err != nil {
-		t.Fatalf("DeletePinnedMemories: %v", err)
+		t.Fatalf("DeleteGlobalMemories: %v", err)
 	}
 	if pdel != 1 {
-		t.Errorf("deleted pinned = %d, want 1", pdel)
+		t.Errorf("deleted global memories = %d, want 1", pdel)
 	}
-	if got := len(b.GetPinnedMemories()); got != 1 {
-		t.Errorf("remaining pinned = %d, want 1", got)
+	if got := len(b.GetGlobalMemories()); got != 1 {
+		t.Errorf("remaining global memories = %d, want 1", got)
 	}
 }
 

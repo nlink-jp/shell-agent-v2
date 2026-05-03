@@ -100,8 +100,11 @@ func (b *Bindings) startup(ctx context.Context) {
 			"title":      title,
 		})
 	})
-	b.agent.SetPinnedHandler(func() {
-		wailsRuntime.EventsEmit(b.ctx, "pinned:updated", nil)
+	b.agent.SetGlobalMemoryHandler(func() {
+		wailsRuntime.EventsEmit(b.ctx, "global_memory:updated", nil)
+	})
+	b.agent.SetSessionMemoryHandler(func() {
+		wailsRuntime.EventsEmit(b.ctx, "session_memory:updated", nil)
 	})
 	b.agent.SetFindingsHandler(func() {
 		wailsRuntime.EventsEmit(b.ctx, "findings:updated", nil)
@@ -1319,16 +1322,14 @@ func (b *Bindings) GetTools() []ToolInfo {
 	return result
 }
 
-// --- Pinned Memory bindings ---
+// --- Global / Session Memory bindings (v0.2.0) ---
 
-// PinnedMemoryData is a pinned fact for the frontend.
+// GlobalMemoryData is a cross-session memory entry for the frontend.
 //
-// Source / SessionID / ToolOriginated / CreatedAt were added in
-// v0.1.26 so the sidebar can render a trust badge and learned-date
-// alongside each pinned fact. Legacy entries without Source render
-// as the lower-trust [derived] badge.
-// See docs/en/memory-injection-hardening.md §5 Phase A / D.
-type PinnedMemoryData struct {
+// Renamed from PinnedMemoryData in v0.2.0; only preference / decision
+// categories belong here. Source / SessionID / ToolOriginated /
+// CreatedAt drive the trust badge and learned-date in the sidebar.
+type GlobalMemoryData struct {
 	Fact           string `json:"fact"`
 	NativeFact     string `json:"native_fact"`
 	Category       string `json:"category"`
@@ -1338,16 +1339,28 @@ type PinnedMemoryData struct {
 	CreatedAt      string `json:"created_at"` // RFC3339 if present, empty otherwise
 }
 
-// GetPinnedMemories returns all pinned facts.
-func (b *Bindings) GetPinnedMemories() []PinnedMemoryData {
-	all := b.agent.PinnedAll()
-	result := make([]PinnedMemoryData, len(all))
+// SessionMemoryData is a per-session memory entry for the frontend.
+// Only fact / context categories belong here; entries die with the
+// session unless promoted to Global Memory.
+type SessionMemoryData struct {
+	Fact           string `json:"fact"`
+	NativeFact     string `json:"native_fact"`
+	Category       string `json:"category"`
+	Source         string `json:"source"`
+	ToolOriginated bool   `json:"tool_originated"`
+	CreatedAt      string `json:"created_at"`
+}
+
+// GetGlobalMemories returns all Global Memory entries.
+func (b *Bindings) GetGlobalMemories() []GlobalMemoryData {
+	all := b.agent.GlobalMemoryAll()
+	result := make([]GlobalMemoryData, len(all))
 	for i, f := range all {
 		createdAt := ""
 		if !f.CreatedAt.IsZero() {
 			createdAt = f.CreatedAt.Format(time.RFC3339)
 		}
-		result[i] = PinnedMemoryData{
+		result[i] = GlobalMemoryData{
 			Fact:           f.Fact,
 			NativeFact:     f.NativeFact,
 			Category:       f.Category,
@@ -1360,19 +1373,64 @@ func (b *Bindings) GetPinnedMemories() []PinnedMemoryData {
 	return result
 }
 
-// UpdatePinnedMemory creates or updates a pinned fact.
-func (b *Bindings) UpdatePinnedMemory(key, content string) error {
-	return b.agent.PinnedSet(key, content)
+// UpdateGlobalMemory creates or updates a Global Memory entry.
+// Signature: (fact, native, category) — direct edit path from the
+// settings UI.
+func (b *Bindings) UpdateGlobalMemory(fact, native, category string) error {
+	return b.agent.GlobalMemorySet(fact, native, category)
 }
 
-// DeletePinnedMemory removes a pinned fact.
-func (b *Bindings) DeletePinnedMemory(key string) error {
-	return b.agent.PinnedDelete(key)
+// DeleteGlobalMemory removes a Global Memory entry by fact text.
+func (b *Bindings) DeleteGlobalMemory(fact string) error {
+	return b.agent.GlobalMemoryDelete(fact)
 }
 
-// DeletePinnedMemories bulk-removes pinned facts. Returns count actually deleted.
-func (b *Bindings) DeletePinnedMemories(keys []string) (int, error) {
-	return b.agent.PinnedDeleteByKeys(keys)
+// DeleteGlobalMemories bulk-removes Global Memory entries by fact
+// text. Returns count actually deleted.
+func (b *Bindings) DeleteGlobalMemories(facts []string) (int, error) {
+	return b.agent.GlobalMemoryDeleteByFacts(facts)
+}
+
+// GetSessionMemories returns the active session's Session Memory
+// entries, or empty when no session is loaded.
+func (b *Bindings) GetSessionMemories() []SessionMemoryData {
+	all := b.agent.SessionMemoryAll()
+	result := make([]SessionMemoryData, len(all))
+	for i, f := range all {
+		createdAt := ""
+		if !f.CreatedAt.IsZero() {
+			createdAt = f.CreatedAt.Format(time.RFC3339)
+		}
+		result[i] = SessionMemoryData{
+			Fact:           f.Fact,
+			NativeFact:     f.NativeFact,
+			Category:       f.Category,
+			Source:         f.Source,
+			ToolOriginated: f.ToolOriginated,
+			CreatedAt:      createdAt,
+		}
+	}
+	return result
+}
+
+// DeleteSessionMemories bulk-removes Session Memory entries from
+// the active session. Returns count actually deleted.
+func (b *Bindings) DeleteSessionMemories(facts []string) (int, error) {
+	return b.agent.SessionMemoryDeleteByFacts(facts)
+}
+
+// PinSessionMemory promotes a Session Memory entry into Global
+// Memory under the chosen category (preference|decision). Source
+// is stamped as promoted_from_session_memory; the original Session
+// Memory entry stays in place.
+func (b *Bindings) PinSessionMemory(fact, category string) error {
+	return b.agent.PromoteSessionMemoryToGlobal(fact, category)
+}
+
+// PinFinding promotes a Findings entry into Global Memory under
+// the chosen category. Source is stamped as promoted_from_finding.
+func (b *Bindings) PinFinding(id, category string) error {
+	return b.agent.PromoteFindingToGlobal(id, category)
 }
 
 // DeleteFindings bulk-removes findings by ID. Returns count actually deleted.

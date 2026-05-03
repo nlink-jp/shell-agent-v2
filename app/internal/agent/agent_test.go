@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/nlink-jp/shell-agent-v2/internal/config"
-	"github.com/nlink-jp/shell-agent-v2/internal/findings"
 	"github.com/nlink-jp/shell-agent-v2/internal/memory"
 )
 
@@ -98,33 +97,6 @@ func TestModelCommand(t *testing.T) {
 		t.Errorf("backend = %v, want local", a.CurrentBackend())
 	}
 	_ = result
-}
-
-func TestFindingCommand(t *testing.T) {
-	a := New(config.Default())
-	a.session = &memory.Session{ID: "test-sess", Title: "Test Session"}
-
-	result, err := a.handleCommand("/finding Sales peak in April")
-	// Save may fail (temp path), but command itself should work
-	if err != nil {
-		// Allow save errors in test
-		_ = err
-	}
-	_ = result
-}
-
-func TestFindingsCommandEmpty(t *testing.T) {
-	a := New(config.Default())
-	a.findings = findings.NewStore("test-empty") // per-session store
-	a.session = &memory.Session{ID: "test-empty"}
-
-	result, err := a.handleCommand("/findings")
-	if err != nil {
-		t.Fatalf("error: %v", err)
-	}
-	if result != "No findings in this session yet." {
-		t.Errorf("result = %v, want 'No findings in this session yet.'", result)
-	}
 }
 
 func TestUnknownCommand(t *testing.T) {

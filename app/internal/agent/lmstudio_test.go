@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/nlink-jp/shell-agent-v2/internal/analysis"
-	"github.com/nlink-jp/shell-agent-v2/internal/chat"
 	"github.com/nlink-jp/shell-agent-v2/internal/config"
 	"github.com/nlink-jp/shell-agent-v2/internal/findings"
 	"github.com/nlink-jp/shell-agent-v2/internal/memory"
@@ -24,7 +23,9 @@ import (
 func newLMStudioAgent(t *testing.T) *Agent {
 	t.Helper()
 	cfg := config.Default()
-	cfg.Memory.HotTokenLimit = 2048 // aggressive compaction for testing
+	// v0.2.0: HotTokenLimit removed; the v1 destructive compaction
+	// path is gone. Context is managed non-destructively by
+	// contextbuild now.
 	a := New(cfg)
 	a.session = &memory.Session{
 		ID:      fmt.Sprintf("lmtest-%d", time.Now().UnixMilli()),
@@ -170,28 +171,16 @@ func TestLMStudio_Agent_ContextBudgetPreventsOverflow(t *testing.T) {
 		t.Error("empty response after many turns")
 	}
 
-	// Check context was managed
-	hotCount := 0
-	warmCount := 0
-	for _, r := range a.session.Records {
-		switch r.Tier {
-		case memory.TierHot:
-			hotCount++
-		case memory.TierWarm:
-			warmCount++
-		}
-	}
-	t.Logf("Records: %d hot, %d warm (total %d)", hotCount, warmCount, len(a.session.Records))
-	if warmCount > 0 {
-		t.Log("Memory compaction occurred (warm summaries exist)")
-	}
+	// v0.2.0: Tier removed; just log total record count. Context
+	// is managed non-destructively now.
+	t.Logf("Records: %d total (contextbuild handles budget non-destructively)", len(a.session.Records))
 }
 
 // TestLMStudio_Agent_AnalyzeData verifies the analyze-data tool
 // works end-to-end with a real LLM.
 func TestLMStudio_Agent_AnalyzeData(t *testing.T) {
 	a := newLMStudioAgent(t)
-	a.findings = findings.NewStore()
+	a.findings = findings.NewStore(a.session.ID)
 	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 	defer cancel()
 
@@ -282,50 +271,7 @@ func truncate(s string, maxLen int) string {
 	return s[:maxLen] + "..."
 }
 
-// TestLMStudio_Agent_BuildMessagesTokenCount verifies that
-// BuildMessagesWithBudget actually reduces token count.
-func TestLMStudio_Agent_BuildMessagesTokenCount(t *testing.T) {
-	a := newLMStudioAgent(t)
-
-	// Add many messages to session
-	for i := range 20 {
-		a.session.AddUserMessage(fmt.Sprintf("Question %d: %s", i, strings.Repeat("word ", 50)))
-		a.session.AddAssistantMessage(fmt.Sprintf("Answer %d: %s", i, strings.Repeat("reply ", 50)))
-	}
-
-	// Build with budget
-	budget := a.cfg.ContextBudget
-	result, err := a.chat.BuildMessagesWithBudget(
-		a.session,
-		a.pinned.FormatForPrompt(),
-		a.findings.FormatForPrompt(),
-		chat.BuildOptions{
-			MaxConversationTokens: budget.MaxContextTokens,
-			MaxWarmTokens:         budget.MaxWarmTokens,
-			MaxToolResultTokens:   budget.MaxToolResultTokens,
-		},
-	)
-	if err != nil {
-		t.Fatalf("BuildMessagesWithBudget: %v", err)
-	}
-
-	// Build without budget
-	allMsgs, err := a.chat.BuildMessages(
-		a.session,
-		a.pinned.FormatForPrompt(),
-		a.findings.FormatForPrompt(),
-	)
-	if err != nil {
-		t.Fatalf("BuildMessages: %v", err)
-	}
-
-	t.Logf("With budget: %d messages, ~%d tokens, %d dropped", len(result.Messages), result.TotalTokens, result.DroppedCount)
-	t.Logf("Without budget: %d messages", len(allMsgs))
-
-	if len(result.Messages) >= len(allMsgs) {
-		t.Error("budgeted messages should be fewer than unlimited")
-	}
-	if result.DroppedCount == 0 {
-		t.Error("expected some messages to be dropped")
-	}
-}
+// v0.2.0: BuildMessagesWithBudget was removed along with the v1
+// destructive compaction path. Context-budget enforcement now
+// lives in contextbuild's non-destructive summary-cache flow,
+// covered by tests in internal/contextbuild and internal/chat.

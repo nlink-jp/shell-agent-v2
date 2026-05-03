@@ -28,11 +28,11 @@ func TestLMStudio_Heavy_AnalysisWorkflow(t *testing.T) {
 	cfg := config.Default()
 	// Budget is unlimited by default; [Calling:] exclusion is active
 	a := New(cfg)
-	a.findings = findings.NewStore()
 	a.session = &memory.Session{
 		ID:      fmt.Sprintf("heavy-%d", time.Now().UnixMilli()),
 		Records: []memory.Record{},
 	}
+	a.findings = findings.NewStore(a.session.ID)
 
 	tmpDir := t.TempDir()
 

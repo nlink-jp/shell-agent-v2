@@ -168,6 +168,18 @@ func (s *SessionMemoryStore) Get(index int) (SessionMemoryEntry, bool) {
 	return s.Entries[index], true
 }
 
+// GetByFact retrieves an entry by its Fact text. Used by the Pin
+// to Global Memory binding which keys on fact for stability across
+// list re-renders.
+func (s *SessionMemoryStore) GetByFact(fact string) (SessionMemoryEntry, bool) {
+	for _, e := range s.Entries {
+		if e.Fact == fact {
+			return e, true
+		}
+	}
+	return SessionMemoryEntry{}, false
+}
+
 // All returns all entries.
 func (s *SessionMemoryStore) All() []SessionMemoryEntry {
 	return s.Entries
