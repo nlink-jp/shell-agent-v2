@@ -162,7 +162,14 @@ export default function FindingsDisclosure({sessionId, refreshTick, onPinFinding
                                 <div className="findings-content">
                                     <div className="findings-text">{f.content}</div>
                                     <div className="findings-meta">
-                                        <span className={`trust-badge ${t.cls}`}>{t.label}</span>
+                                        {(() => {
+                                            const tip = t.cls === 'trust-user'
+                                                ? 'user-stated: ユーザー操作で promote された finding。高信頼。'
+                                                : 'derived: LLM が promote-finding / analyze-data 経由で登録した finding。内容は LLM を経由しており、攻撃者影響下のバイトを含みうる。'
+                                            return (
+                                                <span className={`trust-badge ${t.cls}`} data-tooltip={tip}>{t.label}</span>
+                                            )
+                                        })()}
                                         <span className="finding-date">{f.created_label}</span>
                                         {f.tags && f.tags.length > 0 && (
                                             <span className="findings-tags">

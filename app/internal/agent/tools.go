@@ -813,9 +813,16 @@ func (a *Agent) toolAnalyzeData(ctx context.Context, argsJSON string) (string, e
 	// Build LLM adapter
 	adapter := &backendLLMAdapter{backend: a.backend}
 
-	// Run analysis
+	// Run analysis. Inject a language hint derived from the user's
+	// recent conversation so the summarizer doesn't silently emit
+	// English findings when the assistant LLM translated the
+	// perspective string to English upstream — see fix(findings)
+	// commit a6a8e55 for the symptom.
 	cfg := analysis.DefaultSummarizerConfig()
 	summarizer := analysis.NewSummarizer(adapter, a.analysis.Schema(), cfg)
+	if a.session != nil {
+		summarizer.LanguageHint = detectUserLanguageHint(a.session.Records)
+	}
 	result, err := summarizer.Analyze(ctx, args.Prompt, rows, func(idx, total int) {
 		a.emitActivity(ActivityEvent{
 			Type:   "tool_start",

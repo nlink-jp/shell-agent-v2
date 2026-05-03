@@ -57,7 +57,15 @@ type windowResponse struct {
 }
 
 // Summarizer performs sliding window analysis on data rows.
+//
+// LanguageHint, when non-empty, overrides the "match the perspective
+// language" rule with an explicit target language. The agent layer
+// fills this from the user's recent conversation language because
+// the assistant LLM tends to translate the perspective string to
+// English when calling analyze-data, which then leaks into every
+// finding "description" the user reads in the chat-pane panel.
 type Summarizer struct {
+	LanguageHint string
 	llm    LLMClient
 	schema string
 	cfg    SummarizerConfig
@@ -173,6 +181,10 @@ func GenerateReport(perspective string, result *AnalyzeResult) string {
 // --- prompts ---
 
 func (s *Summarizer) buildSystemPrompt(perspective string) string {
+	languageRule := `Write the summary and EVERY finding "description" in the same language as the analysis perspective above (e.g. if the perspective is in 日本語, every description must be in 日本語; do not silently switch to English even when describing numeric anomalies).`
+	if s.LanguageHint != "" {
+		languageRule = fmt.Sprintf(`Write the summary and EVERY finding "description" in %s. The perspective text above may have been translated to a different language by an upstream caller — ignore that and use %s. Do not silently switch to English when describing numeric anomalies, dates, or column names; embed those values inside %s prose.`, s.LanguageHint, s.LanguageHint, s.LanguageHint)
+	}
 	return fmt.Sprintf(`You are a data analyst. Analyze data records from a specific perspective.
 
 ## Analysis Perspective
@@ -199,7 +211,7 @@ Rules:
 - Only report NEW findings not already covered in previous findings
 - Use severity levels appropriately: critical for urgent issues, info for general observations
 - Include specific evidence from the data
-- Write the summary and EVERY finding "description" in the same language as the analysis perspective above (e.g. if the perspective is in 日本語, every description must be in 日本語; do not silently switch to English even when describing numeric anomalies)`, perspective, s.schema)
+- %s`, perspective, s.schema, languageRule)
 }
 
 func (s *Summarizer) buildUserPrompt(tag guard.Tag, summary string, findings []Finding, rows []string, windowIndex int) string {

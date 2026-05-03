@@ -2259,6 +2259,58 @@ func matchFactToUserTurn(fact, native string, hotIndexes []int, records []memory
 	return 0, false
 }
 
+// detectUserLanguageHint returns a short language label suitable
+// for the analyze-data summarizer's LanguageHint, derived from the
+// most recent user turn in records. Returns "" when the recent
+// user content is dominated by ASCII (Latin alphabet) — the
+// summarizer's default "match the perspective" rule is fine then.
+//
+// Used to defend against the assistant LLM translating the user's
+// Japanese analyze-data prompt to English on its way into the
+// tool call: even when the translated perspective text looks
+// English to the summarizer, the hint forces the output language
+// back to the user-facing one.
+func detectUserLanguageHint(records []memory.Record) string {
+	for i := len(records) - 1; i >= 0; i-- {
+		if records[i].Role != "user" {
+			continue
+		}
+		if hasSignificantCJK(records[i].Content) {
+			return "Japanese"
+		}
+		return ""
+	}
+	return ""
+}
+
+// hasSignificantCJK is true when ≥30% of the letter / digit runes
+// in s sit inside the Hiragana / Katakana / CJK Unified blocks.
+// 30% is high enough to ignore stray Japanese particles in an
+// otherwise English message but low enough to catch mixed Japanese
+// prose with embedded English column names and numbers.
+func hasSignificantCJK(s string) bool {
+	cjk, total := 0, 0
+	for _, r := range s {
+		if !(r >= '0' && r <= '9') && !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')) {
+			isJP := (r >= 0x3040 && r <= 0x309F) || // Hiragana
+				(r >= 0x30A0 && r <= 0x30FF) || // Katakana
+				(r >= 0x3400 && r <= 0x4DBF) || // CJK Ext A
+				(r >= 0x4E00 && r <= 0x9FFF) // CJK Unified
+			if !isJP {
+				continue
+			}
+			total++
+			cjk++
+			continue
+		}
+		total++
+	}
+	if total < 3 {
+		return false
+	}
+	return float64(cjk)/float64(total) > 0.3
+}
+
 // extractCJKNgrams returns 3-character overlapping windows over the
 // contiguous CJK runs in s (kanji 0x4E00-0x9FFF + katakana
 // 0x30A0-0x30FF + hiragana 0x3040-0x309F). Used by
