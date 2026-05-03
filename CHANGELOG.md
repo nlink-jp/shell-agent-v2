@@ -5,6 +5,155 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.26] - 2026-05-03
+
+### Added
+
+- **Trust badge tooltips on memory entries.** Sidebar Pinned
+  Memory and Findings rows now show a CSS pseudo-element
+  tooltip on hover (replacing the unreliable native `title=`
+  attribute that the Wails wkwebview embedding does not render
+  consistently). The tooltip explains the v0.1.26 provenance
+  contract in plain Japanese: "user-stated はユーザー発話
+  または手動 pin、derived は LLM 経由の content（攻撃者影響下
+  のバイトを含みうる）" — recovers the badge's meaning at
+  glance.
+- **Restore user-attached images on session reload.** When a
+  past session is opened, user messages that originally
+  included image attachments now show those images in their
+  bubble. Previously the backend persisted the image
+  `ObjectIDs` on the user record but never surfaced them in
+  `LoadSession`, so restored conversations lost all visual
+  context (the assistant's reply would reference "this image"
+  with no referent). `MessageData` gained `ObjectIDs`,
+  `LoadSession`'s user case populates it, and the frontend
+  renders `object:<id>` URLs through the existing
+  `ObjectImage` resolver.
+
+### Fixed
+
+- **Tool-call rounds now produce a chat bubble for explanation
+  text.** When the LLM included a `"what I'm about to do and
+  why"` preamble alongside a tool call (which the system prompt
+  explicitly asks for), that text was being emitted only as a
+  transient `Type: "thinking"` activity event — surfaced as a
+  small status line, never as a chat message. The same content
+  was already persisted in `session.Records` and reappeared on
+  session reload, so the live UX was inconsistent with the
+  restored UX. Now emitted as `Type: "assistant_text"` and
+  appended to the chat as a proper assistant bubble.
+- **Session-switch scroll position lands at the latest
+  message.** Switching sessions used to leave the chat scrolled
+  near the top of the restored history. Two issues compounded:
+  `behavior: 'smooth'` scrolling was being interrupted by
+  markdown / image layout settling; and `scrollIntoView` on a
+  zero-height anchor below the last bubble stopped about one
+  visual line short due to the `.messages` container's
+  padding-bottom plus the last bubble's margin-bottom. Replaced
+  with direct `scrollTop = scrollHeight` on the container
+  element, with a delayed retry to catch late-rendering content.
+- **Provenance source attribution survives the gemma "old
+  3-part" extraction format.** When the local extraction LLM
+  emitted the legacy `category|fact|native` shape instead of
+  the v0.1.26 `category|turn-N|fact|native` shape, the parser
+  put `parts[1]` (the english fact) into the turn-token slot
+  and `parts[2]` (the native expression) into the fact slot,
+  silently corrupting both content and source. New
+  `parseExtractionLine` detects format by checking whether
+  `parts[1]` looks like `turn-N` and falls back to 3-part
+  parsing if not.
+- **Source attribution for facts stated in Japanese.** Even
+  when the LLM provided `turn-N` correctly, attribution was
+  often `assistant_turn` (rendered `[derived]`) when the user
+  had clearly stated the fact in Japanese — the extraction LLM
+  picked the canonical English fact from the assistant's
+  echoing turn rather than from the user's original Japanese.
+  Added `extractCJKNgrams` (3-character overlapping windows
+  over kanji/katakana runs) so the Japanese `native` field is
+  cross-checked against the user's Japanese turn; a hit
+  promotes attribution to `user_turn` and the badge correctly
+  reads `[user-stated]`.
+- **System-prompt clarification: never emit the input-anchor
+  shape in output.** The LLM occasionally echoed the
+  `Image (object ID: <hex>):` form (which is the shape the
+  system prompt uses to anchor user-attached images in input
+  context) when referencing a freshly produced image. The
+  markdown renderer treats only `![alt](object:<hex>)` as an
+  inline image, so the user saw the literal anchor as plain
+  text and no image appeared. The system prompt now
+  explicitly forbids the anchor shape in output and reminds
+  the model to always use `![alt](object:<hex>)` for any
+  image reference (user-attached, tool-produced, or
+  retrieved). Defense by prompt only — no auto-rewrite, since
+  the candidate regex would have mangled legitimate prose
+  that talks ABOUT an ID (e.g. "Image (object ID: abc) is
+  missing", documentation explaining the anchor format, code
+  blocks).
+
+
+
+### Security
+
+- **Memory injection hardening (Security Round 3, 5 phases).**
+  Triggered by a v0.1.25 regression where `THINK\n` started
+  leaking into chat output across brand-new sessions before any
+  user input. Root cause: two earlier auto-extracted pinned
+  facts that *described* the THINK marker had been re-injected
+  as authoritative system-prompt content into every subsequent
+  session, paradoxically teaching the model to emit it. The
+  same mechanism is a general indirect-prompt-injection
+  vector — anything an assistant turn ever quotes (CSV cells,
+  MCP responses, image OCR, web fetches) can be auto-extracted
+  and pinned, then re-injected indefinitely. Design:
+  [docs/en/memory-injection-hardening.md](docs/en/memory-injection-hardening.md).
+  - **Phase A — provenance.** `PinnedFact` and `Finding` now
+    carry source attribution (`user_turn` / `assistant_turn` /
+    `manual` / `llm_promoted`), `SessionID`, and a
+    `ToolOriginated` flag. `FormatForPrompt` for both stores
+    prefixes each line with `[user-stated]` (high trust) or
+    `[derived]` (lower trust — content traces through the LLM).
+    Legacy entries with no source render as `[derived]` — the
+    safer default.
+  - **Phase B — pin-time defenses.** `extractPinnedMemories`
+    now drops self-referential facts (anything mentioning the
+    assistant, the model, system prompt, internal thought,
+    THINK as a marker, tool call/output, …); enforces a
+    category allowlist (`preference|decision|fact|context`);
+    and wraps both the conversation tail and the existing-facts
+    list with `nlk/guard` so the extraction LLM treats them as
+    data, not instructions. `promote-finding` MITL default
+    confirmed ON (already shipped as part of v0.1.20 H1+H2
+    rework).
+  - **Phase C — retention caps.** `MaxPinnedFacts` (default
+    100) and `MaxFindings` (default 200) bound store growth via
+    FIFO eviction, so a noisy or hostile session cannot inflate
+    either store indefinitely. `FormatForPrompt` for both is
+    bounded at 16 KiB total with newest-first inclusion and an
+    elision marker.
+  - **Phase D — UI source badges.** Sidebar Findings and Pinned
+    Memory rows now show a trust badge (user-stated vs derived)
+    next to each entry, with a tooltip explaining the
+    provenance contract. Existing bulk-select + delete is the
+    recovery path; no separate Settings tab needed.
+  - **Phase E — docs.** Design document, README "Cross-session
+    memory trust" subsection, and `memory-architecture-v2.md`
+    threat-model section.
+  - No data migration required. Existing `pinned.json` /
+    `findings.json` files keep working; missing source fields
+    default to the lower-trust label.
+
+### Notes
+
+- Auto-extraction itself remains on; only attempted defense is
+  pin-time filters + provenance tagging. MITL on every
+  extracted fact would destroy the chat UX (extraction runs
+  most turns); the residual risk on auto-extraction is recovered
+  via the audit + delete path in the sidebar.
+- Self-referential filter is intentionally over-broad — false
+  positives (a benign user fact about "the model T" never
+  pinning) are cheaper than false negatives (a behaviour-
+  overriding fact slipping through).
+
 ## [0.1.25] - 2026-05-03
 
 ### Added
