@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.28] - 2026-05-03
+
+### Added
+
+- **Pinned Memory rows show `learned YYYY-MM-DD`** in the
+  sidebar — the date each fact was first pinned. The date was
+  already embedded in the system-prompt injection (the LLM
+  could see it via `(learned …)`), but the user couldn't see
+  it in the UI. Helps audit how stale a pinned fact is when
+  reviewing the list.
+- **Findings sidebar refreshes in real time** after a finding
+  is promoted via `promote-finding` (LLM tool call), the
+  `/finding` slash command, or the `analyze-data` auto-promote
+  loop. Previously findings only appeared after a session
+  switch — Pinned Memory had this reactive update path
+  (`pinned:updated` event) since v0.1.x but Findings was
+  missing the symmetric `findings:updated` event.
+
+### Notes
+
+- No data migration. Legacy pinned entries with no `created_at`
+  field continue to render without the date row.
+
 ## [0.1.27] - 2026-05-03
 
 ### Fixed
