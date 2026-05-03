@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.27] - 2026-05-03
+
+### Fixed
+
+- Bump nlk to v0.5.2 to pick up the strip fix: think-tag handling
+  no longer truncates LLM responses that explain the literal
+  `<think>` tag inside a markdown inline-code span. The symptom
+  surfaced during v0.1.26 verification when the user asked
+  "THINK というタグについて教えて" — gemma's reply got truncated
+  mid-explanation as soon as it tried to write `` `<think>` ``.
+
 ## [0.1.26] - 2026-05-03
 
 ### Added

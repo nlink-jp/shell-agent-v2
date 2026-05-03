@@ -4,7 +4,7 @@ go 1.26.2
 
 require (
 	github.com/marcboeker/go-duckdb v1.8.5
-	github.com/nlink-jp/nlk v0.5.1
+	github.com/nlink-jp/nlk v0.5.2
 	github.com/wailsapp/wails/v2 v2.12.0
 	google.golang.org/genai v1.54.0
 )
