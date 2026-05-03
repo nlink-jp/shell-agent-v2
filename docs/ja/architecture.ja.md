@@ -4,10 +4,15 @@
 どのように構成されているかを説明します。各サブシステムの
 進化過程は [`history/`](history/) に保存されています。
 
-姉妹ドキュメント
-[`memory-model.ja.md`](memory-model.ja.md) は v0.2.0 の
-4-facility メモリモデルの正準資料で、本文書はメモリ周りの
-記述では適宜そちらを参照します。
+姉妹ドキュメント:
+
+- [`memory-model.ja.md`](memory-model.ja.md) — v0.2.0 4-facility
+  メモリモデル正準資料
+- [`data-analysis.ja.md`](data-analysis.ja.md) — per-session DuckDB
+  エンジン、analyze-data の sliding-window summarizer、Findings
+  ライフサイクル
+
+本文書は両者を適宜参照します。
 
 詳細な内容は英語版 [`docs/en/architecture.md`](../en/architecture.md)
 を参照してください。日本語版は要点のみ抜粋:

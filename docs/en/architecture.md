@@ -4,10 +4,16 @@ This document describes how shell-agent-v2 is put together **as of
 v0.2.0**. For the evolution history of individual subsystems see
 [`history/`](history/).
 
-The companion document [`memory-model.md`](memory-model.md) is the
-canonical reference for the 4-facility memory design; this file
-gives the wider system context and points into it where memory is
-involved.
+Companion documents:
+
+- [`memory-model.md`](memory-model.md) — canonical reference for
+  the 4-facility memory design.
+- [`data-analysis.md`](data-analysis.md) — the per-session DuckDB
+  engine, the sliding-window analyze-data summarizer, and the
+  Findings lifecycle.
+
+This file gives the wider system context and points into them
+where each subsystem is involved.
 
 ## 1. What it is
 

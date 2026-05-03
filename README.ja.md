@@ -138,6 +138,7 @@ make test       # テスト実行
 
 - [**アーキテクチャ概要 (v0.2.0)**](docs/ja/architecture.ja.md) ⭐ ここから
 - [**メモリモデル**](docs/ja/memory-model.ja.md) — 4-facility 設計
+- [**データ分析**](docs/ja/data-analysis.ja.md) — DuckDB エンジン、analyze-data sliding-window、Findings ライフサイクル
 
 過去の設計メモは [`docs/ja/history/`](docs/ja/history/) に
 v0.2.0 の audit trail として保存。一部は現状を反映していない —

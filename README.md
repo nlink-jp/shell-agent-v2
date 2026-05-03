@@ -143,6 +143,7 @@ Current state of the system:
 
 - [**Architecture overview (v0.2.0)**](docs/en/architecture.md) ⭐ start here
 - [**Memory model**](docs/en/memory-model.md) — 4-facility design
+- [**Data analysis**](docs/en/data-analysis.md) — DuckDB engine, sliding-window analyze-data, Findings lifecycle
 
 Past design notes are kept under [`docs/en/history/`](docs/en/history/)
 as the audit trail behind v0.2.0. Some no longer reflect current
