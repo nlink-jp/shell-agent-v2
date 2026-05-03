@@ -270,6 +270,9 @@ export default function Sidebar({
                                             {p.native_fact && p.native_fact !== p.fact && (
                                                 <span className="pinned-fact-en">{p.fact}</span>
                                             )}
+                                            {p.created_at && (
+                                                <span className="pinned-date">learned {p.created_at.slice(0, 10)}</span>
+                                            )}
                                         </div>
                                         <button className="pinned-delete" onClick={() => onPinnedDeleteOne(p.fact)}>&#x2715;</button>
                                     </div>

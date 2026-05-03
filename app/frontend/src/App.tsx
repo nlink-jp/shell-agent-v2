@@ -189,6 +189,14 @@ function App() {
             const cleanupPinned = window.runtime.EventsOn('pinned:updated', () => {
                 if (window.go) window.go.main.Bindings.GetPinnedMemories().then(setPinnedMemories)
             })
+            // Mirror of pinned:updated for findings — emitted by
+            // the backend after promote-finding, /finding slash,
+            // and analyze-data auto-promote so the sidebar
+            // reflects new findings without waiting for a session
+            // switch.
+            const cleanupFindings = window.runtime.EventsOn('findings:updated', () => {
+                if (window.go) window.go.main.Bindings.GetFindings().then(setFindings)
+            })
             const cleanupReport = window.runtime.EventsOn('report:created', (data: any) => {
                 setMessages(prev => [...prev, {
                     role: 'report' as const,
@@ -224,7 +232,7 @@ function App() {
                     }, 5000)
                 }
             })
-            return () => { cleanupStream(); cleanupActivity(); cleanupPinned(); cleanupReport(); cleanupMitl(); cleanupTitle(); cleanupBgStart(); cleanupBgEnd() }
+            return () => { cleanupStream(); cleanupActivity(); cleanupPinned(); cleanupFindings(); cleanupReport(); cleanupMitl(); cleanupTitle(); cleanupBgStart(); cleanupBgEnd() }
         }
     }, [])
 

@@ -103,6 +103,9 @@ func (b *Bindings) startup(ctx context.Context) {
 	b.agent.SetPinnedHandler(func() {
 		wailsRuntime.EventsEmit(b.ctx, "pinned:updated", nil)
 	})
+	b.agent.SetFindingsHandler(func() {
+		wailsRuntime.EventsEmit(b.ctx, "findings:updated", nil)
+	})
 	b.agent.SetReportHandler(func(title, content string) {
 		wailsRuntime.EventsEmit(b.ctx, "report:created", map[string]any{
 			"title":   title,

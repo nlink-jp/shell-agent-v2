@@ -118,6 +118,7 @@ type Agent struct {
 	mitlHandler     MITLHandler
 	reportHandler   func(title, content string)
 	pinnedHandler   func()
+	findingsHandler func()
 	activityHandler func(ActivityEvent)
 	bgTaskHandler   BgTaskHandler
 	toolRegistry    *toolcall.Registry
@@ -269,6 +270,29 @@ func (a *Agent) SetPinnedHandler(h func()) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.pinnedHandler = h
+}
+
+// SetFindingsHandler sets the callback for findings updates. The
+// callback is invoked after every successful findings.Add (whether
+// triggered by promote-finding, /finding slash, or analyze-data
+// auto-promote) so the frontend sidebar can refresh in real time
+// instead of waiting for a session switch. Mirrors SetPinnedHandler.
+func (a *Agent) SetFindingsHandler(h func()) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.findingsHandler = h
+}
+
+// notifyFindingsUpdated invokes the registered findings handler if
+// any. Caller must NOT hold a.mu (the handler may take time / fan
+// out to Wails events).
+func (a *Agent) notifyFindingsUpdated() {
+	a.mu.Lock()
+	h := a.findingsHandler
+	a.mu.Unlock()
+	if h != nil {
+		h()
+	}
 }
 
 // ActivityEventStatus is a coarse outcome label attached to
@@ -1676,6 +1700,7 @@ func (a *Agent) handleFindingCommand(args []string) (string, error) {
 	if err := a.findings.Save(); err != nil {
 		return "", fmt.Errorf("save finding: %w", err)
 	}
+	a.notifyFindingsUpdated()
 	return fmt.Sprintf("Finding saved: %s (%s)", f.Content, f.CreatedLabel), nil
 }
 

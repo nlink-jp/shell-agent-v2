@@ -457,6 +457,7 @@ func (a *Agent) toolPromoteFinding(argsJSON string) (string, error) {
 	if err := a.findings.Save(); err != nil {
 		return "", fmt.Errorf("save finding: %w", err)
 	}
+	a.notifyFindingsUpdated()
 
 	return fmt.Sprintf("Finding promoted: %s (%s)", f.Content, f.CreatedLabel), nil
 }
@@ -826,6 +827,9 @@ func (a *Agent) toolAnalyzeData(ctx context.Context, argsJSON string) (string, e
 		a.findings.Add(content, sessionID, sessionTitle, []string{sev, tableName}, findings.SourceLLMPromoted, true)
 	}
 	_ = a.findings.Save()
+	if len(result.Findings) > 0 {
+		a.notifyFindingsUpdated()
+	}
 
 	// Generate report
 	report := analysis.GenerateReport(args.Prompt, result)

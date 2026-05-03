@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/nlink-jp/shell-agent-v2/internal/config"
+	"github.com/nlink-jp/shell-agent-v2/internal/findings"
 	"github.com/nlink-jp/shell-agent-v2/internal/llm"
 	"github.com/nlink-jp/shell-agent-v2/internal/memory"
 )
@@ -408,6 +409,36 @@ func TestParseExtractionLine(t *testing.T) {
 			t.Errorf("[%s]\n  got  cat=%q turn=%q fact=%q native=%q\n  want cat=%q turn=%q fact=%q native=%q",
 				c.desc, gotCat, gotTurn, gotFact, gotNative, c.category, c.turnTok, c.fact, c.native)
 		}
+	}
+}
+
+// TestPromoteFinding_TriggersFindingsHandler pins the v0.1.28
+// real-time UI sync: every successful findings.Add via the
+// promote-finding tool call must invoke the registered findings
+// handler so the frontend sidebar refreshes immediately, mirroring
+// how pinnedHandler already behaves for pinned-memory updates.
+func TestPromoteFinding_TriggersFindingsHandler(t *testing.T) {
+	a := New(config.Default())
+	a.findings = findings.NewStore()
+	a.session = &memory.Session{ID: "h-test", Title: "Handler Test", Records: []memory.Record{}}
+
+	calls := 0
+	a.SetFindingsHandler(func() { calls++ })
+
+	args := `{"content":"important insight","tags":["high"]}`
+	if _, err := a.toolPromoteFinding(args); err != nil {
+		t.Fatalf("toolPromoteFinding: %v", err)
+	}
+	if calls != 1 {
+		t.Errorf("findings handler called %d times, want 1", calls)
+	}
+
+	// /finding slash also fires.
+	if _, err := a.handleFindingCommand([]string{"manual", "note"}); err != nil {
+		t.Fatalf("handleFindingCommand: %v", err)
+	}
+	if calls != 2 {
+		t.Errorf("after slash command, handler called %d times, want 2", calls)
 	}
 }
 

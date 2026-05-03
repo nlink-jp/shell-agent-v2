@@ -683,6 +683,16 @@ input, textarea {
     line-height: 1.4;
 }
 
+/* "learned YYYY-MM-DD" subtitle on each pinned row, surfacing the
+   CreatedAt date that's already in the system-prompt injection but
+   was previously invisible to the user. v0.1.28. */
+.pinned-date {
+    display: block;
+    font-size: 10px;
+    color: var(--text-tertiary, #888);
+    margin-top: 2px;
+}
+
 .pinned-fact-en {
     display: block;
     font-size: 11px;
