@@ -501,3 +501,137 @@ func TestMITL_TwoRequestsInSeries_NoLeakBetween(t *testing.T) {
 		t.Errorf("second: Approved=%v, want false", resp2.Approved)
 	}
 }
+
+// TestBindings_PinSessionMemory pins the v0.2.0 promote flow:
+// a Session Memory entry's fact text is handed to PinSessionMemory
+// with a chosen category and surfaces in the cross-session Global
+// Memory store stamped with promoted_from_session_memory.
+func TestBindings_PinSessionMemory(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	dataDir := filepath.Join(home, "Library", "Application Support", "shell-agent-v2")
+	sessionID := "pin-session-test"
+	sessionDir := filepath.Join(dataDir, "sessions", sessionID)
+	if err := os.MkdirAll(sessionDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	chatJSON := `{"id":"` + sessionID + `","title":"Pin Test","records":[]}`
+	if err := os.WriteFile(filepath.Join(sessionDir, "chat.json"), []byte(chatJSON), 0600); err != nil {
+		t.Fatal(err)
+	}
+	sessionMemoryJSON := `[
+		{"fact":"User is analysing Q1 sales","native_fact":"Q1売上を分析中","category":"context","source":"user_turn","created_at":"2026-04-28T00:00:00Z","source_time":"2026-04-28T00:00:00Z"}
+	]`
+	if err := os.WriteFile(filepath.Join(sessionDir, "session_memory.json"), []byte(sessionMemoryJSON), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := config.Default()
+	a := agent.New(cfg)
+	store := objstore.NewStoreAt(filepath.Join(home, "objects"))
+	a.SetObjects(store)
+	b := &Bindings{agent: a, cfg: cfg, objects: store}
+
+	session, err := memory.LoadSession(sessionID)
+	if err != nil {
+		t.Fatalf("LoadSession: %v", err)
+	}
+	if err := a.LoadSession(session); err != nil {
+		t.Fatalf("agent.LoadSession: %v", err)
+	}
+
+	if err := b.PinSessionMemory("User is analysing Q1 sales", "decision"); err != nil {
+		t.Fatalf("PinSessionMemory: %v", err)
+	}
+
+	globals := b.GetGlobalMemories()
+	if len(globals) != 1 {
+		t.Fatalf("Global Memory count = %d, want 1", len(globals))
+	}
+	got := globals[0]
+	if got.Fact != "User is analysing Q1 sales" {
+		t.Errorf("Fact = %q, want the promoted fact verbatim", got.Fact)
+	}
+	if got.Category != "decision" {
+		t.Errorf("Category = %q, want decision (the chosen category)", got.Category)
+	}
+	if got.Source != memory.GlobalSourcePromotedFromSession {
+		t.Errorf("Source = %q, want %q", got.Source, memory.GlobalSourcePromotedFromSession)
+	}
+
+	// Source Session Memory entry must remain — promotion is
+	// additive, not a move.
+	if got := len(b.GetSessionMemories()); got != 1 {
+		t.Errorf("Session Memory entry should still be present after pin; got %d", got)
+	}
+
+	// Wrong category must be rejected so a UI bug can't silently
+	// stuff fact/context into the cross-session pool.
+	if err := b.PinSessionMemory("User is analysing Q1 sales", "fact"); err == nil {
+		t.Error("expected error when category is fact, want only preference / decision")
+	}
+}
+
+// TestBindings_PinFinding mirrors the Session Memory test for the
+// other promotion entry-point. Source must be promoted_from_finding
+// and the original finding stays in the per-session store.
+func TestBindings_PinFinding(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	dataDir := filepath.Join(home, "Library", "Application Support", "shell-agent-v2")
+	sessionID := "pin-finding-test"
+	sessionDir := filepath.Join(dataDir, "sessions", sessionID)
+	if err := os.MkdirAll(sessionDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	chatJSON := `{"id":"` + sessionID + `","title":"Finding Test","records":[]}`
+	if err := os.WriteFile(filepath.Join(sessionDir, "chat.json"), []byte(chatJSON), 0600); err != nil {
+		t.Fatal(err)
+	}
+	findingsJSON := `[
+		{"id":"f-1","content":"Tokyo Widget sales hit a 99999 outlier on 2026-02-16","tags":["high","sales"],"created_at":"2026-04-28T00:00:00Z","created_label":"2026-04-28","source":"analyze_data","tool_originated":true}
+	]`
+	if err := os.WriteFile(filepath.Join(sessionDir, "findings.json"), []byte(findingsJSON), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := config.Default()
+	a := agent.New(cfg)
+	store := objstore.NewStoreAt(filepath.Join(home, "objects"))
+	a.SetObjects(store)
+	b := &Bindings{agent: a, cfg: cfg, objects: store}
+
+	session, err := memory.LoadSession(sessionID)
+	if err != nil {
+		t.Fatalf("LoadSession: %v", err)
+	}
+	if err := a.LoadSession(session); err != nil {
+		t.Fatalf("agent.LoadSession: %v", err)
+	}
+
+	if err := b.PinFinding("f-1", "decision"); err != nil {
+		t.Fatalf("PinFinding: %v", err)
+	}
+
+	globals := b.GetGlobalMemories()
+	if len(globals) != 1 {
+		t.Fatalf("Global Memory count = %d, want 1", len(globals))
+	}
+	got := globals[0]
+	if got.Source != memory.GlobalSourcePromotedFromFinding {
+		t.Errorf("Source = %q, want %q", got.Source, memory.GlobalSourcePromotedFromFinding)
+	}
+	if !got.ToolOriginated {
+		t.Error("ToolOriginated should propagate from the finding")
+	}
+
+	// Original finding must still be in the per-session store.
+	if got := len(b.GetFindings()); got != 1 {
+		t.Errorf("Finding should still be present after pin; got %d", got)
+	}
+
+	// Unknown ID must error out, not silently no-op.
+	if err := b.PinFinding("nope", "decision"); err == nil {
+		t.Error("expected error for unknown finding id")
+	}
+}

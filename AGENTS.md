@@ -44,8 +44,9 @@ shell-agent-v2/
 │   │   │   ├── vertex.go    # Vertex AI (genai SDK, FunctionCall/Response)
 │   │   │   └── mock.go      # Mock backend for testing
 │   │   ├── analysis/        # Session-scoped DuckDB engine, sliding window summarizer
-│   │   ├── memory/          # Hot/Warm/Cold compaction, sessions, pinned
-│   │   ├── findings/        # Global findings store (cascade delete with sessions)
+│   │   ├── memory/          # Sessions + GlobalMemory + SessionMemory (v0.2.0 4-facility model)
+│   │   ├── findings/        # Per-session data-analysis findings (v0.2.0)
+│   │   ├── contextbuild/    # Non-destructive context assembly + summary cache
 │   │   ├── objstore/        # Central object repository (image/blob/report)
 │   │   ├── toolcall/        # Shell script registry, MITL categories
 │   │   ├── mcp/             # mcp-guardian stdio JSON-RPC 2.0
@@ -77,14 +78,12 @@ shell-agent-v2/
 - Tools passed every round (enables tool chaining, e.g. get-location → weather)
 - No streaming — Chat() used for all rounds (tool chaining precludes knowing final round)
 - [Calling:] messages excluded from LLM context (prevents gemma pattern contamination)
-- Synchronous compaction before BuildMessages (per-backend HotTokenLimit; legacy `Memory.HotTokenLimit` is the fallback only)
-- Post-response tasks (title, compaction, pinned extraction) via async WaitGroup
+- Post-response tasks (title generation, memory extraction) via async WaitGroup
 
-### Context Budget Control
-- Per-backend `HotTokenLimit` and `ContextBudget` (`Local`, `VertexAI`); resolved by `cfg.HotTokenLimitFor(backend)` / `cfg.ContextBudgetFor(backend)` so the same session adapts to the active model's window.
-- Memory v2 (`Memory.UseV2`, opt-in): records stay immutable, `internal/contextbuild` builds the LLM message list per call, older portions condense via a content-keyed cache stored at `sessions/<id>/summaries.json`. Time-range markers are added to summaries, raw records (after a >30-min gap or for tool/report rows), pinned facts (`(learned …)`), and findings.
-- Legacy v1 path (`UseV2=false`): destructive Hot→Warm summary in place, gated by the per-backend HotTokenLimit. Both paths preserve at least one recent record (Vertex 400 fix).
-- BuildMessagesWithBudget (v1) / contextbuild.Build (v2): newest-first selection, tool result truncation, [Calling:] skip.
+### Context Budget Control (v0.2.0: non-destructive only)
+- Per-backend `ContextBudget` (`Local`, `VertexAI`) resolved by `cfg.ContextBudgetFor(backend)` so the same session adapts to the active model's window.
+- Records stay immutable; `internal/contextbuild` builds the LLM message list per call. Older portions condense via a content-keyed summary cache at `sessions/<id>/summaries.json`. Time-range markers are added to summaries, raw records (after a >30-min gap or for tool/report rows), Global Memory entries (`(learned …)`), Session Memory entries, and Findings.
+- The v0.1.x destructive Hot→Warm compaction path was removed in v0.2.0 along with `Tier` / `HotTokenLimit` / `Memory.UseV2`.
 
 ### MITL (Man-In-The-Loop)
 - Shell tools: category-based (read=auto, write/execute=MITL)
@@ -98,7 +97,9 @@ shell-agent-v2/
 - `agent:stream` — token streaming (Vertex AI only, disabled for local)
 - `agent:activity` — tool_start/tool_end/thinking (unified activity)
 - `session:title` — auto-generated session title
-- `pinned:updated` — pinned memory changes
+- `global_memory:updated` — Global Memory (cross-session pool) changes
+- `session_memory:updated` — Session Memory (per-session pool) changes
+- `findings:updated` — per-session Findings store changes
 - `report:created` — report content for display
 - `mitl:request` — MITL approval dialog
 
@@ -149,30 +150,35 @@ shell-agent-v2/
 
 ### UI
 - Sidebar: icon navigation with two panels — **Sessions**
-  (session list) and **Memory** (Findings + Pinned, both
-  global). Collapsible / resizable. The old Objects panel and
-  the merged Status / Tokens grouping went away in the
-  information-display redesign (docs/en/information-display-redesign.md).
+  (session list) and **Memory** (Global Memory + Session Memory
+  sections, v0.2.0). Collapsible / resizable.
 - Chat-pane top: collapsible **Data** disclosure scoped to the
   selected session, with three sub-sections — Objects (card
   grid, image thumbnails / typed icons, hover-revealed export +
   delete with separate Yes / No confirm overlay), Tables
   (row-list, click → 20-row preview modal), and `/work` (light
   card grid; only when sandbox is on).
+- Chat-pane: **Findings** disclosure (v0.2.0 Phase 8) — severity
+  filter, search, bulk delete, real-time refresh, Pin-to-Global-
+  Memory ★ button per row. Replaces the old sidebar Findings
+  section.
 - Chat-pane bottom: status footer strip — backend badge,
-  message counts (hot + summarized), prompt / output token
-  totals from the last call. Wraps to two lines on narrow
-  windows.
+  message counts, prompt / output token totals from the last
+  call. Wraps to two lines on narrow windows.
 - Settings: tabbed (General / Tools / MCP) near-fullscreen overlay.
-  General has Memory (UseV2 toggle), Sandbox (Enabled, engine,
-  image, network, limits) and per-backend budget editors.
+  General has Sandbox (Enabled, engine, image, network, limits)
+  and per-backend budget editors. The v0.1.x "Use v2 context
+  builder" toggle was removed in v0.2.0.
 - Tools tab: unified list with Enabled + MITL toggles per tool;
   sandbox-* tools surface here when the engine is up.
 - Tool-call timeline: every tool start/end appears inline in chat
   as a transient pill, in addition to the status-bar indicator.
-- Bulk select / delete for Findings and Pinned Memory.
-- Commands (/help, /model, /findings): popup panel, not chat
-  messages.
+- Bulk select / delete for Findings, Global Memory, Session Memory.
+- Pin to Global Memory dialog (v0.2.0 Phase 9): category picker
+  shown when promoting a Session Memory entry or a Finding into
+  the cross-session pool.
+- Commands (/help, /model): popup panel, not chat messages.
+  /finding and /findings were removed in v0.2.0.
 - MITL dialog: SQL preview, analysis plan, feedback input.
 
 ## Design Documents
@@ -213,7 +219,7 @@ All implementation must follow these design documents:
 - `analysis.refreshTableMeta` uses parameter binding for the `duckdb_tables()` lookup — never string-concatenate LLM-supplied table names into SQL (C1)
 - Analysis tools route through `IsToolMITLRequired` like every other source — `analysisToolMITLDefault` (`tools.go`) is the single source of truth for per-tool defaults; `executeAnalysisTool` no longer does its own MITL gating (security-hardening-2.md H1+H2)
 - MCP tool name parsing uses `splitMCPName` with longest-prefix fallback for the rare guardian / tool name containing `__`. Guardian names must match `validGuardianName` (`^[a-zA-Z0-9-]+$`) at startup (H3)
-- JSON stores on the data path go through `internal/atomicio.WriteFileAtomic` (tmp+rename + parent-dir fsync) so a crash mid-save leaves the previous file intact. Applies to objstore index, findings, pinned, summaries cache, and per-session chat.json (security-hardening-2.md C4 / H10)
+- JSON stores on the data path go through `internal/atomicio.WriteFileAtomic` (tmp+rename + parent-dir fsync) so a crash mid-save leaves the previous file intact. Applies to objstore index, per-session findings, per-session session_memory, global_memory, summaries cache, and per-session chat.json (security-hardening-2.md C4 / H10)
 - `findings.Store.Add` is mutex-protected; ID generation reads the per-day count under the same lock so concurrent Adds can't collide (H9). The >999-per-day overflow uses a 6-hex random suffix.
 - Settings → Sandbox surfaces a mutable-tag warning banner via `SandboxImageStatus.ActivePinnedByDigest` / `imagebuild.IsImageDigestPinned` — locally-built `<TagPrefix>:<sha>` and `@sha256:` upstream pins are safe (security-hardening-2.md H5)
 - `llm.validateToolCallArgs` caps `ToolCall.Arguments` at 1 MiB (configurable via `LocalConfig.MaxToolCallArgsBytes` / `VertexAIConfig.MaxToolCallArgsBytes`) and requires valid JSON (H6)
@@ -221,4 +227,4 @@ All implementation must follow these design documents:
 - `analysis.validateFilePath` uses `os.Lstat` and rejects symlinks outright — applies to `load-data` and any other host-path entry point (H14)
 - `guard.Wrap` is fail-closed: `chat.BuildMessages` / `BuildMessagesWithBudget` / `WrapUserToolContent` and `contextbuild.Build` return an error rather than silently falling back to unwrapped content. The agent loop surfaces the error to the user (security-hardening-2.md L1)
 - Analysis tools are exposed every round regardless of `hasData` since v0.1.21 (LLM can plan load-then-query workflows up front). Legacy hide-until-data-loaded behaviour is preserved behind `cfg.Tools.HideAnalysisToolsUntilDataLoaded` for users on weaker local backends. See `docs/en/agent-tool-visibility.md`.
-- `extractPinnedMemories` rejects self-referential facts (`memory.IsSelfReferential`) and unknown categories (`memory.ValidPinnedCategories`), wraps both the conversation tail and the existing-facts list with `nlk/guard` so the extraction LLM treats them as data, and stamps each pinned fact with the originating turn role / session / index. `findings.Add` similarly takes a `source` argument (`SourceLLMPromoted` for `promote-finding`, `SourceManual` for the `/finding` slash command). `FormatForPrompt` for both stores prefixes lines with `[user-stated]` (high trust) or `[derived]` (lower trust — content traces through the LLM and may carry attacker-influenced bytes). Retention caps via `MemoryConfig.MaxPinnedFacts` (default 100) and `MaxFindings` (default 200) prevent unbounded store growth (FIFO eviction). Sidebar shows trust badges. See `docs/en/memory-injection-hardening.md` (v0.1.26).
+- `extractMemories` (v0.2.0, was `extractPinnedMemories`) rejects self-referential facts (`memory.IsSelfReferential`) and unknown categories (`memory.ValidExtractionCategories`), wraps both the conversation tail and the existing-facts list with `nlk/guard` so the extraction LLM treats them as data, and routes by category: `preference` / `decision` → GlobalMemoryStore, `fact` / `context` → SessionMemoryStore. The window walks back past tool records to keep at least 4 user/assistant turns in scope. `findings.Add` runs a 3-tier dedup (exact / normalised / Jaccard ≥ 0.5) and takes a `source` argument (`SourceLLMPromoted` for `promote-finding`, `SourceAnalyzeData` for the analyze-data auto-promote). `FormatForPrompt` for all three stores prefixes lines with `[user-stated]` (high trust) or `[derived]` (lower trust — content traces through the LLM and may carry attacker-influenced bytes). Retention caps via `MemoryConfig.MaxPinnedFacts` (default 100, applies to GlobalMemory) and per-session `MaxFindings` / `MaxSessionMemory` (defaults 100 / 50) prevent unbounded store growth (FIFO eviction). See `docs/en/memory-model.md` (v0.2.0) and `docs/en/memory-injection-hardening.md` (v0.1.26).

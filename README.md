@@ -12,21 +12,19 @@ and hybrid LLM backend (Local + Vertex AI).
 - **Session-scoped analysis** — each session owns its own database, no cross-session state leakage
 - **Agent execution model** — Idle/Busy states with UI lockout during processing
 - **Hybrid LLM backend** — Local LLM (LM Studio) and Vertex AI (Gemini), switchable at runtime via `/model`
-- **Per-backend context budgets** — `HotTokenLimit` and `ContextBudget` configured separately for Local and Vertex (Settings → Local/Vertex AI). The global memory limits stay as a fallback.
-- **Memory v2 (opt-in)** — non-destructive context build: records stay full-fidelity, the LLM context is derived per call from `internal/contextbuild`, older portions condensed via a content-keyed summary cache, time-range markers added so the model can reason about *when* events happened. See [memory-architecture-v2.md](docs/en/memory-architecture-v2.md).
+- **Per-backend context budgets** — `ContextBudget` configured separately for Local and Vertex (Settings → Local/Vertex AI).
+- **Memory model (v0.2.0 rewrite)** — four facilities work together. Records (immutable conversation history) live in `chat.json`. **Session Memory** auto-extracts `fact` / `context` per session. **Findings** are session-scoped data-analysis discoveries surfaced in a dedicated chat-pane panel. **Global Memory** holds `preference` / `decision` across sessions. Auto-extraction routes by category; "Pin to Global Memory" is the explicit user action that promotes a Session Memory entry or a Finding into the cross-session pool. Context-budget enforcement is non-destructive (`internal/contextbuild` summary cache). See [memory-model.md](docs/en/memory-model.md).
 - **Container sandbox (opt-in)** — eight `sandbox-*` tools that execute shell or Python in a per-session `podman`/`docker` container with `/work` mounted from the session's data dir, MITL-gated, network-off by default. Includes `sandbox-load-into-analysis` (CSV/JSON in `/work` → DuckDB) and `sandbox-export-sql` (SQL query → CSV in `/work`) so query results flow between analysis and Python without round-tripping through chat. See [sandbox-execution.md](docs/en/sandbox-execution.md) for the macOS setup guide.
-- **Global Findings** — promote analysis insights to cross-session knowledge with origin provenance
+- **Findings panel** — chat-pane disclosure with severity filter, free-text search, bulk delete, real-time refresh, and a Pin-to-Global-Memory star button per row.
 - **Shell script Tool Calling** — register scripts as tools with MITL approval for write/execute. Per-tool `@timeout: N` header (seconds) overrides the 30-second default for legitimately long-running tools — see [agent-tool-visibility.md](docs/en/agent-tool-visibility.md) and [tool-execution-timeout.md](docs/en/tool-execution-timeout.md). Scripts can write to `$SHELL_AGENT_WORK_DIR` (the same physical directory the sandbox bind-mounts at `/work`); use the built-in `register-object` tool to surface the artefact in chat as `object:<ID>` — see [work-dir-shell-bridge.md](docs/en/work-dir-shell-bridge.md).
 - **MITL approval, end-to-end** — every tool source (analysis / shell / sandbox / MCP) routes through one gate. Destructive analysis tools (`load-data`, `reset-analysis`, `promote-finding`) and SQL/analyze prompts are MITL-by-default; metadata reads (`describe-data`, `list-tables`, etc.) are not. Override per-tool from **Settings → Tools** — the toggle reflects the actual dispatcher default. See [security-hardening-2.md](docs/en/security-hardening-2.md).
 - **Bundled scripts** — `file-info`, `preview-file`, `list-files`, `weather`, `get-location`, `write-note`. Auto-installed on first launch via `go:embed`; user customizations are preserved.
 - **Tool-call timeline** — every tool start/end appears inline in the chat as a transient pill, in addition to the existing status-bar indicator. The pill is restored on session reload as a compact tool-name + status (success / error) bubble; live argument and result text remain ephemeral. See [tool-event-restore.md](docs/en/tool-event-restore.md).
-- **Background task visibility** — when the agent kicks off post-response work (title generation, memory compaction, pinned-fact extraction), a small badge appears in the input-status-bar naming what's running. The input field stays disabled until those tasks finish, so the next user message can't race them and lose pinned facts. See [background-task-indicator.md](docs/en/background-task-indicator.md).
+- **Background task visibility** — when the agent kicks off post-response work (title generation, memory extraction), a small badge appears in the input-status-bar naming what's running. The input field stays disabled until those tasks finish, so the next user message can't race them and lose extracted facts. See [background-task-indicator.md](docs/en/background-task-indicator.md).
 - **MCP support** — via mcp-guardian stdio proxy
-- **Multi-turn memory** — Hot/Warm/Cold three-tier sliding window with timestamps
-- **Pinned Memory** — persistent cross-session facts (rendered with a `(learned YYYY-MM-DD)` suffix so the model can weigh recency)
 - **Multimodal** — image input via drag & drop, paste, or file picker
 - **Per-session Data panel** — collapsible disclosure at the top of the chat pane showing the current session's objects (images / reports / blobs as cards with thumbnails), DuckDB tables (click for a 20-row preview), and sandbox `/work` files. Click an image for the lightbox, a report for the markdown viewer, or a CSV / text blob for an in-app preview — CSV / TSV render as an HTML table, other text MIMEs (JSON, plain text, HTML, etc.) drop to a fixed-width pre. Bulk-select and delete with separate Yes / No confirmation.
-- **Bulk select / delete** — Findings and Pinned Memory entries can be checked individually or all-at-once, with two-click confirm.
+- **Bulk select / delete** — Findings, Global Memory, and Session Memory entries can be checked individually or all-at-once, with two-click confirm.
 - **Temporal context** — enriched date/time injection + `resolve-date` system tool
 
 ## Installation
@@ -98,27 +96,31 @@ override the legacy top-level fallbacks in `config.json`.
 
 ### Cross-session memory trust
 
-shell-agent-v2 auto-extracts important facts from each conversation
-and pins them to a cross-session store. Pinned facts are re-injected
-into every future session's system prompt as authoritative context —
-which means anything that ever appears in an *assistant* turn (a
-quoted CSV cell, an MCP response, OCR'd image text, a fetched web
-page) can structurally end up steering future sessions. As of
-v0.1.26, pinned facts and findings carry a provenance tag:
+shell-agent-v2 auto-extracts important facts from each conversation.
+Cross-session entries (Global Memory) are re-injected into every
+future session's system prompt as authoritative context — which
+means anything that ever appears in an *assistant* turn (a quoted
+CSV cell, an MCP response, OCR'd image text, a fetched web page)
+can structurally end up steering future sessions. Each entry
+carries a provenance tag:
 
-- **user-stated** — came from a user turn or a manual pin.
-  Treated as authoritative.
+- **user-stated** — came from a user turn, a manual pin, or an
+  explicit "Pin to Global Memory" promotion. Treated as
+  authoritative.
 - **derived** — extracted from an assistant turn, or a finding the
   LLM promoted via `promote-finding`. Lower trust because the
   content traces back through the LLM and may carry attacker-
   influenced bytes.
 
-The sidebar shows the badge inline. If a fact starts driving weird
+The sidebar (Global / Session Memory) and the chat-pane Findings
+panel show the badge inline. If a fact starts driving weird
 behaviour (the recoverable case being the THINK leak that prompted
-this hardening), open the sidebar Pinned Memory or Findings list,
-select the offending entries, and bulk-delete them. See
+this hardening), open the relevant list, select the offending
+entries, and bulk-delete them. See
 [docs/en/memory-injection-hardening.md](docs/en/memory-injection-hardening.md)
-for the full threat model.
+for the full threat model and
+[docs/en/memory-model.md](docs/en/memory-model.md) for the v0.2.0
+4-facility design.
 
 ## Requirements
 

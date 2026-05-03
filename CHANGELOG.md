@@ -5,6 +5,91 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] - 2026-05-03
+
+### Breaking changes — memory architecture rewrite
+
+The pinned + findings memory model from v0.1.x is replaced with a
+4-facility design. **No data migration**: legacy `pinned.json` and
+`findings.json` are ignored on first launch. See `docs/en/memory-model.md`.
+
+The new facilities:
+
+- **Records** — per-session conversation history (unchanged).
+- **Session Memory** — *new*. Auto-extracted `fact` / `context`
+  entries scoped to the current session. Lives at
+  `sessions/<id>/session_memory.json`. Deleted with the session.
+- **Findings** — narrowed to data-analysis discoveries. Now
+  per-session at `sessions/<id>/findings.json` (was global).
+  `/finding` and `/findings` slash commands are removed.
+- **Global Memory** — renamed from Pinned. Holds `preference` /
+  `decision` only. Cross-session at `<dataDir>/global_memory.json`.
+
+Auto-extraction routes by category: `preference` / `decision` →
+Global Memory, `fact` / `context` → Session Memory.
+"Pin to Global Memory" is the explicit user action that promotes
+a Session Memory entry or a Finding into the cross-session pool.
+
+### Added
+
+- **Pin to Global Memory dialog** — category picker (preference
+  / decision) shown when promoting a Session Memory row from the
+  sidebar or a Finding from the chat-pane panel.
+- **FindingsDisclosure panel** in the chat pane — severity filter,
+  free-text search, bulk delete, real-time refresh on
+  `findings:updated`.
+- **Sidebar Memory tab** restructured into Global Memory / Session
+  Memory sections with independent bulk-select.
+- **Findings dedup** — three layers (exact / normalised /
+  word-set Jaccard ≥ 0.5) keep the same observation in slightly
+  different wording from filling the store.
+- **Auto-extraction window** walks back past tool records to keep
+  the last 4 user / assistant turns in scope. Earlier the trailing
+  4 records flat became all-tool when the assistant did 2-3 tool
+  calls in a row, and extraction silently stopped landing facts.
+- **Language-hint plumbing for analyze-data** — agent peeks at the
+  user's recent turn (CJK ratio ≥30% → "Japanese") and forces the
+  summarizer to keep finding descriptions in that language even
+  when the assistant LLM translated the perspective string to
+  English en route to the tool call.
+
+### Removed
+
+- **v1 destructive compaction**: `compaction.go`, `Tier` field on
+  records, `Memory.UseV2` toggle, `HotTokenLimit`. Context-budget
+  enforcement now lives entirely in the non-destructive
+  `contextbuild` summary cache.
+- **`/finding` and `/findings` slash commands**: replaced by the
+  Findings panel and the `promote-finding` tool.
+- **PinnedStore**: replaced by GlobalMemoryStore + SessionMemoryStore.
+
+### Renamed
+
+- Wails events: `pinned:updated` → `global_memory:updated` (plus
+  new `session_memory:updated`).
+- Bindings: `GetPinnedMemories` → `GetGlobalMemories`,
+  `DeletePinnedMemory(ies)` → `DeleteGlobalMemory(ies)`,
+  `UpdatePinnedMemory` → `UpdateGlobalMemory` (now takes
+  `fact`, `native`, `category`).
+
+### Fixed (sweep-up while testing v0.2.0)
+
+- Pressing ArrowDown at end of input no longer wipes typed text.
+  The history-down handler now only consumes the keypress while
+  history navigation is active.
+- `create-report` no longer emits the report's object ID into
+  the LLM tool result. The LLM was using it to write a redundant
+  `[link](object:ID)` into chat next to the rendered report.
+- Report bubble in the chat pane is opaque again. WebView-level
+  translucency turned off (`WebviewIsTransparent: false`) and the
+  surface theme tokens (`--bg-primary`, `--bg-sidebar`,
+  `--bg-input`) are now opaque rgb across all four themes.
+- v0.2.0 styles ( `findings-disclosure`, `pin-dialog`, etc.)
+  reference theme-defined tokens (`--bg-btn-primary`,
+  `--border-accent`, `--text-accent`) instead of undefined
+  `--accent-primary` / `--bg-secondary`. Light theme no longer
+  loses selected filter buttons against the background.
+
 ## [0.1.28] - 2026-05-03
 
 ### Added
