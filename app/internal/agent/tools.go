@@ -612,10 +612,13 @@ func (a *Agent) toolCreateReport(argsJSON string) (string, error) {
 		h(args.Title, reportContent)
 	}
 
+	// Do NOT include the report's object ID in the tool result.
+	// The report is already shown to the user via reportHandler;
+	// leaking the ID prompts the LLM to write `[link](object:ID)`
+	// into its chat reply, which then renders as a redundant link
+	// pointing at content the user is already looking at.
+	_ = reportObjectID
 	result := fmt.Sprintf("SUCCESS: Report '%s' has been created and displayed to the user. Do not explain or describe the report contents. Reply only with a brief confirmation.", args.Title)
-	if reportObjectID != "" {
-		result += fmt.Sprintf(" [Stored as object ID: %s]", reportObjectID)
-	}
 	return result, nil
 }
 
