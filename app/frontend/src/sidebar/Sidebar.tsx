@@ -18,7 +18,7 @@
 
 import {useRef, useState} from 'react'
 import BulkActions from '../components/BulkActions'
-import type {Finding, GlobalMemory, SessionInfo, SessionMemory, SidebarPanel} from '../types'
+import type {GlobalMemory, SessionInfo, SessionMemory, SidebarPanel} from '../types'
 
 // Trust badge surfaces the v0.1.26 memory-injection provenance
 // fields. "user-stated" facts came from a user turn, manual pin,
@@ -44,12 +44,6 @@ function sessionMemoryTrust(source?: string): {label: string; cls: string} {
     }
     return {label: 'derived', cls: 'trust-derived'}
 }
-function findingTrust(source?: string): {label: string; cls: string} {
-    if (source === 'manual') {
-        return {label: 'user-stated', cls: 'trust-user'}
-    }
-    return {label: 'derived', cls: 'trust-derived'}
-}
 
 interface Props {
     // Layout / collapse
@@ -69,9 +63,8 @@ interface Props {
     onDeleteSession: (id: string) => void;
     onRenameSession: (id: string, title: string) => void;
 
-    // Memory panel data
-    findings: Finding[];
-    onFindingsDelete: (ids: string[]) => Promise<void>;
+    // Memory panel data. Findings moved to FindingsDisclosure
+    // (chat-pane panel) in v0.2.0 Phase 8.
     globalMemories: GlobalMemory[];
     onGlobalMemoryDelete: (facts: string[]) => Promise<void>;
     onGlobalMemoryDeleteOne: (fact: string) => Promise<void>;
@@ -89,7 +82,6 @@ export default function Sidebar({
     sidebarWidth, onStartResize,
     sessions, currentSessionId, busy,
     onLoadSession, onNewSession, onDeleteSession, onRenameSession,
-    findings, onFindingsDelete,
     globalMemories, onGlobalMemoryDelete, onGlobalMemoryDeleteOne,
     sessionMemories, onSessionMemoryDelete, onPinSessionMemory,
     onOpenSettings,
@@ -102,7 +94,6 @@ export default function Sidebar({
     const composingRef = useRef(false)
 
     // Sidebar-local: bulk-select sets per list
-    const [selectedFindingIds, setSelectedFindingIds] = useState<Set<string>>(new Set())
     const [selectedGlobalFacts, setSelectedGlobalFacts] = useState<Set<string>>(new Set())
     const [selectedSessionFacts, setSelectedSessionFacts] = useState<Set<string>>(new Set())
 
@@ -182,64 +173,6 @@ export default function Sidebar({
                         </button>
                         {sidebarPanel === 'memory' && (
                         <div className="acc-content">
-                            {findings.length > 0 && (
-                                <div className={`status-section ${selectedFindingIds.size > 0 ? 'bulk-active' : ''}`}>
-                                    <div className="bulk-section-header">
-                                        <h3>Findings</h3>
-                                        <BulkActions
-                                            total={findings.length}
-                                            selectedCount={selectedFindingIds.size}
-                                            onSelectAll={() => setSelectedFindingIds(new Set(findings.map(f => f.id)))}
-                                            onClear={() => setSelectedFindingIds(new Set())}
-                                            onDelete={async () => {
-                                                const ids = Array.from(selectedFindingIds)
-                                                if (ids.length === 0) return
-                                                await onFindingsDelete(ids)
-                                                setSelectedFindingIds(new Set())
-                                            }}
-                                        />
-                                    </div>
-                                    {findings.map(f => (
-                                        <div key={f.id} className={`finding-card ${selectedFindingIds.has(f.id) ? 'selected' : ''}`}>
-                                            <input
-                                                type="checkbox"
-                                                className="bulk-check"
-                                                checked={selectedFindingIds.has(f.id)}
-                                                onChange={e => {
-                                                    const next = new Set(selectedFindingIds)
-                                                    if (e.target.checked) next.add(f.id); else next.delete(f.id)
-                                                    setSelectedFindingIds(next)
-                                                }}
-                                            />
-                                            <div className="finding-body">
-                                                <div className="finding-content">{f.content}</div>
-                                                <div className="finding-meta">
-                                                    {(() => {
-                                                        const t = findingTrust(f.source)
-                                                        const tip = t.cls === 'trust-user'
-                                                            ? 'user-stated: ユーザー操作で promote された finding。高信頼。'
-                                                            : 'derived: LLM が promote-finding で登録した finding。内容は LLM を経由しており、攻撃者影響下のバイトを含みうる。'
-                                                        return (
-                                                            <span className={`trust-badge ${t.cls}`} data-tooltip={tip}>
-                                                                {t.label}
-                                                            </span>
-                                                        )
-                                                    })()}
-                                                    <span className="finding-date">{f.created_label}</span>
-                                                </div>
-                                                {f.tags && f.tags.length > 0 && (
-                                                    <div className="finding-tags">
-                                                        {f.tags.map(tag => {
-                                                            const sevClass = ['critical', 'high', 'medium', 'low', 'info'].includes(tag) ? ` severity-${tag}` : ''
-                                                            return <span key={tag} className={`tag${sevClass}`}>{tag}</span>
-                                                        })}
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
                             <div className={`status-section ${selectedGlobalFacts.size > 0 ? 'bulk-active' : ''}`}>
                                 <div className="bulk-section-header">
                                     <h3>Global Memory</h3>

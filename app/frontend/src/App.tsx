@@ -7,6 +7,7 @@ import rehypeKatex from 'rehype-katex'
 import ChatInput from './ChatInput'
 import ObjectImage, {clearObjectCache} from './ObjectImage'
 import DataDisclosure from './DataDisclosure'
+import FindingsDisclosure from './FindingsDisclosure'
 import MessageItem from './components/MessageItem'
 import Sidebar from './sidebar/Sidebar'
 import SettingsDialog from './dialogs/SettingsDialog'
@@ -587,12 +588,6 @@ function App() {
                     await window.go.main.Bindings.RenameSession(id, title)
                     await refreshSessions()
                 }}
-                findings={findings}
-                onFindingsDelete={async ids => {
-                    await window.go.main.Bindings.DeleteFindings(ids)
-                    const updated = await window.go.main.Bindings.GetFindings()
-                    setFindings(updated)
-                }}
                 globalMemories={globalMemories}
                 onGlobalMemoryDelete={async facts => {
                     await window.go.main.Bindings.DeleteGlobalMemories(facts)
@@ -654,6 +649,25 @@ function App() {
                                 // Other blob types (binary) intentionally
                                 // remain a no-op — Export still works.
                             } catch {}
+                        }}
+                    />
+                )}
+                {currentSessionId && (
+                    <FindingsDisclosure
+                        sessionId={currentSessionId}
+                        refreshTick={dataRefreshTick}
+                        onPinFinding={async (f) => {
+                            // Phase 9 will replace this default with a
+                            // category picker. For Phase 8 we promote
+                            // straight to "decision" so the round-trip
+                            // works end-to-end.
+                            try {
+                                await window.go.main.Bindings.PinFinding(f.id, 'decision')
+                                const updatedG = await window.go.main.Bindings.GetGlobalMemories()
+                                setGlobalMemories(updatedG)
+                            } catch (err) {
+                                alert('Pin failed: ' + ((err as any)?.message ?? String(err)))
+                            }
                         }}
                     />
                 )}
