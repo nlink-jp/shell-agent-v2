@@ -1,211 +1,327 @@
 # Memory Model — shell-agent-v2
 
 > Date: 2026-05-03
-> Status: Current as of v0.1.28
-> Audience: contributors and operators who need to understand
-> how shell-agent-v2's memory pieces fit together. Deep-dive
-> design documents are linked from each section.
+> Status: **v0.2.0 design (pre-release)** — major version bump.
+> The architecture below replaces the v0.1.x model wholesale.
+> No data migration: legacy `pinned.json` and `findings.json`
+> from v0.1.x are ignored on first v0.2.0 launch (intentional
+> reset; see §11 "Breaking changes").
+> Audience: contributors and operators.
 
-shell-agent-v2 has **three distinct memory facilities** that
-many users initially conflate. This document is the single
-entry point: what each one is, how they're created, where they
-live, and how they get assembled into the LLM's system prompt.
+shell-agent-v2 has **four distinct memory facilities** in the
+v0.2.0 design. This document is the single entry point: what
+each one is, how they're created, where they live, and how they
+get assembled into the LLM's system prompt.
 
 For deep design rationale see:
 
 - [memory-architecture-v2.md](memory-architecture-v2.md) — Records
-  / contextbuild design
+  / contextbuild design (unchanged from v0.1.x)
 - [memory-injection-hardening.md](memory-injection-hardening.md) —
-  threat model & defenses (v0.1.26 Security Round 3)
+  threat model & defenses (v0.1.26 Security Round 3, applied to
+  Global Memory in v0.2.0)
 
 ---
 
-## 1. Three Facilities at a Glance
+## 1. Four Facilities at a Glance
 
 | Facility | Scope | Stored at | What it holds | Set by |
 |---|---|---|---|---|
 | **Records** | per-session | `sessions/<id>/chat.json` (+ `summaries.json`) | Verbatim conversation history (immutable, append-only) | Agent loop on each turn |
-| **Pinned Memory** | cross-session | `pinned.json` | Long-term facts about the user (preferences, decisions, context) | `extractPinnedMemories` after each assistant turn (auto), `Set()` (manual) |
-| **Findings** | cross-session | `findings.json` | Analysis insights worth reusing (anomalies, patterns, decisions about data) | `promote-finding` tool (LLM), `/finding` slash (user), `analyze-data` auto-promote |
+| **Session Memory** | per-session | `sessions/<id>/session_memory.json` | Auto-extracted session-context facts (`fact` / `context` categories) | `extractMemories` after each assistant turn |
+| **Findings** | per-session | `sessions/<id>/findings.json` | Data-analysis discoveries: anomalies, patterns, statistical observations | `promote-finding` tool (LLM, `hasData`-gated) and `analyze-data` auto-promote |
+| **Global Memory** | cross-session (only global facility) | `global_memory.json` | User identity / decisions (`preference` / `decision` categories) | `extractMemories` after each assistant turn + manual Pin from Session Memory or Findings |
 
-All three flow into the LLM context, but through **different
-channels**:
+Naming notes:
 
-- Records → user/assistant/tool message turns (after possible
-  summarization by `contextbuild`)
-- Pinned + Findings → injected into the **system prompt**
+- **"Pinned"** is gone. The act of "pinning" still exists as
+  the user action for promoting a session-scoped item to Global
+  Memory, but the **store** is called Global Memory.
+- **`Pin to Global Memory`** is a UI button on Session Memory
+  rows and Findings rows.
+
+How each flows into the LLM context:
+
+- Records → user/assistant/tool messages (after possible
+  summarisation by `contextbuild`)
+- Session Memory + Findings + Global Memory → injected into the
+  **system prompt** (Session Memory and Findings only when their
+  session is active)
 
 ---
 
 ## 2. Records (Conversation History)
 
 The literal log of user / assistant / tool messages plus
-metadata (timestamps, attached image object IDs, tool-call
-records). Single source of truth for the session.
+metadata. Single source of truth for the session.
 
 **Persistence**: append-only JSON at
 `~/Library/Application Support/shell-agent-v2/sessions/<id>/chat.json`.
 Atomic writes via `internal/atomicio.WriteFileAtomic`.
 
-**Compaction model** (v0.1.26+ default `Memory.UseV2: true`):
-records are **immutable**. They are never replaced by summary
-records. When the LLM context budget is exceeded, older raw
-records are folded into a **derived summary** that lives in a
-separate cache (`sessions/<id>/summaries.json`), keyed by a
-content hash so it can be reused across runs and across
-backends. The legacy v1 path (in-place `Tier` mutation,
-`PromoteOldestHotToWarm`) is preserved for old session files
-but no longer touched on writes.
+**Compaction model**: records are immutable. Older raw records
+are folded into a derived summary in
+`sessions/<id>/summaries.json` (content-keyed cache) when the
+LLM context budget is exceeded. No record is ever rewritten.
+The v0.1.x `Memory.UseV2` opt-in flag is **removed in v0.2.0**:
+the contextbuild path is now the only path. Legacy
+destructive-compaction code (`compactIfOverBudget`,
+`compactMemoryIfNeeded`) is deleted, not just no-op'd.
 
-**Time markers**: each record gets a `[YYYY-MM-DD HH:MM TZ]`
-prefix only at meaningful boundaries (>30 min gap, tool/report
-roles). Summary blocks get a range header
-`[Summary of N earlier turn(s) — from … to …]`.
+**Time markers**: `[YYYY-MM-DD HH:MM TZ]` prefix at meaningful
+boundaries (>30 min gap, tool/report roles). Summary blocks get
+a range header.
 
-**Tier field**: legacy artefact. Not written by new code, not
-read by the v2 path. Older sessions on disk that contain
-`Tier=hot/warm/cold` records still load and render.
+**Tier field**: removed in v0.2.0. (Was already vestigial under
+v0.1.26 Memory v2.)
 
 **Deep dive**: [memory-architecture-v2.md](memory-architecture-v2.md).
 
 ---
 
-## 3. Pinned Memory (Cross-Session User Facts)
+## 3. Session Memory (Auto-Extracted Session Context)
 
-Long-lived facts the agent remembers about the user across
-every session. These persist even after a session is deleted.
+Auto-extracted facts about the *current* conversation that
+don't rise to the level of cross-session user identity. Things
+like "user is currently analysing Q1 sales data", "user
+attached the Gouf model image", "user wants the report in
+three sections".
 
-**Schema** (`internal/memory/pinned.go`):
+**Schema** (`internal/memory/session_memory.go`):
 
 ```go
-type PinnedFact struct {
-    Fact            string    // English form (for analysis)
-    NativeFact      string    // User's language (for display)
-    Category        string    // preference | decision | fact | context
-    SourceTime      time.Time // When the original conversation occurred
-    CreatedAt       time.Time // When pinned
+type SessionMemoryEntry struct {
+    Fact            string    // English form
+    NativeFact      string    // User's language
+    Category        string    // fact | context  (subset of the 4 categories)
+    SourceTime      time.Time
+    CreatedAt       time.Time
 
-    // Provenance (v0.1.26+)
-    SessionID       string    // Originating session ID
-    SourceTurnIndex int       // Index in that session's Records
-    Source          string    // user_turn | assistant_turn | manual
-    ToolOriginated  bool      // Surrounding window included tool output
+    // Provenance
+    SourceTurnIndex int
+    Source          string    // user_turn | assistant_turn
+    ToolOriginated  bool
 }
 ```
 
-**Categories** (LLM-assigned, allowlist-enforced):
+`SessionID` is implicit (file is per-session). No `Source =
+manual` value because manual session-context entry isn't a use
+case (anything the user types directly is already in Records).
 
-| Category | Purpose | Example |
-|---|---|---|
-| `preference` | User preferences and habits | "User prefers Go over Python" |
-| `decision` | Architectural / design decisions | "Chose DuckDB over SQLite" |
-| `fact` | Factual context | "User is in Tokyo" |
-| `context` | Situational awareness | "User analyses Q1 sales data" |
+**Auto-extraction**: same `extractMemories` pass as Global
+Memory. The LLM produces facts tagged with category; categories
+`fact` / `context` route here.
 
-**Auto-extraction** (`extractPinnedMemories`, runs after every
-assistant turn):
-
-1. Take the last 4 hot-tier records (mixture of user/assistant)
-2. Number them `[turn N|role]:`, wrap with `nlk/guard.Tag` to
-   isolate as data
-3. Ask the LLM (same backend) to extract facts in the format
-   `category|turn-N|english fact|native expression`
-4. For each returned line:
-   - Drop if category is outside the allowlist
-   - Drop if `IsSelfReferential(fact)` matches (talks about the
-     assistant, model, system prompt, THINK tag, tools, etc.)
-   - Determine source: parse `turn-N` → originating role; if
-     unparseable or origin is assistant but the fact's English
-     keywords / Japanese trigrams overlap with a user turn,
-     attribute to `user_turn` (content-based attribution
-     refinement)
-5. Add via `pinned.Add()`, dedup by exact `Fact` text, FIFO
-   evict if over `MaxPinnedFacts` (default 100)
-6. Save with atomic write, fire `pinned:updated` event so the
-   sidebar refreshes in real time
-
-**Manual operations**:
-
-- `Set(key, content)` — UI manual pin, stamped `Source: manual`
-- `Delete(key)` / `DeleteByKeys([]string)` — UI manual delete
-
-**System prompt rendering** (`FormatForPrompt`):
+**System prompt rendering** (current session only):
 
 ```
-- [user-stated] [preference] User prefers Go over Python (ユーザーはPythonよりGoを好む) (learned 2026-05-03)
-- [derived] [context] User is currently analysing Q1 sales data (learned 2026-05-03)
+- [user-stated] [context] User is analysing 2025 Q1 sales data (ユーザーは2025年Q1売上データを分析中) (learned 2026-05-03)
+- [derived] [fact] Three datasets are loaded: sales, customers, returns (3つのデータセットがロード済み) (learned 2026-05-03)
 ```
 
-The leading `[user-stated]` / `[derived]` is a **trust tag**
-derived from `Source`. See §6.
+**Capacity**: per-session FIFO cap (default 50; lower than
+Global Memory because per-session noise should be bounded
+tightly).
 
-**Sidebar display**: each row shows fact, category badge, trust
-badge, and `learned YYYY-MM-DD` (v0.1.28+).
+**Lifecycle**: deleted with the session. The whole
+`sessions/<id>/` directory is removed.
 
-**Deep dive**: [memory-injection-hardening.md](memory-injection-hardening.md)
-for filters and threat model.
+**Promotion**: each row in the sidebar Session Memory section
+has a "Pin to Global Memory" button. Clicking opens a dialog
+to confirm category (defaults to `decision`; user can change to
+`preference`) and creates a new Global Memory entry. The
+original Session Memory entry stays.
 
 ---
 
-## 4. Findings (Cross-Session Analysis Insights)
+## 4. Findings (Data-Analysis Discoveries)
 
-Insights derived from data analysis, worth surfacing across
-sessions. Findings carry an `OriginSessionID` so the user can
-trace where an insight came from.
+Insights derived **specifically from data analysis** — anomalies
+in a loaded dataset, statistical patterns, structured
+observations from `analyze-data`. Not auto-extracted from
+arbitrary conversation: `promote-finding` is the only LLM path
+and it is gated to sessions with loaded data.
 
 **Schema** (`internal/findings/findings.go`):
 
 ```go
 type Finding struct {
-    ID                 string   // f-YYYYMMDD-NNN[-hex]
-    Content            string
-    OriginSessionID    string
-    OriginSessionTitle string
-    Tags               []string // freeform; severity tags ("critical", "high", …) get coloured badges
-    CreatedAt          string   // RFC3339
-    CreatedLabel       string   // "2026-05-03 (Friday)"
+    ID              string    // f-YYYYMMDD-NNN[-hex]
+    Content         string
+    Tags            []string  // free-form; severity tags get coloured badges
+    CreatedAt       string    // RFC3339
+    CreatedLabel    string    // "2026-05-03 (Friday)"
 
-    // Provenance (v0.1.26+)
-    Source         string  // llm_promoted | manual
-    ToolOriginated bool
+    // Provenance
+    Source          string    // llm_promoted | analyze_data
+    ToolOriginated  bool
 }
 ```
 
-**Creation paths**:
+`SessionID` and `OriginSessionTitle` are removed — file is
+per-session. Source `manual` is removed (no `/finding` slash
+command in v0.2.0).
 
-- **`promote-finding` tool** — LLM-callable. Default MITL **on**
-  (v0.1.26 hardening): every promotion shows a confirmation
-  dialog with the proposed content. Source: `llm_promoted`.
-- **`/finding <text>` slash command** — user manual. Source:
-  `manual`.
+**Creation paths** (v0.2.0):
+
+- **`promote-finding` tool** — LLM-callable, gated to sessions
+  where `hasData == true` (i.e., at least one table loaded via
+  `load-data`). MITL default ON: every promotion shows a
+  confirmation dialog.
 - **`analyze-data` auto-promote** — when sliding-window analysis
-  surfaces structured `Finding` records in its result, they get
-  added in bulk. Source: `llm_promoted`.
+  surfaces structured `Finding` records, they get added in bulk.
 
-All three call sites notify the frontend via `findings:updated`
-(v0.1.28+) so the sidebar refreshes immediately instead of
-waiting for a session switch.
+**Removed in v0.2.0**:
+- `/finding <text>` slash command (manual entry path) — Pin
+  workflow + Session Memory cover this need.
 
-**Capacity**: FIFO eviction at `MaxFindings` (default 200).
-Daily ID counter rolls over to `f-YYYYMMDD-NNNNNN-<6 hex>` past
-999/day.
+**Capacity**: per-session FIFO cap (default 100 per session).
 
-**System prompt rendering**:
+**Lifecycle**: deleted with the session.
+
+**System prompt rendering** (current session only):
 
 ```
-- [derived] [2026-05-03 (Friday)] 2025年Q1において大阪のWidget-Cで… (from: Sales Analysis, session: sess-1234)
-- [user-stated] [2026-05-02 (Thursday)] User identified anomaly in… (from: Manual Review, session: sess-5678)
+- [derived] [2026-05-03] 2025-03-09 Osaka Widget-C: 1850 units sold (50× weekly avg) — likely data error or bulk order
+- [derived] [2026-05-03] Tokyo Widget-A shows consistent 130-unit weekly volume across all weeks
 ```
 
-**Sidebar display**: content, trust badge, date, originating
-session title, severity-coloured tag badges.
+**Promotion**: each Finding row has a "Pin to Global Memory"
+button (same UI affordance as Session Memory). Useful when an
+analytical finding is actually a long-term decision worth
+remembering across sessions ("we decided that Widget-C
+demand is unpredictable").
+
+**Dedicated UI panel**: Findings get their own pane in the
+chat-pane area (alongside the Data disclosure), not the
+sidebar. Rationale: Findings are tightly coupled to the loaded
+data — looking at findings makes most sense next to the
+dataset that produced them. The pane shows a flat list with
+filter / search.
 
 ---
 
-## 5. System Prompt Assembly
+## 5. Global Memory (Cross-Session User Identity)
 
-`chat.Engine.BuildSystemPrompt(pinnedContext, findingsContext)`
-in `internal/chat/chat.go:110` is the single composition point:
+Long-lived facts the agent remembers about the user across
+every session. The **only** facility that persists across
+sessions in v0.2.0.
+
+**Schema** (`internal/memory/global_memory.go`):
+
+```go
+type GlobalMemoryEntry struct {
+    Fact            string    // English form
+    NativeFact      string    // User's language
+    Category        string    // preference | decision  (subset of the 4 categories)
+    SourceTime      time.Time
+    CreatedAt       time.Time
+
+    // Provenance
+    SessionID       string    // Originating session ID (or empty for manual entry)
+    SourceTurnIndex int
+    Source          string    // user_turn | assistant_turn | manual | promoted_from_session_memory | promoted_from_finding
+    ToolOriginated  bool
+
+    // Promotion back-reference (if Source is promoted_from_*)
+    PromotedFromID  string    // Session Memory entry index, or Finding ID
+}
+```
+
+**Categories** (`preference` / `decision` only):
+
+| Category | Purpose | Example |
+|---|---|---|
+| `preference` | User preferences and habits | "User prefers Go over Python" |
+| `decision` | Architectural / design decisions | "Chose DuckDB over SQLite for analysis" |
+
+`fact` / `context` are session-scoped concepts (Session Memory).
+They cannot be auto-routed here.
+
+**Creation paths**:
+
+- **Auto-extraction** (`extractMemories`): facts tagged
+  `preference` or `decision` route here automatically.
+- **Manual Pin from Session Memory**: user clicks "Pin to
+  Global Memory" on a Session Memory row, optionally
+  reclassifying to `preference`/`decision`.
+- **Manual Pin from Finding**: same flow from the Findings
+  panel.
+- **Direct manual entry**: settings UI / API (`Set` method).
+
+**System prompt rendering** (always injected):
+
+```
+- [user-stated] [preference] User prefers Go over Python (learned 2026-05-03)
+- [user-stated] [decision] Chose DuckDB over SQLite (promoted from Finding, 2026-05-02)
+```
+
+**Capacity**: FIFO cap (default 100). Lower than v0.1.x's 100
+applied to "Pinned" because Global Memory is now tighter
+(only `preference`/`decision`).
+
+**Sidebar display**: Memory tab → top section "Global Memory".
+Rows show fact, category badge, trust badge, learned date.
+Each row has a "Demote to Session Memory" button (rare; for
+when you realise a global entry is actually session-bound).
+
+---
+
+## 6. Sidebar & UI Layout
+
+**Memory sidebar** (existing tab, restructured):
+
+```
+┌── Sidebar / Memory tab ──────────┐
+│                                  │
+│ [Global Memory]                  │
+│  • [user-stated] User prefers Go │
+│  • [user-stated] Chose DuckDB    │
+│  …                               │
+│                                  │
+│ [Session Memory]                 │
+│  • [user-stated] User analysing  │
+│    Q1 sales data                 │
+│  • [derived] Three datasets…     │
+│  • [Pin to Global Memory] btn    │
+│  …                               │
+│                                  │
+└──────────────────────────────────┘
+```
+
+Two sections in the existing Memory sidebar tab — Global
+Memory (top) and Session Memory (below). Bulk-select + delete
+on each section. Pin button on Session Memory rows.
+
+**Findings panel** (new, chat-pane area):
+
+```
+┌── Chat pane ─────────────────────┐
+│ chat conversation                │
+│                                  │
+│ ┌── Data ──────────────────────┐ │
+│ │ Tables / objects / /work     │ │
+│ └──────────────────────────────┘ │
+│ ┌── Findings ──────────────────┐ │ ← NEW dedicated panel
+│ │ • [analyze-data] Q1 anomaly  │ │
+│ │   in Osaka Widget-C…         │ │
+│ │ • [promote-finding] Tokyo…   │ │
+│ │ Filter: [all|critical|…]     │ │
+│ │ [Pin to Global Memory] btn   │ │
+│ └──────────────────────────────┘ │
+└──────────────────────────────────┘
+```
+
+Sits next to the Data disclosure. List view with severity tag
+filter, search, Pin button per row.
+
+---
+
+## 7. System Prompt Assembly
+
+`chat.Engine.BuildSystemPrompt(globalMemoryContext,
+sessionMemoryContext, findingsContext)` in
+`internal/chat/chat.go`:
 
 ```
 {base system prompt}
@@ -215,206 +331,222 @@ in `internal/chat/chat.go:110` is the single composition point:
 {sandbox guidance, if Sandbox.Enabled}
 
 Important facts you remember about the user:
-{pinned.FormatForPrompt()}
+{global_memory.FormatForPrompt()}
 
-Analysis findings from other sessions:
+Notes about the current session:
+{session_memory.FormatForPrompt()}
+
+Analysis findings in this session:
 {findings.FormatForPrompt()}
 ```
 
 The result is the `system` message in the LLM call. Records do
 **not** flow through here — they go in as separate
 user/assistant/tool messages from `BuildMessages`
-(`agent.buildMessagesV2` for the v2 path).
+(`agent.buildMessagesV2`).
 
-**Side effect**: `BuildSystemPrompt` rotates the `nlk/guard.Tag`
-nonce so subsequent `WrapUserToolContent` calls in the same
-turn use a fresh nonce.
+**Empty sections are omitted entirely** (no header without
+content).
 
 **Token budget**: each `FormatForPrompt` is internally bounded
-to **16 KiB** with newest-first inclusion plus an elision marker
-(`(N earlier facts elided to fit budget)`). This prevents an
-oversize Pinned/Findings store from crowding out the
-conversation budget.
+to **16 KiB** with newest-first inclusion plus an elision
+marker. Combined max system prompt addition: ~48 KiB worst
+case.
 
 ---
 
-## 6. Provenance & Trust Tags
+## 8. Auto-Extraction (`extractMemories`)
 
-Every Pinned and Finding entry carries a `Source` field. The
-trust tag is derived (`pinned.go:trustTag`,
-`findings.go:trustTag`):
+Renamed from `extractPinnedMemories` to reflect the broader
+routing. Runs as a post-response background task after every
+assistant turn.
+
+**Pipeline**:
+
+1. Collect last 4 hot-tier records
+2. Wrap with `nlk/guard.Tag` for prompt-injection isolation
+3. Ask the same LLM to extract facts in format
+   `category|turn-N|english fact|native expression`
+4. For each returned line:
+   - Drop if category is outside `{preference, decision, fact,
+     context}` allowlist
+   - Drop if `IsSelfReferential(fact)` matches
+   - Determine source via `parseTurnToken` + content overlap
+     refinement
+   - **Route by category**:
+     - `preference` / `decision` → `globalMemory.Add(...)`
+     - `fact` / `context` → `sessionMemory.Add(...)`
+5. Atomic save, fire `global_memory:updated` and/or
+   `session_memory:updated` events to refresh the UI
+
+The extraction prompt explicitly tells the LLM:
+
+> Categories `preference` and `decision` describe long-term
+> user identity and persist across all sessions. Categories
+> `fact` and `context` describe the current conversation's
+> state and disappear when the session ends. Choose the
+> category that matches the durability you intend.
+
+This makes the LLM's category choice carry scope intent.
+
+---
+
+## 9. Provenance & Trust Tags
+
+(Same model as v0.1.26, applied to Global Memory and Session
+Memory.)
 
 | Source value | Trust tag | Meaning |
 |---|---|---|
-| `user_turn` | `[user-stated]` | Extracted from a user-role record (or content-overridden to user) |
-| `manual` | `[user-stated]` | Pinned/promoted by user via UI or slash command |
-| `assistant_turn` | `[derived]` | Extracted from an assistant-role record — content traces through the LLM |
-| `llm_promoted` | `[derived]` | Promoted by an LLM tool call — content originated from the LLM's analysis |
-| empty (legacy) | `[derived]` | Pre-v0.1.26 entry without Source — defaults to lower trust |
+| `user_turn` | `[user-stated]` | Extracted from a user-role record |
+| `manual` | `[user-stated]` | Pinned by user via UI |
+| `promoted_from_session_memory` | `[user-stated]` | User Pin'd a Session Memory entry |
+| `promoted_from_finding` | `[user-stated]` | User Pin'd a Finding |
+| `assistant_turn` | `[derived]` | Extracted from an assistant-role record |
+| `llm_promoted` | `[derived]` | Promoted by `promote-finding` tool |
+| `analyze_data` | `[derived]` | Auto-promoted by `analyze-data` tool |
+| empty (legacy) | `[derived]` | Lower trust default |
 
-**Why this matters**: anything that ever passes through an
-LLM-generated turn might carry attacker-influenced bytes (a
-quoted CSV cell, an MCP response, image OCR, a fetched web
-page). The `[derived]` tag warns future LLM contexts that the
-content is not necessarily user-stated. See §9.
+Findings: same Source enum (subset). Defenses (self-referential
+filter, category allowlist, `nlk/guard` wrap) apply at
+extraction time.
 
 ---
 
-## 7. Capacity & Retention
+## 10. Capacity & Retention
 
-Current state: **FIFO caps only**. No time-based decay. No
-importance scoring beyond Category.
+**Per-store FIFO caps:**
 
-| Setting | Default | Where |
+| Store | Default cap | Config key |
 |---|---|---|
-| `Memory.MaxPinnedFacts` | 100 | `internal/config/config.go` |
-| `Memory.MaxFindings` | 200 | same |
-| `PinnedFormatBudget` | 16 KiB | `internal/memory/pinned.go` |
-| `FindingsFormatBudget` | 16 KiB | `internal/findings/findings.go` |
+| Global Memory | 100 | `Memory.MaxGlobalMemory` |
+| Session Memory | 50 (per session) | `Memory.MaxSessionMemoryPerSession` |
+| Findings | 100 (per session) | `Memory.MaxFindingsPerSession` |
 
-**Eviction policy**: oldest entry first (FIFO) on `Add` overflow.
-A future `(B)` importance score or `(C)` per-category TTL is
-documented in the memory plan but not implemented.
+**Render-time budget**: each `FormatForPrompt` clips at 16 KiB,
+newest-first.
 
-`PinnedFormatBudget` / `FindingsFormatBudget` apply at render
-time; even if the store has 100 entries, only the most recent
-that fit in 16 KiB are emitted to the system prompt.
+**Time-based decay**: still not implemented. (Future
+consideration if Global Memory grows messy in practice; for
+now FIFO is enough.)
 
 ---
 
-## 8. Storage Layout
+## 11. Breaking Changes (v0.1.x → v0.2.0)
+
+This is a **breaking architectural change**:
+
+- `Memory.UseV2` config flag — **removed**. The contextbuild
+  path (immutable Records + derived summary cache) is now the
+  only path. Legacy v1 destructive-compaction code is deleted
+  rather than gated by a flag — there is no more "v1 mode".
+- `pinned.json` (global file) — **ignored on launch**. Old
+  preferences/decisions are lost. Re-pin them via conversation
+  or settings UI.
+- `findings.json` (global file) — **ignored on launch**. Old
+  cross-session findings are lost.
+- Session files (`sessions/<id>/chat.json` +
+  `summaries.json`) — **preserved**. You can still browse old
+  conversations; they just don't have Session Memory or
+  Findings attached (those facilities didn't exist in v0.1.x).
+- `/finding` slash command — **removed**. Use the chat-pane
+  Findings panel + Pin button.
+- `PinnedFact` type — renamed to `GlobalMemoryEntry` (Go API).
+- `PinnedStore` → `GlobalMemoryStore`.
+- `SetPinnedHandler` → `SetGlobalMemoryHandler` and
+  `SetSessionMemoryHandler` (both).
+- Wails event `pinned:updated` → `global_memory:updated` and
+  `session_memory:updated`.
+- Bindings rename: `GetPinnedMemories` →
+  `GetGlobalMemories`; `DeletePinnedMemories` →
+  `DeleteGlobalMemories`. New: `GetSessionMemories`,
+  `DeleteSessionMemories`, `PinSessionMemory`,
+  `PinFinding`.
+
+A first-launch banner notifies the user that the v0.1.x stores
+were ignored (with a tip: `~/Library/Application
+Support/shell-agent-v2/pinned.json` is preserved on disk if
+they want to recover entries manually). The banner is
+dismissible.
+
+---
+
+## 12. Storage Layout
 
 ```
 ~/Library/Application Support/shell-agent-v2/
-├── pinned.json            # PinnedStore — global cross-session facts
-├── findings.json          # findings.Store — global cross-session insights
+├── global_memory.json                    # Global Memory (NEW name; was pinned.json)
 ├── sessions/
 │   └── <session-id>/
-│       ├── chat.json      # session.Records (immutable log)
-│       └── summaries.json # contextbuild SummaryCache (derived, regeneratable)
-├── objects/               # objstore: images, reports, blobs (16-byte IDs)
+│       ├── chat.json                     # Records (unchanged)
+│       ├── summaries.json                # contextbuild SummaryCache (unchanged)
+│       ├── session_memory.json           # NEW: Session Memory
+│       └── findings.json                 # MOVED: per-session Findings
+├── objects/                              # objstore (unchanged)
 └── config.json
 ```
 
-All JSON writes go through `internal/atomicio.WriteFileAtomic`
-(tmp + rename + parent-dir fsync) so a crash mid-write leaves
-the previous file intact (security-hardening-2.md C4 / H10).
+Legacy files left on disk:
+- `pinned.json` — read access only by an opt-in recovery tool
+  (out of scope for v0.2.0; users can `cat` it manually)
+- `findings.json` — same
+
+All new writes go through `internal/atomicio.WriteFileAtomic`.
 
 ---
 
-## 9. Threat Model (Summary)
+## 13. Threat Model (v0.2.0 Updates)
 
-Pinned facts and findings are re-injected into every future
-session's system prompt as authoritative context. That makes
-them a structural prompt-injection vector: anything that ever
-appears in an *assistant* turn — including assistant-summarised
-tool output — can be picked up by `extractPinnedMemories` or by
-a `promote-finding` LLM call and then steer every future
-session.
+Pre-v0.2.0 attack: a malicious CSV cell quoted by the assistant
+gets auto-extracted, pinned globally, and re-injected into all
+future sessions as authoritative context.
 
-**v0.1.26 defenses** (Security Round 3):
+**v0.2.0 mitigations on top of v0.1.26 hardening**:
 
-| Defense | Layer |
+| Mechanism | Effect on attack |
 |---|---|
-| Provenance attribution | Every fact carries `Source` so trust is recoverable |
-| Self-referential filter | `IsSelfReferential` drops "the assistant / THINK / system prompt / …" facts at extraction |
-| Category allowlist | Only `preference|decision|fact|context` survive |
-| `nlk/guard` wrap | Extraction prompt treats conversation tail as data |
-| `promote-finding` MITL ON | LLM-promoted findings need user confirmation |
-| FIFO retention caps | Bounded store growth |
-| 16 KiB FormatForPrompt budget | Bounded prompt growth |
+| `fact` / `context` route to Session Memory, not Global Memory | A successful injection through a CSV cell only contaminates the originating session, not all future sessions |
+| Session deleted ⇒ Session Memory + Findings deleted | Attack window closes when session ends |
+| Global Memory only receives `preference` / `decision` | Attacker must convince the extraction LLM to label the payload as a user preference (harder than `context`) |
+| `promote-finding` `hasData`-gated | Cannot be invoked outside data-loaded sessions |
+| `/finding` slash removed | One less LLM-influenced manual surface |
+| Pin requires explicit user click | No auto-promotion from session-scoped to global |
 
-Auto-extraction itself remains on (per-pin MITL would destroy
-chat UX). Residual risk on the auto-extraction path is
-recoverable via the sidebar audit + bulk-delete UI.
+The v0.1.26 self-referential filter, category allowlist, and
+`nlk/guard` wrap are applied to **both** auto-extraction
+streams (Global Memory and Session Memory).
 
 **Deep dive**: [memory-injection-hardening.md](memory-injection-hardening.md).
 
 ---
 
-## 10. Design — Two-Tier Scope (Proposed, post-v0.1.28)
-
-> Status: **design only**, not yet implemented.
-
-The current model treats *every* pinned fact and finding as
-**global** — visible in every future session's system prompt.
-This works but pressures the global pool: tasks-context items
-("user has 3 datasets loaded for Q1 analysis") consume the same
-budget as identity items ("user prefers Go").
-
-The proposed evolution introduces a `Scope` field with two
-values:
-
-- **`global`** — current behaviour. Always injected into every
-  session.
-- **`session`** — only injected when the originating session is
-  the active one. Auto-deleted with the session.
-
-**Default mapping by category** (Pinned):
-
-| Category | Default scope |
-|---|---|
-| `preference` | global |
-| `decision` | global |
-| `fact` | session |
-| `context` | session |
-
-**Findings**: default `session` for all (analyses are
-case-bound). Manual promotion to global if cross-case relevance.
-
-**Manual override**: sidebar each row gets a `[global]` /
-`[session]` badge plus a "Pin to global" button (session →
-global) and an "Unpin" toggle (global → session).
-
-**Extraction prompt revision**: the LLM is told the category →
-scope mapping so its category choice carries scope intent.
-
-**Backwards compat**: existing entries (no `Scope` field)
-default to `global` — no data loss, current behaviour preserved.
-
-**Open questions** (to be resolved in the next planning round):
-
-- Should there be auto-promotion (e.g., same fact appears in N
-  sessions → bump to global)?
-- Storage: single file with `Scope` field vs split files?
-- Sidebar layout: two sub-sections (Global / This Session) vs
-  single list with badge filter?
-
-When this design moves to implementation, this section will be
-updated to reflect what was actually built and the open
-questions resolved.
-
----
-
-## 11. Glossary
+## 14. Glossary
 
 - **Records** — verbatim conversation turns; per-session
-- **Pinned Memory** — cross-session facts about the user
-- **Findings** — cross-session analysis insights
-- **Pin to global** — (proposed) promote a session-scoped item
-  to global scope
-- **Scope** — (proposed) `global` (cross-session) or `session`
-  (session-bound)
-- **Source / Provenance** — origin label (`user_turn` etc.)
-  used to derive the trust tag
-- **Trust tag** — `[user-stated]` (high trust) or `[derived]`
-  (LLM-routed; potentially attacker-influenced)
-- **Tier** — legacy hot/warm/cold field on Records, vestigial
-  under Memory v2
-- **Memory v2 / `UseV2`** — the contextbuild path: records
-  immutable, summaries derived per-call from a content-keyed
-  cache
+- **Session Memory** — auto-extracted session context
+  (`fact`/`context`); per-session
+- **Findings** — data-analysis discoveries; per-session
+- **Global Memory** — cross-session user identity
+  (`preference`/`decision`); the only globally-persistent
+  facility
+- **Pin** / **Pin to Global Memory** — UI action to promote a
+  Session Memory or Findings entry to Global Memory
+- **Source / Provenance** — origin label used to derive trust
+- **Trust tag** — `[user-stated]` (high) or `[derived]`
+  (LLM-routed)
 
 ---
 
-## 12. References
+## 15. References
 
 - [memory-architecture-v2.md](memory-architecture-v2.md) —
-  Records, contextbuild, summary cache design
+  Records / contextbuild (unchanged)
 - [memory-injection-hardening.md](memory-injection-hardening.md) —
   Pinned/Findings security model (v0.1.26)
-- `internal/memory/pinned.go` — PinnedStore implementation
-- `internal/findings/findings.go` — findings.Store implementation
+- `internal/memory/global_memory.go` — GlobalMemoryStore (NEW)
+- `internal/memory/session_memory.go` — SessionMemoryStore (NEW)
+- `internal/findings/findings.go` — per-session findings store
 - `internal/contextbuild/` — Memory v2 ContextBuilder
-- `internal/agent/agent.go:1820+` — `extractPinnedMemories`
-- `internal/chat/chat.go:110` — `BuildSystemPrompt` composition
+- `internal/agent/agent.go:extractMemories` — auto-extraction
+  routing
+- `internal/chat/chat.go:BuildSystemPrompt` — composition

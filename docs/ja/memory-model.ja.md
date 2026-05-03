@@ -1,206 +1,317 @@
 # メモリモデル — shell-agent-v2
 
 > 日付: 2026-05-03
-> ステータス: v0.1.28 時点
-> 対象: shell-agent-v2 のメモリ周りの全体像を理解する必要が
-> ある contributor / オペレータ。詳細設計文書は各節からリンク。
+> ステータス: **v0.2.0 設計 (リリース前)** — メジャーバージョン
+> アップ。下記アーキテクチャは v0.1.x モデルを全面的に置換。
+> データ移行なし: v0.1.x の `pinned.json` / `findings.json` は
+> v0.2.0 初回起動時に無視される (意図的リセット; §11
+> 「破壊的変更」参照)。
+> 対象: contributor / オペレータ。
 
-shell-agent-v2 には **3 つの異なるメモリ機能** があり、初見
-ではこれらを混同しがち。本書はその唯一のエントリポイント:
-それぞれが何で、どう作成され、どこに保存され、システム
-プロンプトにどう集約されるかを示す。
+shell-agent-v2 v0.2.0 設計では **4 つの異なるメモリ機能** が
+ある。本書はその唯一のエントリポイント: それぞれが何で、どう
+作成され、どこに保存され、システムプロンプトにどう集約される
+かを示す。
 
 詳細な設計根拠:
 
 - [memory-architecture-v2.ja.md](memory-architecture-v2.ja.md) —
-  Records / contextbuild 設計
+  Records / contextbuild 設計 (v0.1.x から不変)
 - [memory-injection-hardening.ja.md](memory-injection-hardening.ja.md) —
-  脅威モデルと防御 (v0.1.26 Security Round 3)
+  脅威モデルと防御 (v0.1.26 Security Round 3、v0.2.0 では
+  Global Memory に適用)
 
 ---
 
-## 1. 3 つの機能の俯瞰
+## 1. 4 つの機能の俯瞰
 
 | 機能 | スコープ | 保存場所 | 内容 | 設定者 |
 |---|---|---|---|---|
-| **Records** | セッション内 | `sessions/<id>/chat.json` (+ `summaries.json`) | 会話履歴の逐語ログ (immutable, append-only) | エージェントループ (各ターン) |
-| **Pinned Memory** | 跨セッション | `pinned.json` | ユーザーに関する長期事実 (preference, decision, context) | `extractPinnedMemories` 各アシスタントターン後 (自動)、`Set()` (手動) |
-| **Findings** | 跨セッション | `findings.json` | 跨セッションで再利用価値ある分析洞察 (異常値、パターン、データに関する判断) | `promote-finding` ツール (LLM)、`/finding` slash (ユーザー)、`analyze-data` 自動昇格 |
+| **Records** | session 内 | `sessions/<id>/chat.json` (+ `summaries.json`) | 会話履歴の逐語ログ (immutable, append-only) | エージェントループ (各ターン) |
+| **Session Memory** | session 内 | `sessions/<id>/session_memory.json` | 自動抽出された session 文脈 (`fact` / `context` カテゴリ) | `extractMemories` 各アシスタントターン後 |
+| **Findings** | session 内 | `sessions/<id>/findings.json` | データ分析からの発見: 異常値、パターン、構造化された観察 | `promote-finding` ツール (LLM、`hasData` ゲート)、`analyze-data` 自動昇格 |
+| **Global Memory** | 跨セッション (唯一の global 機能) | `global_memory.json` | ユーザー identity / 決定 (`preference` / `decision` カテゴリ) | `extractMemories` 各アシスタントターン後 + Session Memory / Findings からの手動 Pin |
 
-3 つとも LLM コンテキストに流れ込むが、**経路が異なる**:
+命名整理:
 
-- Records → user / assistant / tool メッセージターン
-  (必要に応じ `contextbuild` で要約)
-- Pinned + Findings → **システムプロンプト**に注入
+- **「Pinned」は廃止**。「Pin (する)」というユーザー操作は残る
+  (session-scoped を Global Memory に昇格する操作の名前)。
+  ストア名としては Global Memory に統一。
+- **`Pin to Global Memory`** が Session Memory 行と Findings
+  行に表示される UI ボタン。
+
+LLM コンテキストへの流入経路:
+
+- Records → user/assistant/tool メッセージ (必要に応じ
+  `contextbuild` で要約)
+- Session Memory + Findings + Global Memory → **システム
+  プロンプト**に注入 (Session Memory と Findings はその
+  セッションがアクティブな時のみ)
 
 ---
 
 ## 2. Records (会話履歴)
 
-user / assistant / tool メッセージとメタデータ (タイムスタンプ、
-添付画像 object ID、ツールコール記録) の逐語ログ。セッションの
-single source of truth。
+user / assistant / tool メッセージとメタデータの逐語ログ。
+セッションの single source of truth。
 
 **永続化**: `~/Library/Application Support/shell-agent-v2/sessions/<id>/chat.json`
 に append-only JSON。`internal/atomicio.WriteFileAtomic` 経由
 の atomic write。
 
-**圧縮モデル** (v0.1.26+ デフォルト `Memory.UseV2: true`):
-records は **不変**。summary record で置換されることはない。
-LLM コンテキスト予算を超過したら、古い raw records は別
-キャッシュ (`sessions/<id>/summaries.json`) 内の **派生要約**
-に折り畳まれる。content hash で keyed されているのでラン跨ぎ
-バックエンド跨ぎで再利用可能。レガシー v1 経路 (in-place
-`Tier` mutation, `PromoteOldestHotToWarm`) は古いセッション
-ファイルのために残存するが、書き込みでは触らない。
+**圧縮モデル**: records は不変。LLM コンテキスト予算超過時、
+古い raw records は派生要約として `sessions/<id>/summaries.json`
+(content-keyed cache) に折り畳まれる。record が書き換えられる
+ことはない。v0.1.x の `Memory.UseV2` opt-in フラグは
+**v0.2.0 で削除**: contextbuild 経路が唯一の経路となる。
+レガシーの破壊的圧縮コード (`compactIfOverBudget`,
+`compactMemoryIfNeeded`) は no-op 化ではなく**完全削除**。
 
-**時間マーカー**: 各 record に `[YYYY-MM-DD HH:MM TZ]` 接頭辞が
-付くのは意味のある境界 (>30 分ギャップ、tool/report ロール) のみ。
-要約ブロックには `[Summary of N earlier turn(s) — from … to …]`
-の range header。
+**時間マーカー**: `[YYYY-MM-DD HH:MM TZ]` 接頭辞は意味のある
+境界 (>30 分ギャップ、tool/report ロール) のみ。要約ブロックは
+range header 付き。
 
-**Tier フィールド**: レガシー遺物。新コードは書かず v2 経路は
-読まない。`Tier=hot/warm/cold` を含む古いセッションファイルは
-load して render される。
+**Tier フィールド**: v0.2.0 で削除。(v0.1.26 Memory v2 時点で
+既に vestigial だった。)
 
 **詳細**: [memory-architecture-v2.ja.md](memory-architecture-v2.ja.md)。
 
 ---
 
-## 3. Pinned Memory (跨セッションのユーザー事実)
+## 3. Session Memory (自動抽出された session 文脈)
 
-エージェントが全セッションを跨いで記憶する長期事実。セッション
-削除後も残る。
+*現在の*会話に関する自動抽出事実。跨セッションのユーザー
+identity に値しないもの。「ユーザーは Q1 売上を分析中」「グフ
+モデル画像を添付した」「レポートは 3 セクション希望」など。
 
-**スキーマ** (`internal/memory/pinned.go`):
+**スキーマ** (`internal/memory/session_memory.go`):
 
 ```go
-type PinnedFact struct {
-    Fact            string    // 英語形式 (分析用)
-    NativeFact      string    // ユーザー言語 (表示用)
-    Category        string    // preference | decision | fact | context
-    SourceTime      time.Time // 元会話の発生時刻
-    CreatedAt       time.Time // pin された時刻
+type SessionMemoryEntry struct {
+    Fact            string    // 英語形式
+    NativeFact      string    // ユーザー言語
+    Category        string    // fact | context  (4 カテゴリの subset)
+    SourceTime      time.Time
+    CreatedAt       time.Time
 
-    // Provenance (v0.1.26+)
-    SessionID       string    // 由来セッション ID
-    SourceTurnIndex int       // そのセッション Records 内の index
-    Source          string    // user_turn | assistant_turn | manual
-    ToolOriginated  bool      // 周辺窓に tool 出力を含んだか
+    // Provenance
+    SourceTurnIndex int
+    Source          string    // user_turn | assistant_turn
+    ToolOriginated  bool
 }
 ```
 
-**カテゴリ** (LLM が割り当て、allowlist 強制):
+`SessionID` は暗黙 (ファイルが per-session)。`Source = manual`
+は無し (会話文脈の手動エントリは use case にならない —
+ユーザーが直接タイプしたものは Records に既にある)。
 
-| Category | 用途 | 例 |
-|---|---|---|
-| `preference` | ユーザーの好み・癖 | "User prefers Go over Python" |
-| `decision` | 設計 / 構成上の決定 | "Chose DuckDB over SQLite" |
-| `fact` | 事実コンテキスト | "User is in Tokyo" |
-| `context` | 状況把握 | "User analyses Q1 sales data" |
+**自動抽出**: Global Memory と同じ `extractMemories` パスで
+処理。LLM が category 付きで facts を出力、カテゴリ
+`fact` / `context` がここに routing される。
 
-**自動抽出** (`extractPinnedMemories`、各アシスタントターン後):
-
-1. 直近 4 件の hot records (user/assistant 混在) を取得
-2. `[turn N|role]:` で番号付け、`nlk/guard.Tag` でラップして
-   データ扱い
-3. 同じバックエンドの LLM に
-   `category|turn-N|english fact|native expression` 形式で抽出
-   依頼
-4. 各返却行について:
-   - allowlist 外の category は drop
-   - `IsSelfReferential(fact)` ヒット (the assistant / model /
-     system prompt / THINK タグ / tools 等への言及) は drop
-   - source 判定: `turn-N` パース → 由来 role。パース不可 or
-     由来が assistant でも fact の英語キーワード / 日本語
-     trigram が user 発話と重複していれば `user_turn` に格上げ
-     (content-based attribution refinement)
-5. `pinned.Add()` で追加、`Fact` 完全一致で dedup、
-   `MaxPinnedFacts` (デフォルト 100) 超過で FIFO evict
-6. atomic write で保存、`pinned:updated` イベント発火 →
-   サイドバー即時 refresh
-
-**手動操作**:
-
-- `Set(key, content)` — UI 手動 pin、`Source: manual` stamp
-- `Delete(key)` / `DeleteByKeys([]string)` — UI 手動削除
-
-**システムプロンプトレンダリング** (`FormatForPrompt`):
+**システムプロンプトレンダリング** (現セッションのみ):
 
 ```
-- [user-stated] [preference] User prefers Go over Python (ユーザーはPythonよりGoを好む) (learned 2026-05-03)
-- [derived] [context] User is currently analysing Q1 sales data (learned 2026-05-03)
+- [user-stated] [context] User is analysing 2025 Q1 sales data (ユーザーは2025年Q1売上データを分析中) (learned 2026-05-03)
+- [derived] [fact] Three datasets are loaded: sales, customers, returns (3つのデータセットがロード済み) (learned 2026-05-03)
 ```
 
-行頭の `[user-stated]` / `[derived]` は **trust tag**、`Source`
-から導出。§6 参照。
+**キャパシティ**: per-session FIFO cap (デフォルト 50; per-
+session ノイズを厳密に bound するため Global より低い)。
 
-**サイドバー表示**: 各行に fact、category badge、trust badge、
-`learned YYYY-MM-DD` (v0.1.28+)。
+**ライフサイクル**: セッションと一緒に削除。
+`sessions/<id>/` ディレクトリごと削除される。
 
-**詳細**: filter と脅威モデルは
-[memory-injection-hardening.ja.md](memory-injection-hardening.ja.md)。
+**Pin (昇格)**: サイドバー Session Memory 節の各行に
+「Pin to Global Memory」ボタン。クリックで category 確認
+ダイアログ (デフォルト `decision`、`preference` に変更可) →
+新規 Global Memory entry 作成。元 Session Memory entry は
+残存。
 
 ---
 
-## 4. Findings (跨セッション分析洞察)
+## 4. Findings (データ分析の発見)
 
-データ分析で得られた、セッション跨ぎで surface する価値ある
-洞察。`OriginSessionID` を持つので「どこから来たか」を追跡
-可能。
+**データ分析特化**の洞察 — ロード済データセットの異常値、
+統計的パターン、`analyze-data` からの構造化観察。会話一般
+からの自動抽出はしない: `promote-finding` が唯一の LLM 経路で、
+ロード済データのあるセッションに gate される。
 
 **スキーマ** (`internal/findings/findings.go`):
 
 ```go
 type Finding struct {
-    ID                 string   // f-YYYYMMDD-NNN[-hex]
-    Content            string
-    OriginSessionID    string
-    OriginSessionTitle string
-    Tags               []string // 自由形式; severity tag ("critical", "high", …) は色付き badge
-    CreatedAt          string   // RFC3339
-    CreatedLabel       string   // "2026-05-03 (Friday)"
+    ID              string    // f-YYYYMMDD-NNN[-hex]
+    Content         string
+    Tags            []string  // 自由形式; severity tag は色付き badge
+    CreatedAt       string    // RFC3339
+    CreatedLabel    string    // "2026-05-03 (Friday)"
 
-    // Provenance (v0.1.26+)
-    Source         string  // llm_promoted | manual
-    ToolOriginated bool
+    // Provenance
+    Source          string    // llm_promoted | analyze_data
+    ToolOriginated  bool
 }
 ```
 
-**作成経路**:
+`SessionID` / `OriginSessionTitle` は削除 (ファイルが per-
+session)。Source `manual` も削除 (v0.2.0 では `/finding` slash
+コマンドなし)。
 
-- **`promote-finding` ツール** — LLM 呼び出し可能。MITL デフォルト
-  **ON** (v0.1.26 hardening): 昇格ごとに content 確認ダイアログ。
-  Source: `llm_promoted`。
-- **`/finding <text>` slash command** — ユーザー手動。
-  Source: `manual`。
-- **`analyze-data` 自動昇格** — sliding-window 分析が結果に構造化
-  `Finding` レコードを surface したら一括追加。
-  Source: `llm_promoted`。
+**作成経路** (v0.2.0):
 
-3 経路すべて `findings:updated` (v0.1.28+) でフロントエンドに
-通知 → サイドバー即時 refresh (セッション切替不要)。
+- **`promote-finding` ツール** — LLM 呼び出し可能、
+  `hasData == true` のセッションでのみ提供 (`load-data` で
+  少なくとも 1 テーブル ロード済み)。MITL デフォルト ON:
+  昇格ごとに content 確認ダイアログ。
+- **`analyze-data` 自動昇格** — sliding-window 分析が結果に
+  構造化 `Finding` を surface したら一括追加。
 
-**キャパシティ**: `MaxFindings` (デフォルト 200) で FIFO eviction。
-日次 ID カウンタは 999/日 超過で `f-YYYYMMDD-NNNNNN-<6 hex>` に
-roll over。
+**v0.2.0 で削除**:
+- `/finding <text>` slash コマンド (手動エントリ経路) — Pin
+  ワークフロー + Session Memory が代替。
 
-**システムプロンプトレンダリング**:
+**キャパシティ**: per-session FIFO cap (デフォルト 100/
+セッション)。
+
+**ライフサイクル**: セッションと一緒に削除。
+
+**システムプロンプトレンダリング** (現セッションのみ):
 
 ```
-- [derived] [2026-05-03 (Friday)] 2025年Q1において大阪のWidget-Cで… (from: Sales Analysis, session: sess-1234)
-- [user-stated] [2026-05-02 (Thursday)] User identified anomaly in… (from: Manual Review, session: sess-5678)
+- [derived] [2026-05-03] 2025-03-09 大阪 Widget-C: 1850個販売 (週平均の50倍) — データ入力エラーまたは大口取引の可能性
+- [derived] [2026-05-03] 東京 Widget-A は全週で一貫して 130 個前後の安定した出荷量
 ```
 
-**サイドバー表示**: content、trust badge、日付、由来セッション
-タイトル、severity 色分け tag badge。
+**Pin (昇格)**: 各 Finding 行に「Pin to Global Memory」ボタン
+(Session Memory と同じ UI affordance)。分析的発見が実は
+「跨セッションで覚える価値ある決定」だった場合に有用 (例:
+「Widget-C の需要は予測不能と判断」)。
+
+**専用 UI パネル**: Findings は chat-pane エリアに専用ペイン
+を持つ (Data 開示の隣)、サイドバーではない。理由: Findings は
+ロード済データに密結合 — 発見一覧は元データセットの隣で見るのが
+最も自然。フラットリスト + filter / search 表示。
 
 ---
 
-## 5. システムプロンプト集約
+## 5. Global Memory (跨セッションのユーザー identity)
 
-`chat.Engine.BuildSystemPrompt(pinnedContext, findingsContext)`
-(`internal/chat/chat.go:110`) が唯一の集約点:
+エージェントが全セッションを跨いで記憶する長期事実。v0.2.0
+で**唯一の**跨セッション永続機能。
+
+**スキーマ** (`internal/memory/global_memory.go`):
+
+```go
+type GlobalMemoryEntry struct {
+    Fact            string    // 英語形式
+    NativeFact      string    // ユーザー言語
+    Category        string    // preference | decision  (4 カテゴリの subset)
+    SourceTime      time.Time
+    CreatedAt       time.Time
+
+    // Provenance
+    SessionID       string    // 由来セッション ID (手動エントリは空)
+    SourceTurnIndex int
+    Source          string    // user_turn | assistant_turn | manual | promoted_from_session_memory | promoted_from_finding
+    ToolOriginated  bool
+
+    // 昇格時の back-reference (Source が promoted_from_* の場合)
+    PromotedFromID  string    // Session Memory entry index, or Finding ID
+}
+```
+
+**カテゴリ** (`preference` / `decision` のみ):
+
+| Category | 用途 | 例 |
+|---|---|---|
+| `preference` | ユーザーの好み・癖 | "User prefers Go over Python" |
+| `decision` | 設計 / 構成上の決定 | "Chose DuckDB over SQLite for analysis" |
+
+`fact` / `context` は session-scoped 概念 (Session Memory)。
+ここへの auto-routing はできない。
+
+**作成経路**:
+
+- **自動抽出** (`extractMemories`): カテゴリ `preference` /
+  `decision` でタグされた fact が自動 routing される
+- **Session Memory からの手動 Pin**: Session Memory 行で
+  「Pin to Global Memory」をクリック、`preference`/`decision`
+  に再分類可
+- **Findings からの手動 Pin**: 同じ flow を Findings パネル
+  から
+- **直接手動エントリ**: settings UI / API (`Set` メソッド)
+
+**システムプロンプトレンダリング** (常時注入):
+
+```
+- [user-stated] [preference] User prefers Go over Python (learned 2026-05-03)
+- [user-stated] [decision] Chose DuckDB over SQLite (promoted from Finding, 2026-05-02)
+```
+
+**キャパシティ**: FIFO cap (デフォルト 100)。v0.1.x の "Pinned"
+に適用されていた 100 より tight (Global Memory が
+`preference`/`decision` のみに絞られたため)。
+
+**サイドバー表示**: Memory タブ → 上部 "Global Memory" 節。
+各行に fact、category badge、trust badge、learned date。
+「Demote to Session Memory」ボタン (希少。global entry が実は
+session-bound だったと気付いた時用)。
+
+---
+
+## 6. サイドバー & UI レイアウト
+
+**Memory サイドバー** (既存タブを再構成):
+
+```
+┌── Sidebar / Memory tab ──────────┐
+│                                  │
+│ [Global Memory]                  │
+│  • [user-stated] User prefers Go │
+│  • [user-stated] Chose DuckDB    │
+│  …                               │
+│                                  │
+│ [Session Memory]                 │
+│  • [user-stated] User analysing  │
+│    Q1 sales data                 │
+│  • [derived] Three datasets…     │
+│  • [Pin to Global Memory] btn    │
+│  …                               │
+│                                  │
+└──────────────────────────────────┘
+```
+
+既存 Memory サイドバータブ内に 2 セクション — Global Memory
+(上) + Session Memory (下)。各節に bulk-select + delete。
+Session Memory 行に Pin ボタン。
+
+**Findings パネル** (新規、chat-pane エリア):
+
+```
+┌── Chat pane ─────────────────────┐
+│ 会話                              │
+│                                  │
+│ ┌── Data ──────────────────────┐ │
+│ │ Tables / objects / /work     │ │
+│ └──────────────────────────────┘ │
+│ ┌── Findings ──────────────────┐ │ ← 新規専用パネル
+│ │ • [analyze-data] Q1 大阪異常 │ │
+│ │ • [promote-finding] 東京…    │ │
+│ │ Filter: [all|critical|…]     │ │
+│ │ [Pin to Global Memory] btn   │ │
+│ └──────────────────────────────┘ │
+└──────────────────────────────────┘
+```
+
+Data 開示の隣に配置。リストビュー + severity tag フィルタ +
+search + Pin ボタン (各行)。
+
+---
+
+## 7. システムプロンプト集約
+
+`chat.Engine.BuildSystemPrompt(globalMemoryContext,
+sessionMemoryContext, findingsContext)` (`internal/chat/chat.go`):
 
 ```
 {base system prompt}
@@ -210,195 +321,212 @@ roll over。
 {sandbox guidance、Sandbox.Enabled 時}
 
 Important facts you remember about the user:
-{pinned.FormatForPrompt()}
+{global_memory.FormatForPrompt()}
 
-Analysis findings from other sessions:
+Notes about the current session:
+{session_memory.FormatForPrompt()}
+
+Analysis findings in this session:
 {findings.FormatForPrompt()}
 ```
 
 これが LLM コール時の `system` メッセージになる。Records は
-**ここを通らない** — `BuildMessages` (v2 経路では
-`agent.buildMessagesV2`) から user/assistant/tool 別メッセージ
-として入る。
+**ここを通らない** — `BuildMessages` (`agent.buildMessagesV2`)
+から user/assistant/tool 別メッセージとして入る。
 
-**副作用**: `BuildSystemPrompt` は `nlk/guard.Tag` の nonce を
-ローテートする。同一ターン内の続く `WrapUserToolContent`
-コールは新しい nonce を使う。
+**空のセクションは丸ごと省略** (content なしのヘッダは出さない)。
 
 **トークン予算**: 各 `FormatForPrompt` は内部で **16 KiB** に
-bounded、最新優先で含めて省略マーカ
-(`(N earlier facts elided to fit budget)`) 付き。Pinned/Findings
-ストアの肥大が会話予算を圧迫しないようにしている。
+bounded、最新優先で含めて省略マーカ付き。最悪 system prompt
+追加分の合計 ~48 KiB。
 
 ---
 
-## 6. Provenance & Trust Tags
+## 8. 自動抽出 (`extractMemories`)
 
-各 Pinned / Finding entry は `Source` フィールドを持つ。trust
-tag は導出 (`pinned.go:trustTag`, `findings.go:trustTag`):
+`extractPinnedMemories` から改名 (broader routing を反映)。
+各アシスタントターン後の post-response バックグラウンドタスク
+として実行。
+
+**パイプライン**:
+
+1. 直近 4 件の hot records を取得
+2. `nlk/guard.Tag` でラップ (prompt-injection 隔離)
+3. 同じ LLM に
+   `category|turn-N|english fact|native expression` 形式で抽出
+   依頼
+4. 各返却行について:
+   - `{preference, decision, fact, context}` allowlist 外の
+     category は drop
+   - `IsSelfReferential(fact)` ヒット (the assistant / model /
+     system prompt / THINK タグ / tools 等への言及) は drop
+   - `parseTurnToken` + content overlap refinement で source
+     判定
+   - **カテゴリで routing**:
+     - `preference` / `decision` → `globalMemory.Add(...)`
+     - `fact` / `context` → `sessionMemory.Add(...)`
+5. atomic save、`global_memory:updated` または
+   `session_memory:updated` イベント発火 → UI refresh
+
+抽出プロンプトは LLM に明示的に伝える:
+
+> カテゴリ `preference` と `decision` は長期的なユーザー
+> identity を表し、全セッションで永続する。カテゴリ `fact` と
+> `context` は現在の会話の状態を表し、セッション終了で消える。
+> 意図する永続性に合うカテゴリを選んでほしい。
+
+これにより LLM のカテゴリ選択が scope 意図を担う。
+
+---
+
+## 9. Provenance & Trust Tags
+
+(v0.1.26 と同じモデルを Global Memory と Session Memory に適用。)
 
 | Source 値 | Trust tag | 意味 |
 |---|---|---|
-| `user_turn` | `[user-stated]` | user role record から抽出 (or content override で user 認定) |
-| `manual` | `[user-stated]` | UI / slash command 経由でユーザーが pin/promote |
-| `assistant_turn` | `[derived]` | assistant role record から抽出 — content は LLM 経由 |
-| `llm_promoted` | `[derived]` | LLM tool call で promote — content は LLM 分析由来 |
-| 空 (legacy) | `[derived]` | v0.1.26 以前 entry に Source なし — 安全側 |
+| `user_turn` | `[user-stated]` | user role record から抽出 |
+| `manual` | `[user-stated]` | UI 経由でユーザーが pin |
+| `promoted_from_session_memory` | `[user-stated]` | Session Memory entry を Pin |
+| `promoted_from_finding` | `[user-stated]` | Finding を Pin |
+| `assistant_turn` | `[derived]` | assistant role record から抽出 |
+| `llm_promoted` | `[derived]` | `promote-finding` ツールで promote |
+| `analyze_data` | `[derived]` | `analyze-data` ツールで自動昇格 |
+| 空 (legacy) | `[derived]` | 安全側 default |
 
-**なぜ重要か**: LLM 生成ターンを通過した content には攻撃者
-影響下バイトが含まれうる (引用 CSV セル、MCP 応答、画像 OCR、
-取得 Web ページ)。`[derived]` タグは将来 LLM コンテキストに
-「user 発言とは限らない」と警告する。§9 参照。
+Findings: 同じ Source enum (subset)。防御 (self-referential
+filter, category allowlist, `nlk/guard` wrap) は抽出時に適用。
 
 ---
 
-## 7. キャパシティ & リテンション
+## 10. キャパシティ & リテンション
 
-現状: **FIFO cap のみ**。時間ベース decay なし、Category 以上
-の importance 評価なし。
+**Per-store FIFO cap:**
 
-| 設定 | デフォルト | 場所 |
+| Store | デフォルト | Config key |
 |---|---|---|
-| `Memory.MaxPinnedFacts` | 100 | `internal/config/config.go` |
-| `Memory.MaxFindings` | 200 | 同上 |
-| `PinnedFormatBudget` | 16 KiB | `internal/memory/pinned.go` |
-| `FindingsFormatBudget` | 16 KiB | `internal/findings/findings.go` |
+| Global Memory | 100 | `Memory.MaxGlobalMemory` |
+| Session Memory | 50 (per session) | `Memory.MaxSessionMemoryPerSession` |
+| Findings | 100 (per session) | `Memory.MaxFindingsPerSession` |
 
-**Eviction policy**: `Add` overflow で最古から (FIFO)。将来 (B)
-importance score / (C) per-category TTL は memory plan に記載
-あり、未実装。
+**Render 時予算**: 各 `FormatForPrompt` は 16 KiB で clip、
+最新優先。
 
-`PinnedFormatBudget` / `FindingsFormatBudget` はレンダー時に
-適用; ストアに 100 件あっても、システムプロンプトに出るのは
-16 KiB に収まる最新分のみ。
+**時間ベース decay**: 未実装。(将来 Global Memory が運用上
+散らかったら検討; 現状は FIFO で十分。)
 
 ---
 
-## 8. ストレージレイアウト
+## 11. 破壊的変更 (v0.1.x → v0.2.0)
+
+これは**破壊的アーキテクチャ変更**:
+
+- `Memory.UseV2` config フラグ — **削除**。contextbuild 経路
+  (immutable Records + 派生要約 cache) が唯一の経路に。
+  レガシー v1 destructive-compaction コードは flag で gate
+  するのではなく**削除** — 「v1 モード」はもう存在しない。
+- `pinned.json` (global ファイル) — **起動時に無視**。古い
+  preferences/decisions は失われる。会話または settings UI
+  経由で再 pin。
+- `findings.json` (global ファイル) — **起動時に無視**。古い
+  跨セッション findings は失われる。
+- セッションファイル (`sessions/<id>/chat.json` +
+  `summaries.json`) — **保持**。古い会話を browse 可能;
+  Session Memory / Findings は付かない (v0.1.x で存在しなかった
+  facility なので)。
+- `/finding` slash コマンド — **削除**。chat-pane Findings
+  パネル + Pin ボタンを使用。
+- `PinnedFact` 型 — `GlobalMemoryEntry` に改名 (Go API)。
+- `PinnedStore` → `GlobalMemoryStore`。
+- `SetPinnedHandler` → `SetGlobalMemoryHandler` および
+  `SetSessionMemoryHandler` (両方)。
+- Wails event `pinned:updated` → `global_memory:updated` および
+  `session_memory:updated`。
+- Bindings 改名: `GetPinnedMemories` → `GetGlobalMemories`;
+  `DeletePinnedMemories` → `DeleteGlobalMemories`。新規:
+  `GetSessionMemories`, `DeleteSessionMemories`,
+  `PinSessionMemory`, `PinFinding`。
+
+初回起動 banner で v0.1.x ストアが無視されたことを通知 (tip:
+`~/Library/Application Support/shell-agent-v2/pinned.json` は
+disk に保持されているので手動回収可能)。banner は dismissible。
+
+---
+
+## 12. ストレージレイアウト
 
 ```
 ~/Library/Application Support/shell-agent-v2/
-├── pinned.json            # PinnedStore — 跨セッション global 事実
-├── findings.json          # findings.Store — 跨セッション global 洞察
+├── global_memory.json                    # Global Memory (NEW 命名; was pinned.json)
 ├── sessions/
 │   └── <session-id>/
-│       ├── chat.json      # session.Records (immutable log)
-│       └── summaries.json # contextbuild SummaryCache (派生、再生成可)
-├── objects/               # objstore: 画像、レポート、blob (16-byte ID)
+│       ├── chat.json                     # Records (不変)
+│       ├── summaries.json                # contextbuild SummaryCache (不変)
+│       ├── session_memory.json           # NEW: Session Memory
+│       └── findings.json                 # MOVED: per-session Findings
+├── objects/                              # objstore (不変)
 └── config.json
 ```
 
-JSON 書き込みはすべて `internal/atomicio.WriteFileAtomic`
-(tmp + rename + 親 dir fsync) 経由 — 書き込み中クラッシュでも
-前のファイルは無傷 (security-hardening-2.md C4 / H10)。
+disk に残るレガシーファイル:
+- `pinned.json` — opt-in 回収ツールでのみ read access
+  (v0.2.0 では out of scope; ユーザーが手動 `cat` で確認可能)
+- `findings.json` — 同上
+
+新規書き込みはすべて `internal/atomicio.WriteFileAtomic` 経由。
 
 ---
 
-## 9. 脅威モデル (要約)
+## 13. 脅威モデル (v0.2.0 update)
 
-Pinned facts と findings はすべての将来セッションのシステム
-プロンプトに権威ある context として再注入される。これは構造
-的なプロンプトインジェクション経路: アシスタントターンに一度
-でも現れた content (アシスタントが要約したツール出力を含む) は
-`extractPinnedMemories` または `promote-finding` LLM コールで
-拾われ、将来全セッションを操舵しうる。
+v0.2.0 以前の攻撃: 悪意ある CSV セルがアシスタントによって
+引用 → 自動抽出 → グローバル pin → 全将来セッションに権威ある
+context として再注入。
 
-**v0.1.26 の防御** (Security Round 3):
+**v0.1.26 hardening の上に v0.2.0 の追加緩和**:
 
-| 防御 | レイヤ |
+| メカニズム | 攻撃への効果 |
 |---|---|
-| Provenance attribution | 各 fact が `Source` を持ち trust 復元可能 |
-| Self-referential filter | `IsSelfReferential` が「the assistant / THINK / system prompt / …」系 fact を抽出時に drop |
-| Category allowlist | `preference|decision|fact|context` のみ生存 |
-| `nlk/guard` ラップ | 抽出プロンプトが会話テールをデータ扱い |
-| `promote-finding` MITL ON | LLM 昇格 finding にユーザー確認 |
-| FIFO retention cap | ストア成長を bound |
-| 16 KiB FormatForPrompt 予算 | プロンプト成長を bound |
+| `fact` / `context` は Session Memory に routing、Global Memory に行かない | CSV セル経由の注入成功でも由来セッションのみ汚染、全将来セッションには波及しない |
+| Session 削除 ⇒ Session Memory + Findings 削除 | セッション終了で攻撃 window が閉じる |
+| Global Memory は `preference` / `decision` のみ受領 | 攻撃者は payload を user preference としてラベルさせる必要あり (`context` より難しい) |
+| `promote-finding` `hasData` ゲート | data ロード済セッション外では呼べない |
+| `/finding` slash 削除 | LLM 影響下の手動 surface が 1 つ減る |
+| Pin は明示ユーザークリック必須 | session-scoped → global の自動昇格なし |
 
-自動抽出自体は ON のまま (pin 単位 MITL は chat UX 破壊)。
-自動抽出経路の残留リスクはサイドバー監査 + 一括削除で回収。
+v0.1.26 の self-referential filter, category allowlist,
+`nlk/guard` wrap は **両方の**自動抽出ストリーム (Global Memory
+と Session Memory) に適用。
 
 **詳細**: [memory-injection-hardening.ja.md](memory-injection-hardening.ja.md)。
 
 ---
 
-## 10. 設計 — 2-tier scope (提案中、v0.1.28 以降)
+## 14. 用語集
 
-> ステータス: **設計のみ**、未実装。
-
-現モデルは pinned fact と finding を *すべて* **global** 扱い —
-全将来セッションのシステムプロンプトに出る。動作はするが
-global pool を圧迫: タスク文脈アイテム (「Q1 分析用に 3
-データセット load 済」) が identity アイテム (「Go を好む」)
-と同じ予算を消費。
-
-提案する進化は `Scope` フィールドの導入:
-
-- **`global`** — 現挙動。全セッションに毎回注入。
-- **`session`** — 由来セッションがアクティブな時のみ注入。
-  セッション削除と一緒に auto-delete。
-
-**カテゴリ別デフォルトマッピング** (Pinned):
-
-| Category | デフォルト scope |
-|---|---|
-| `preference` | global |
-| `decision` | global |
-| `fact` | session |
-| `context` | session |
-
-**Findings**: 全件デフォルト `session` (分析はケース依存)。
-ケース跨ぎ価値があれば手動 global 昇格。
-
-**手動オーバーライド**: サイドバー各行に `[global]` /
-`[session]` badge と「Pin to global」ボタン (session→global)、
-「Unpin」トグル (global→session)。
-
-**抽出プロンプト改訂**: LLM に category→scope マッピングを
-教え、scope 意図を反映した category 選択を促す。
-
-**後方互換**: 既存 entry (Scope フィールドなし) は `global`
-default — データロスなし、現挙動維持。
-
-**未解決の問い** (次の planning round で詰める):
-
-- 自動昇格はあるべきか (例: 同じ fact が N セッションで再出現
-  → global へ自動昇格)
-- ストレージ: 単一ファイル + `Scope` フィールド vs ファイル分離
-- サイドバーレイアウト: 2 サブ節 (Global / This Session) vs
-  単一リスト + badge filter
-
-実装時にこの節は実装結果と open questions の解消で更新する。
+- **Records** — 会話ターンの逐語; per-session
+- **Session Memory** — 自動抽出された session 文脈
+  (`fact`/`context`); per-session
+- **Findings** — データ分析の発見; per-session
+- **Global Memory** — 跨セッションのユーザー identity
+  (`preference`/`decision`); 唯一の global 永続機能
+- **Pin** / **Pin to Global Memory** — Session Memory または
+  Findings entry を Global Memory に昇格する UI 操作
+- **Source / Provenance** — 由来ラベル、trust tag 導出元
+- **Trust tag** — `[user-stated]` (高) or `[derived]`
+  (LLM 経由)
 
 ---
 
-## 11. 用語集
-
-- **Records** — 会話ターンの逐語; セッション内
-- **Pinned Memory** — ユーザーに関する跨セッション事実
-- **Findings** — 跨セッション分析洞察
-- **Pin to global** — (提案) session-scoped を global へ昇格
-- **Scope** — (提案) `global` (跨セッション) or `session`
-  (セッション束縛)
-- **Source / Provenance** — 由来ラベル (`user_turn` 等)、
-  trust tag 導出元
-- **Trust tag** — `[user-stated]` (高信頼) or `[derived]`
-  (LLM 経由、攻撃者影響下バイト含みうる)
-- **Tier** — Records 上のレガシー hot/warm/cold フィールド、
-  Memory v2 では vestigial
-- **Memory v2 / `UseV2`** — contextbuild 経路: records 不変、
-  要約は content-keyed cache から per-call で導出
-
----
-
-## 12. 参照
+## 15. 参照
 
 - [memory-architecture-v2.ja.md](memory-architecture-v2.ja.md) —
-  Records, contextbuild, summary cache 設計
+  Records / contextbuild (不変)
 - [memory-injection-hardening.ja.md](memory-injection-hardening.ja.md) —
   Pinned/Findings セキュリティモデル (v0.1.26)
-- `internal/memory/pinned.go` — PinnedStore 実装
-- `internal/findings/findings.go` — findings.Store 実装
+- `internal/memory/global_memory.go` — GlobalMemoryStore (NEW)
+- `internal/memory/session_memory.go` — SessionMemoryStore (NEW)
+- `internal/findings/findings.go` — per-session findings store
 - `internal/contextbuild/` — Memory v2 ContextBuilder
-- `internal/agent/agent.go:1820+` — `extractPinnedMemories`
-- `internal/chat/chat.go:110` — `BuildSystemPrompt` 集約
+- `internal/agent/agent.go:extractMemories` — 自動抽出 routing
+- `internal/chat/chat.go:BuildSystemPrompt` — 集約
