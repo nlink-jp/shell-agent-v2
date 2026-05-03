@@ -358,21 +358,21 @@ func TestLoadSession_RestoresToolEventBubbles(t *testing.T) {
 		ID:    sid,
 		Title: "Restore Test",
 		Records: []memory.Record{
-			{Timestamp: time.Now(), Role: "user", Content: "hi", Tier: memory.TierHot},
+			{Timestamp: time.Now(), Role: "user", Content: "hi"},
 			// Tool-call assistant turn — must be skipped at
 			// restore time (its narrative was a live activity).
-			{Timestamp: time.Now(), Role: "assistant", Content: "calling tools", Tier: memory.TierHot,
+			{Timestamp: time.Now(), Role: "assistant", Content: "calling tools",
 				ToolCalls: []memory.ToolCallRecord{{ID: "tc-1", Name: "shell", Arguments: "{}"}}},
 			// Tool result — should restore as a tool-event bubble.
-			{Timestamp: time.Now(), Role: "tool", Content: "ok", Tier: memory.TierHot,
+			{Timestamp: time.Now(), Role: "tool", Content: "ok",
 				ToolCallID: "tc-1", ToolName: "shell", Status: "success"},
 			// Tool result that errored.
-			{Timestamp: time.Now(), Role: "tool", Content: "boom", Tier: memory.TierHot,
+			{Timestamp: time.Now(), Role: "tool", Content: "boom",
 				ToolCallID: "tc-2", ToolName: "shell", Status: "error"},
 			// Legacy tool record (no status field on disk).
-			{Timestamp: time.Now(), Role: "tool", Content: "old", Tier: memory.TierHot,
+			{Timestamp: time.Now(), Role: "tool", Content: "old",
 				ToolCallID: "tc-3", ToolName: "legacy-tool"},
-			{Timestamp: time.Now(), Role: "assistant", Content: "done", Tier: memory.TierHot},
+			{Timestamp: time.Now(), Role: "assistant", Content: "done"},
 		},
 	}
 

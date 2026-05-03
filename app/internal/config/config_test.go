@@ -17,9 +17,8 @@ func TestDefault(t *testing.T) {
 	if cfg.LLM.VertexAI.Region == "" {
 		t.Error("vertex AI region is empty")
 	}
-	if cfg.Memory.HotTokenLimit == 0 {
-		t.Error("hot token limit is zero")
-	}
+	// v0.2.0: Memory.HotTokenLimit removed; the legacy v1
+	// destructive-compaction trigger is gone.
 }
 
 func TestDefault_RequestTimeoutSeconds(t *testing.T) {
@@ -48,35 +47,20 @@ func TestRequestTimeout_FallbackWhenZero(t *testing.T) {
 
 func TestDefault_PerBackendBudgets(t *testing.T) {
 	cfg := Default()
-	if cfg.LLM.Local.HotTokenLimit == 0 {
-		t.Error("local hot token limit is zero")
+	// v0.2.0: HotTokenLimit removed; per-backend ContextBudget is the
+	// only remaining capacity knob.
+	if cfg.LLM.Local.ContextBudget.MaxContextTokens == 0 {
+		t.Error("local MaxContextTokens is zero")
 	}
-	if cfg.LLM.VertexAI.HotTokenLimit == 0 {
-		t.Error("vertex hot token limit is zero")
+	if cfg.LLM.VertexAI.ContextBudget.MaxContextTokens == 0 {
+		t.Error("vertex MaxContextTokens is zero")
 	}
-	if cfg.LLM.VertexAI.HotTokenLimit <= cfg.LLM.Local.HotTokenLimit {
-		t.Errorf("vertex hot limit (%d) should exceed local (%d) since the model has a much larger window",
-			cfg.LLM.VertexAI.HotTokenLimit, cfg.LLM.Local.HotTokenLimit)
+	if cfg.LLM.VertexAI.ContextBudget.MaxContextTokens <= cfg.LLM.Local.ContextBudget.MaxContextTokens {
+		t.Errorf("vertex MaxContext (%d) should exceed local (%d) since Vertex models have a much larger window",
+			cfg.LLM.VertexAI.ContextBudget.MaxContextTokens, cfg.LLM.Local.ContextBudget.MaxContextTokens)
 	}
 	if cfg.LLM.Local.ContextBudget.MaxToolResultTokens == 0 {
 		t.Error("local tool-result cap is zero")
-	}
-}
-
-func TestHotTokenLimitFor(t *testing.T) {
-	cfg := Default()
-	if got := cfg.HotTokenLimitFor(BackendLocal); got != cfg.LLM.Local.HotTokenLimit {
-		t.Errorf("local: got %d want %d", got, cfg.LLM.Local.HotTokenLimit)
-	}
-	if got := cfg.HotTokenLimitFor(BackendVertexAI); got != cfg.LLM.VertexAI.HotTokenLimit {
-		t.Errorf("vertex: got %d want %d", got, cfg.LLM.VertexAI.HotTokenLimit)
-	}
-
-	// Legacy fallback: per-backend zero, top-level non-zero.
-	cfg.LLM.Local.HotTokenLimit = 0
-	cfg.Memory.HotTokenLimit = 9999
-	if got := cfg.HotTokenLimitFor(BackendLocal); got != 9999 {
-		t.Errorf("legacy fallback: got %d want 9999", got)
 	}
 }
 
@@ -98,18 +82,17 @@ func TestContextBudgetFor_PerFieldFallback(t *testing.T) {
 }
 
 func TestApplyBackendInheritance_LegacyMigration(t *testing.T) {
-	// Simulates loading a pre-feature config with only top-level Memory/ContextBudget set.
+	// v0.2.0: only ContextBudget remains as the inheritance source.
 	cfg := &Config{
-		Memory:        MemoryConfig{HotTokenLimit: 4096},
 		ContextBudget: ContextBudgetConfig{MaxContextTokens: 32000, MaxWarmTokens: 1024, MaxToolResultTokens: 2048},
 	}
 	cfg.applyBackendInheritance()
 
-	if cfg.LLM.Local.HotTokenLimit != 4096 {
-		t.Errorf("local hot inherit: got %d want 4096", cfg.LLM.Local.HotTokenLimit)
-	}
 	if cfg.LLM.VertexAI.ContextBudget.MaxContextTokens != 32000 {
 		t.Errorf("vertex MaxContext inherit: got %d want 32000", cfg.LLM.VertexAI.ContextBudget.MaxContextTokens)
+	}
+	if cfg.LLM.Local.ContextBudget.MaxContextTokens != 32000 {
+		t.Errorf("local MaxContext inherit: got %d want 32000", cfg.LLM.Local.ContextBudget.MaxContextTokens)
 	}
 }
 
@@ -172,8 +155,8 @@ func TestLoad_MissingFileReturnsDefaults(t *testing.T) {
 	if cfg.LLM.DefaultBackend != BackendLocal {
 		t.Errorf("default backend = %v, want %v", cfg.LLM.DefaultBackend, BackendLocal)
 	}
-	if cfg.LLM.Local.HotTokenLimit == 0 {
-		t.Error("default per-backend hot limit not populated")
+	if cfg.LLM.Local.ContextBudget.MaxContextTokens == 0 {
+		t.Error("default per-backend MaxContextTokens not populated")
 	}
 }
 
@@ -193,8 +176,8 @@ func TestLoad_MalformedJSON(t *testing.T) {
 }
 
 func TestLoad_PerBackendValuesInJSONWin(t *testing.T) {
-	// Per-backend settings in the loaded JSON take precedence over both
-	// the Default()'s per-backend values and the legacy top-level fields.
+	// Per-backend settings in the loaded JSON take precedence
+	// over Default()'s per-backend values.
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	dir := DataDir()
@@ -202,10 +185,9 @@ func TestLoad_PerBackendValuesInJSONWin(t *testing.T) {
 		t.Fatal(err)
 	}
 	custom := `{
-		"memory": {"hot_token_limit": 9999},
 		"llm": {
 			"default_backend": "local",
-			"local": {"hot_token_limit": 5000, "context_budget": {"max_context_tokens": 7777}},
+			"local": {"context_budget": {"max_context_tokens": 7777}},
 			"vertex_ai": {}
 		}
 	}`
@@ -216,17 +198,11 @@ func TestLoad_PerBackendValuesInJSONWin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.LLM.Local.HotTokenLimit != 5000 {
-		t.Errorf("local hot: got %d want 5000 (JSON value)", cfg.LLM.Local.HotTokenLimit)
-	}
 	if cfg.LLM.Local.ContextBudget.MaxContextTokens != 7777 {
 		t.Errorf("local MaxContext: got %d want 7777 (JSON value)", cfg.LLM.Local.ContextBudget.MaxContextTokens)
 	}
-	// Vertex was empty in JSON — Default's pre-populated per-backend
-	// values apply (rather than the legacy memory.hot_token_limit).
-	// This is current behaviour; see applyBackendInheritance comment.
-	if cfg.LLM.VertexAI.HotTokenLimit == 0 {
-		t.Error("vertex hot should be filled by Default's per-backend section")
+	if cfg.LLM.VertexAI.ContextBudget.MaxContextTokens == 0 {
+		t.Error("vertex MaxContext should be filled by Default's per-backend section")
 	}
 }
 
@@ -235,9 +211,8 @@ func TestSave_RoundtripsThroughLoad(t *testing.T) {
 	original := Default()
 	original.LLM.Local.Endpoint = "http://custom:1234"
 	original.LLM.Local.Model = "custom-model"
-	original.LLM.Local.HotTokenLimit = 8192
+	original.LLM.Local.ContextBudget.MaxContextTokens = 8192
 	original.Location = "Tokyo"
-	original.Memory.UseV2 = true
 	if err := original.Save(); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -251,14 +226,11 @@ func TestSave_RoundtripsThroughLoad(t *testing.T) {
 	if loaded.LLM.Local.Model != original.LLM.Local.Model {
 		t.Errorf("Model not roundtripped: %q", loaded.LLM.Local.Model)
 	}
-	if loaded.LLM.Local.HotTokenLimit != original.LLM.Local.HotTokenLimit {
-		t.Errorf("HotTokenLimit not roundtripped: %d", loaded.LLM.Local.HotTokenLimit)
+	if loaded.LLM.Local.ContextBudget.MaxContextTokens != original.LLM.Local.ContextBudget.MaxContextTokens {
+		t.Errorf("MaxContextTokens not roundtripped: %d", loaded.LLM.Local.ContextBudget.MaxContextTokens)
 	}
 	if loaded.Location != "Tokyo" {
 		t.Errorf("Location not roundtripped: %q", loaded.Location)
-	}
-	if !loaded.Memory.UseV2 {
-		t.Error("Memory.UseV2 not roundtripped")
 	}
 }
 

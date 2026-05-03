@@ -11,7 +11,7 @@ import (
 var utc = time.UTC
 
 func mkRec(t time.Time, role, content string) memory.Record {
-	return memory.Record{Timestamp: t, Role: role, Content: content, Tier: memory.TierHot}
+	return memory.Record{Timestamp: t, Role: role, Content: content}
 }
 
 func TestShouldAnnotate_GapTriggers(t *testing.T) {

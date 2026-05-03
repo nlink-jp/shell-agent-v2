@@ -19,7 +19,7 @@ func TestAddReportMessage(t *testing.T) {
 	if r.ToolName != "Quarterly Report" {
 		t.Errorf("ToolName (used as title) = %s", r.ToolName)
 	}
-	if r.Content == "" || r.Tier != TierHot || r.Timestamp.IsZero() {
+	if r.Content == "" || r.Timestamp.IsZero() {
 		t.Errorf("metadata not set: %+v", r)
 	}
 }
@@ -42,8 +42,8 @@ func TestSession_SaveLoad_Roundtrip(t *testing.T) {
 		ID:    "rt-test",
 		Title: "Round Trip",
 		Records: []Record{
-			{Timestamp: now, Role: "user", Content: "hi", Tier: TierHot},
-			{Timestamp: now.Add(time.Second), Role: "assistant", Content: "hello", Tier: TierHot},
+			{Timestamp: now, Role: "user", Content: "hi"},
+			{Timestamp: now.Add(time.Second), Role: "assistant", Content: "hello"},
 		},
 	}
 	if err := original.Save(); err != nil {

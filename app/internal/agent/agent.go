@@ -488,11 +488,6 @@ func (a *Agent) currentBudget() config.ContextBudgetConfig {
 	return a.cfg.ContextBudgetFor(a.currentBackendKey())
 }
 
-// currentHotTokenLimit returns the per-backend hot tier compaction trigger.
-func (a *Agent) currentHotTokenLimit() int {
-	return a.cfg.HotTokenLimitFor(a.currentBackendKey())
-}
-
 // CurrentSession returns the current session (for session ID access).
 func (a *Agent) CurrentSession() *memory.Session {
 	return a.session
@@ -989,18 +984,16 @@ func (a *Agent) LLMStatus() struct {
 	PromptTokens  int    `json:"prompt_tokens"`
 	OutputTokens  int    `json:"output_tokens"`
 } {
+	// v0.2.0: Tier is removed. Hot/Warm counts come from raw
+	// records (all "hot" now) and the contextbuild summary cache
+	// — but the cache count isn't easily reachable from here, so
+	// for now we report total record count as Hot and 0 for warm.
+	// The status display is informational only.
 	hot, warm := 0, 0
 	sessionID := ""
 	if a.session != nil {
 		sessionID = a.session.ID
-		for _, r := range a.session.Records {
-			switch r.Tier {
-			case memory.TierHot:
-				hot++
-			case memory.TierWarm:
-				warm++
-			}
-		}
+		hot = len(a.session.Records)
 	}
 	return struct {
 		Backend       string `json:"backend"`
@@ -1057,9 +1050,6 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 	allTools := a.buildToolDefs()
 	logger.Debug("agentLoop: %d tools available", len(allTools))
 
-	// Synchronous compaction before entering the loop
-	a.compactIfOverBudget(ctx)
-
 	// Loop-detection ring buffer (Feature 1 of agent-loop-resilience).
 	// Local to one agent turn — a fresh user message starts clean.
 	var recentToolCalls []toolCallTrace
@@ -1078,54 +1068,23 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 			return "(Cancelled)", nil
 		}
 
-		// Compact again after tool rounds (tool results inflate context)
-		if round > 0 {
-			a.compactIfOverBudget(ctx)
-		}
-
 		// Pass tools every round to allow tool chaining (e.g. get-location → weather).
 		// Verified: gemma-4 does not loop even with tools always available.
-		// [Calling:] contamination is handled by BuildMessagesWithBudget.
 		tools := allTools
 
-		// Build messages with [Calling:] exclusion and optional token budget.
-		// [Calling:] exclusion prevents LLM from mimicking the pattern.
-		// Token budget is an optional safety net (0 = unlimited).
-		// Design: docs/en/agent-data-flow.md Section 3.3
-		// V2: contextbuild package (memory-architecture-v2.md), opt-in.
+		// v0.2.0: contextbuild is the only path. The Memory.UseV2
+		// toggle and the legacy BuildMessagesWithBudget branch are gone.
+		// See docs/en/memory-architecture-v2.md for the non-destructive
+		// derivation model.
 		budget := a.currentBudget()
-		var messages []llm.Message
-		if a.cfg.Memory.UseV2 {
-			built, err := a.buildMessagesV2(ctx, budget)
-			if err != nil {
-				// Fail-closed: BuildMessages returns an error only when
-				// guard.Wrap fails (essentially crypto/rand catastrophe).
-				// Better to surface the failure than feed unwrapped
-				// untrusted content to the LLM (security-hardening-2.md L1).
-				logger.Error("agentLoop: buildMessagesV2: %v", err)
-				return "", fmt.Errorf("build messages: %w", err)
-			}
-			messages = built
-		} else {
-			buildResult, err := a.chat.BuildMessagesWithBudget(
-				a.session,
-				a.pinned.FormatForPrompt(),
-				a.sessionMemoryPrompt(),
-				a.findingsPrompt(),
-				chat.BuildOptions{
-					MaxConversationTokens: budget.MaxContextTokens,
-					MaxWarmTokens:         budget.MaxWarmTokens,
-					MaxToolResultTokens:   budget.MaxToolResultTokens,
-				},
-			)
-			if err != nil {
-				logger.Error("agentLoop: BuildMessagesWithBudget: %v", err)
-				return "", fmt.Errorf("build messages: %w", err)
-			}
-			messages = buildResult.Messages
-			if buildResult.DroppedCount > 0 {
-				logger.Debug("agentLoop: budget control dropped %d old messages (total ~%d tokens)", buildResult.DroppedCount, buildResult.TotalTokens)
-			}
+		messages, errBuild := a.buildMessagesV2(ctx, budget)
+		if errBuild != nil {
+			// Fail-closed: BuildMessages returns an error only when
+			// guard.Wrap fails (essentially crypto/rand catastrophe).
+			// Better to surface the failure than feed unwrapped
+			// untrusted content to the LLM (security-hardening-2.md L1).
+			logger.Error("agentLoop: buildMessagesV2: %v", errBuild)
+			return "", fmt.Errorf("build messages: %w", errBuild)
 		}
 
 		// Loop-detection: if the previous rounds show the same tool
@@ -1148,7 +1107,7 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 			injectEmptyNudge = false
 		}
 
-		logger.Debug("agentLoop: round=%d messages=%d tools=%d backend=%s v2=%v", round, len(messages), len(tools), a.backend.Name(), a.cfg.Memory.UseV2)
+		logger.Debug("agentLoop: round=%d messages=%d tools=%d backend=%s", round, len(messages), len(tools), a.backend.Name())
 
 		var resp *llm.Response
 		var err error
@@ -1274,14 +1233,13 @@ func (a *Agent) postResponseTasks(parentCtx context.Context) {
 	a.postCancel = cancel
 	a.mu.Unlock()
 
-	a.postTasksWg.Add(3)
+	// v0.2.0: only 2 post-response tasks now. The legacy
+	// "memory-compaction" task is gone (contextbuild handles
+	// folding non-destructively at LLM-call time).
+	a.postTasksWg.Add(2)
 	go func() {
 		defer a.postTasksWg.Done()
 		a.trackBg(ctx, "title", func() error { return a.generateTitleIfNeeded(ctx) })
-	}()
-	go func() {
-		defer a.postTasksWg.Done()
-		a.trackBg(ctx, "memory-compaction", func() error { return a.compactMemoryIfNeeded(ctx) })
 	}()
 	go func() {
 		defer a.postTasksWg.Done()
@@ -1302,73 +1260,10 @@ func (a *Agent) postResponseTasks(parentCtx context.Context) {
 	}()
 }
 
-// compactIfOverBudget runs compaction synchronously before BuildMessages.
-// This ensures the context stays within budget for local LLMs.
-//
-// When Memory.UseV2 is true, this is a no-op: contextbuild handles
-// older-tail folding non-destructively. Running both paths would let
-// v1's destructive compaction overwrite records that v2 wants to keep.
-func (a *Agent) compactIfOverBudget(ctx context.Context) {
-	if a.session == nil || a.cfg.Memory.UseV2 {
-		return
-	}
-	summarizer := func(c context.Context, text string) (string, error) {
-		messages := []llm.Message{
-			{Role: "system", Content: "Summarize the following conversation segment concisely. Preserve key facts, decisions, and context. Use the same language as the conversation."},
-			{Role: "user", Content: text},
-		}
-		resp, err := a.backend.Chat(c, messages, nil)
-		if err != nil {
-			return "", err
-		}
-		return resp.Content, nil
-	}
-	compacted, err := a.session.CompactIfNeeded(ctx, memory.CompactOptions{
-		HotTokenLimit: a.currentHotTokenLimit(),
-		Summarizer:    summarizer,
-	})
-	if err != nil {
-		logger.Error("compactIfOverBudget: %v", err)
-	}
-	if compacted {
-		logger.Info("compactIfOverBudget: compacted session %s", a.session.ID)
-		_ = a.session.Save()
-	}
-}
-
-// compactMemoryIfNeeded summarizes old hot messages when token budget exceeded.
-// Design: docs/en/agent-data-flow.md Section 4.2 (async safety net).
-// Skipped when Memory.UseV2 is true (see compactIfOverBudget).
-func (a *Agent) compactMemoryIfNeeded(ctx context.Context) error {
-	if a.session == nil || a.cfg.Memory.UseV2 {
-		return nil
-	}
-
-	summarizer := func(c context.Context, text string) (string, error) {
-		messages := []llm.Message{
-			{Role: "system", Content: "Summarize the following conversation segment concisely. Preserve key facts, decisions, and context. Use the same language as the conversation."},
-			{Role: "user", Content: text},
-		}
-		resp, err := a.backend.Chat(c, messages, nil)
-		if err != nil {
-			return "", err
-		}
-		return resp.Content, nil
-	}
-
-	compacted, err := a.session.CompactIfNeeded(ctx, memory.CompactOptions{
-		HotTokenLimit: a.currentHotTokenLimit(),
-		Summarizer:    summarizer,
-	})
-	if err != nil {
-		return err
-	}
-	if compacted {
-		logger.Info("compactMemory: compacted session %s", a.session.ID)
-		_ = a.session.Save()
-	}
-	return nil
-}
+// v0.2.0: compactIfOverBudget and compactMemoryIfNeeded were
+// removed. The contextbuild package now handles older-tail
+// folding non-destructively at LLM-call time, so a separate
+// destructive-compaction pass is no longer necessary.
 
 // requestMITL sends a MITL request and returns "" if approved,
 // or a rejection message for the LLM if rejected.
@@ -1853,7 +1748,7 @@ func (a *Agent) generateTitleIfNeeded(ctx context.Context) error {
 
 	var firstUser string
 	for _, r := range a.session.Records {
-		if r.Role == "user" && r.Tier == memory.TierHot {
+		if r.Role == "user" {
 			firstUser = r.Content
 			break
 		}
@@ -1936,11 +1831,11 @@ func (a *Agent) extractMemories(ctx context.Context) error {
 		turnNumber   int  // 1-based, only assigned to non-tool entries
 		toolNeighbor bool // true if a tool record is in the surrounding 2-turn window
 	}
+	// v0.2.0: every record is "hot" (Tier removed). Walk the
+	// last few records as the extraction window.
 	var hotIndexes []int
-	for i, r := range a.session.Records {
-		if r.Tier == memory.TierHot {
-			hotIndexes = append(hotIndexes, i)
-		}
+	for i := range a.session.Records {
+		hotIndexes = append(hotIndexes, i)
 	}
 	if len(hotIndexes) > 4 {
 		hotIndexes = hotIndexes[len(hotIndexes)-4:]

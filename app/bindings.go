@@ -525,8 +525,10 @@ type MCPProfileData struct {
 }
 
 // BackendBudgetData mirrors config.LocalConfig/VertexAIConfig token settings.
+//
+// v0.2.0: HotTokenLimit field removed (the v1 destructive
+// compaction trigger is gone).
 type BackendBudgetData struct {
-	HotTokenLimit       int `json:"hot_token_limit"`
 	MaxContextTokens    int `json:"max_context_tokens"`
 	MaxWarmTokens       int `json:"max_warm_tokens"`
 	MaxToolResultTokens int `json:"max_tool_result_tokens"`
@@ -564,7 +566,6 @@ type SettingsData struct {
 	MCPProfiles    []MCPProfileData  `json:"mcp_profiles"`
 	DisabledTools  []string          `json:"disabled_tools"`
 	MITLOverrides  map[string]bool   `json:"mitl_overrides"`
-	MemoryUseV2    bool              `json:"memory_use_v2"`
 	Sandbox        SandboxData       `json:"sandbox"`
 	MaxToolRounds  int               `json:"max_tool_rounds"`
 }
@@ -575,9 +576,8 @@ func (b *Bindings) GetSettings() SettingsData {
 	for i, p := range b.cfg.Tools.MCPProfiles {
 		profiles[i] = MCPProfileData{Name: p.Name, Binary: p.Binary, ProfilePath: p.ProfilePath, Enabled: p.Enabled}
 	}
-	toBudget := func(hot int, b config.ContextBudgetConfig) BackendBudgetData {
+	toBudget := func(b config.ContextBudgetConfig) BackendBudgetData {
 		return BackendBudgetData{
-			HotTokenLimit:       hot,
 			MaxContextTokens:    b.MaxContextTokens,
 			MaxWarmTokens:       b.MaxWarmTokens,
 			MaxToolResultTokens: b.MaxToolResultTokens,
@@ -594,13 +594,13 @@ func (b *Bindings) GetSettings() SettingsData {
 		DefaultBackend:        string(b.cfg.LLM.DefaultBackend),
 		LocalEndpoint:         b.cfg.LLM.Local.Endpoint,
 		LocalModel:            b.cfg.LLM.Local.Model,
-		LocalBudget:           toBudget(b.cfg.LLM.Local.HotTokenLimit, b.cfg.LLM.Local.ContextBudget),
+		LocalBudget:           toBudget(b.cfg.LLM.Local.ContextBudget),
 		LocalTimeoutSeconds:   b.cfg.LLM.Local.LocalRequestTimeout(),
 		LocalRetryMaxAttempts: resolveAttempts(b.cfg.LLM.Local.RetryMaxAttempts),
 		VertexProject:         b.cfg.LLM.VertexAI.ProjectID,
 		VertexRegion:          b.cfg.LLM.VertexAI.Region,
 		VertexModel:           b.cfg.LLM.VertexAI.Model,
-		VertexBudget:          toBudget(b.cfg.LLM.VertexAI.HotTokenLimit, b.cfg.LLM.VertexAI.ContextBudget),
+		VertexBudget:          toBudget(b.cfg.LLM.VertexAI.ContextBudget),
 		VertexTimeoutSeconds:  b.cfg.LLM.VertexAI.VertexRequestTimeout(),
 		VertexRetryMaxAttempts: resolveAttempts(b.cfg.LLM.VertexAI.RetryMaxAttempts),
 		Theme:          b.cfg.UI.Theme,
@@ -608,7 +608,6 @@ func (b *Bindings) GetSettings() SettingsData {
 		MCPProfiles:    profiles,
 		DisabledTools:  b.cfg.Tools.DisabledTools,
 		MITLOverrides:  b.cfg.Tools.MITLOverrides,
-		MemoryUseV2:    b.cfg.Memory.UseV2,
 		MaxToolRounds:  b.cfg.Agent.MaxToolRoundsResolved(),
 		Sandbox: SandboxData{
 			Enabled:        b.cfg.Sandbox.Enabled,
@@ -630,7 +629,6 @@ func (b *Bindings) SaveSettings(s SettingsData) error {
 	b.cfg.LLM.DefaultBackend = config.LLMBackend(s.DefaultBackend)
 	b.cfg.LLM.Local.Endpoint = s.LocalEndpoint
 	b.cfg.LLM.Local.Model = s.LocalModel
-	b.cfg.LLM.Local.HotTokenLimit = s.LocalBudget.HotTokenLimit
 	b.cfg.LLM.Local.ContextBudget = config.ContextBudgetConfig{
 		MaxContextTokens:    s.LocalBudget.MaxContextTokens,
 		MaxWarmTokens:       s.LocalBudget.MaxWarmTokens,
@@ -642,7 +640,6 @@ func (b *Bindings) SaveSettings(s SettingsData) error {
 	b.cfg.LLM.VertexAI.ProjectID = s.VertexProject
 	b.cfg.LLM.VertexAI.Region = s.VertexRegion
 	b.cfg.LLM.VertexAI.Model = s.VertexModel
-	b.cfg.LLM.VertexAI.HotTokenLimit = s.VertexBudget.HotTokenLimit
 	b.cfg.LLM.VertexAI.ContextBudget = config.ContextBudgetConfig{
 		MaxContextTokens:    s.VertexBudget.MaxContextTokens,
 		MaxWarmTokens:       s.VertexBudget.MaxWarmTokens,
@@ -653,7 +650,6 @@ func (b *Bindings) SaveSettings(s SettingsData) error {
 	b.cfg.LLM.VertexAI.RetryMaxAttempts = s.VertexRetryMaxAttempts
 	b.cfg.UI.Theme = s.Theme
 	b.cfg.Location = s.Location
-	b.cfg.Memory.UseV2 = s.MemoryUseV2
 	b.cfg.Agent.MaxToolRounds = s.MaxToolRounds
 
 	// Update MCP profiles

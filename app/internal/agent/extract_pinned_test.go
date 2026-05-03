@@ -22,9 +22,6 @@ func newExtractAgent(t *testing.T, mock *llm.MockBackend, records ...memory.Reco
 	a.backend = mock
 	a.pinned = &memory.PinnedStore{}
 	a.sessionMemory = &memory.SessionMemoryStore{Entries: []memory.SessionMemoryEntry{}}
-	for i := range records {
-		records[i].Tier = memory.TierHot
-	}
 	a.session = &memory.Session{ID: "extract-test", Title: "T", Records: records}
 	return a
 }

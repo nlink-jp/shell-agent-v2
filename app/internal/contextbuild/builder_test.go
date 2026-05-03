@@ -134,7 +134,7 @@ func TestBuild_LegacySummaryRecordsRespected(t *testing.T) {
 		Timestamp: now.Add(-24 * time.Hour),
 		Role:      "summary",
 		Content:   "Earlier we discussed Tokyo trip.",
-		Tier:      memory.TierWarm,
+		
 		SummaryRange: &memory.TimeRange{
 			From: now.Add(-25 * time.Hour),
 			To:   now.Add(-23 * time.Hour),

@@ -11,7 +11,7 @@ func TestBuildMessagesGuardWrapsUserContent(t *testing.T) {
 	e := New("test system prompt")
 	session := &memory.Session{
 		Records: []memory.Record{
-			{Role: "user", Content: "hello", Tier: memory.TierHot},
+			{Role: "user", Content: "hello"},
 		},
 	}
 
@@ -38,7 +38,7 @@ func TestBuildMessagesGuardWrapsToolContent(t *testing.T) {
 	e := New("test")
 	session := &memory.Session{
 		Records: []memory.Record{
-			{Role: "tool", Content: "tool result", Tier: memory.TierHot},
+			{Role: "tool", Content: "tool result"},
 		},
 	}
 
@@ -56,7 +56,7 @@ func TestBuildMessagesDoesNotGuardAssistant(t *testing.T) {
 	e := New("test")
 	session := &memory.Session{
 		Records: []memory.Record{
-			{Role: "assistant", Content: "I am the assistant", Tier: memory.TierHot},
+			{Role: "assistant", Content: "I am the assistant"},
 		},
 	}
 

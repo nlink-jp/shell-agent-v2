@@ -1,4 +1,10 @@
-// Package memory manages Hot/Warm/Cold message tiers, sessions, and pinned memory.
+// Package memory manages session records and the cross-session
+// stores (Pinned/Global Memory and Session Memory).
+//
+// v0.2.0: the legacy hot/warm/cold tier system is gone. Records
+// are immutable and append-only; older portions of the conversation
+// are folded into derived summaries by `internal/contextbuild`
+// at LLM-call time, not by destructive mutation here.
 package memory
 
 import (
@@ -11,21 +17,28 @@ import (
 	"github.com/nlink-jp/shell-agent-v2/internal/config"
 )
 
-// Tier identifies a memory tier.
-type Tier string
+// Tier was the v1 hot/warm/cold marker on Record. Removed in
+// v0.2.0; the type alias is kept as `string` for backward-compat
+// reading of legacy session files only — new code must not write
+// it. See docs/en/memory-architecture-v2.md.
+type Tier = string
 
 const (
-	TierHot  Tier = "hot"
-	TierWarm Tier = "warm"
-	TierCold Tier = "cold"
+	TierHot  Tier = "hot"  // deprecated; legacy session files only
+	TierWarm Tier = "warm" // deprecated; legacy session files only
+	TierCold Tier = "cold" // deprecated; legacy session files only
 )
 
 // Record is a single memory entry in a session.
+//
+// v0.2.0: the Tier field on the struct is gone. Old session
+// files that contain a `tier` JSON field will simply have it
+// ignored on load (Go's encoding/json silently drops unknown
+// fields).
 type Record struct {
 	Timestamp    time.Time        `json:"timestamp"`
 	Role         string           `json:"role"`
 	Content      string           `json:"content"`
-	Tier         Tier             `json:"tier"`
 	ToolCallID   string           `json:"tool_call_id,omitempty"`
 	ToolName     string           `json:"tool_name,omitempty"`
 	ToolCalls    []ToolCallRecord `json:"tool_calls,omitempty"`   // populated when assistant emits function calls
@@ -70,7 +83,6 @@ func (s *Session) AddUserMessage(content string) {
 		Timestamp: time.Now(),
 		Role:      "user",
 		Content:   content,
-		Tier:      TierHot,
 	})
 }
 
@@ -80,7 +92,6 @@ func (s *Session) AddAssistantMessage(content string) {
 		Timestamp: time.Now(),
 		Role:      "assistant",
 		Content:   content,
-		Tier:      TierHot,
 	})
 }
 
@@ -98,7 +109,6 @@ func (s *Session) AddAssistantMessageWithToolCalls(content string, calls []ToolC
 		Role:      "assistant",
 		Content:   content,
 		ToolCalls: calls,
-		Tier:      TierHot,
 	})
 }
 
@@ -109,7 +119,6 @@ func (s *Session) AddReportMessage(title, content string) {
 		Role:      "report",
 		Content:   content,
 		ToolName:  title, // reuse ToolName for report title
-		Tier:      TierHot,
 	})
 }
 
@@ -127,7 +136,6 @@ func (s *Session) AddToolResult(toolCallID, toolName, content, status string) {
 		ToolCallID: toolCallID,
 		ToolName:   toolName,
 		Status:     status,
-		Tier:       TierHot,
 	})
 }
 

@@ -37,11 +37,8 @@ func TestSessionAddMessages(t *testing.T) {
 		t.Errorf("record[2] status = %v, want success", s.Records[2].Status)
 	}
 
-	// All should be hot tier
+	// v0.2.0: Tier removed; just verify timestamps exist.
 	for i, r := range s.Records {
-		if r.Tier != TierHot {
-			t.Errorf("record[%d] tier = %v, want hot", i, r.Tier)
-		}
 		if r.Timestamp.IsZero() {
 			t.Errorf("record[%d] timestamp is zero", i)
 		}
@@ -56,7 +53,7 @@ func TestSessionSaveLoad(t *testing.T) {
 		ID:    "test-save",
 		Title: "Test Save",
 		Records: []Record{
-			{Role: "user", Content: "hello", Tier: TierHot},
+			{Role: "user", Content: "hello"},
 		},
 	}
 

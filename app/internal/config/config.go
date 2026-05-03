@@ -17,11 +17,13 @@ const (
 )
 
 // LocalConfig holds local LLM settings.
+//
+// v0.2.0: HotTokenLimit removed (it was the v1 destructive
+// compaction trigger; contextbuild uses ContextBudget instead).
 type LocalConfig struct {
 	Endpoint              string              `json:"endpoint"`
 	Model                 string              `json:"model"`
 	APIKeyEnv             string              `json:"api_key_env"`
-	HotTokenLimit         int                 `json:"hot_token_limit,omitempty"`     // 0 = inherit from Memory.HotTokenLimit
 	ContextBudget         ContextBudgetConfig `json:"context_budget,omitzero"`       // zero fields inherit from top-level ContextBudget
 	RequestTimeoutSeconds int                 `json:"request_timeout_seconds,omitempty"` // 0 = use default (300)
 	// MaxToolCallArgsBytes caps a single LLM-emitted tool call's
@@ -42,11 +44,12 @@ type LocalConfig struct {
 }
 
 // VertexAIConfig holds Vertex AI settings.
+//
+// v0.2.0: HotTokenLimit removed (see LocalConfig).
 type VertexAIConfig struct {
 	ProjectID             string              `json:"project_id"`
 	Region                string              `json:"region"`
 	Model                 string              `json:"model"`
-	HotTokenLimit         int                 `json:"hot_token_limit,omitempty"`
 	ContextBudget         ContextBudgetConfig `json:"context_budget,omitzero"`
 	RequestTimeoutSeconds int                 `json:"request_timeout_seconds,omitempty"` // 0 = use default (180)
 	// MaxToolCallArgsBytes — see LocalConfig. Vertex's genai SDK
@@ -100,21 +103,18 @@ type LLMConfig struct {
 	VertexAI       VertexAIConfig `json:"vertex_ai"`
 }
 
-// MemoryConfig holds memory tier settings.
+// MemoryConfig holds cross-session memory settings.
+//
+// v0.2.0: HotTokenLimit, WarmRetention, ColdRetention, UseV2 are
+// gone. The legacy v1 destructive-compaction code that consulted
+// them was removed; contextbuild handles older-tail folding
+// non-destructively at LLM-call time and uses the per-backend
+// ContextBudget for sizing.
 type MemoryConfig struct {
-	HotTokenLimit int    `json:"hot_token_limit"`
-	WarmRetention string `json:"warm_retention"`
-	ColdRetention string `json:"cold_retention"`
-	UseV2         bool   `json:"use_v2,omitempty"` // contextbuild package; opt-in
-
-	// Retention caps for cross-session stores. Zero falls back to
-	// the package defaults (see internal/memory and internal/findings).
-	// Bounds keep a noisy or hostile session from inflating the
-	// pinned-facts or findings lists indefinitely and crowding out
-	// other system-prompt context.
-	// See docs/en/memory-injection-hardening.md §5 Phase C.
-	MaxPinnedFacts int `json:"max_pinned_facts,omitempty"` // default 100
-	MaxFindings    int `json:"max_findings,omitempty"`     // default 200
+	// Retention caps for cross-session / per-session stores.
+	// Zero falls back to package defaults.
+	MaxPinnedFacts int `json:"max_pinned_facts,omitempty"` // default 100 (Global Memory in v0.2.0)
+	MaxFindings    int `json:"max_findings,omitempty"`     // default 100 per session (was global 200 in v0.1.x)
 }
 
 // MCPProfileConfig holds a single mcp-guardian profile configuration.
@@ -247,7 +247,6 @@ func Default() *Config {
 				Endpoint:              "http://localhost:1234/v1",
 				Model:                 "google/gemma-4-26b-a4b",
 				APIKeyEnv:             "SHELL_AGENT_API_KEY",
-				HotTokenLimit:         4096,
 				RequestTimeoutSeconds: LocalRequestTimeoutDefault,
 				ContextBudget: ContextBudgetConfig{
 					MaxContextTokens:    16384,
@@ -260,7 +259,6 @@ func Default() *Config {
 				ProjectID:             "",
 				Region:                "us-central1",
 				Model:                 "gemini-2.5-flash",
-				HotTokenLimit:         65536,
 				RequestTimeoutSeconds: VertexRequestTimeoutDefault,
 				ContextBudget: ContextBudgetConfig{
 					MaxContextTokens:    524288,
@@ -271,11 +269,8 @@ func Default() *Config {
 			},
 		},
 		Memory: MemoryConfig{
-			HotTokenLimit:  4096, // legacy fallback
-			WarmRetention:  "24h",
-			ColdRetention:  "7d",
 			MaxPinnedFacts: 100,
-			MaxFindings:    200,
+			MaxFindings:    100,
 		},
 		ContextBudget: ContextBudgetConfig{ // legacy fallback
 			MaxContextTokens:    0,
@@ -364,14 +359,14 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
-// applyBackendInheritance fills zero per-backend budget fields from the
-// legacy top-level Memory.HotTokenLimit / ContextBudget so older configs
-// keep working and unset fields fall back to a sensible default.
+// applyBackendInheritance fills zero per-backend ContextBudget
+// fields from the top-level ContextBudget so older configs keep
+// working and unset fields fall back to a sensible default.
+//
+// v0.2.0: HotTokenLimit-based inheritance is gone (the field
+// itself was deleted from MemoryConfig).
 func (c *Config) applyBackendInheritance() {
-	resolve := func(hot *int, b *ContextBudgetConfig) {
-		if *hot == 0 {
-			*hot = c.Memory.HotTokenLimit
-		}
+	resolve := func(b *ContextBudgetConfig) {
 		if b.MaxContextTokens == 0 {
 			b.MaxContextTokens = c.ContextBudget.MaxContextTokens
 		}
@@ -382,24 +377,8 @@ func (c *Config) applyBackendInheritance() {
 			b.MaxToolResultTokens = c.ContextBudget.MaxToolResultTokens
 		}
 	}
-	resolve(&c.LLM.Local.HotTokenLimit, &c.LLM.Local.ContextBudget)
-	resolve(&c.LLM.VertexAI.HotTokenLimit, &c.LLM.VertexAI.ContextBudget)
-}
-
-// HotTokenLimitFor returns the active backend's HotTokenLimit, falling back
-// to the legacy Memory.HotTokenLimit when unset.
-func (c *Config) HotTokenLimitFor(backend LLMBackend) int {
-	switch backend {
-	case BackendVertexAI:
-		if c.LLM.VertexAI.HotTokenLimit > 0 {
-			return c.LLM.VertexAI.HotTokenLimit
-		}
-	default:
-		if c.LLM.Local.HotTokenLimit > 0 {
-			return c.LLM.Local.HotTokenLimit
-		}
-	}
-	return c.Memory.HotTokenLimit
+	resolve(&c.LLM.Local.ContextBudget)
+	resolve(&c.LLM.VertexAI.ContextBudget)
 }
 
 // ContextBudgetFor returns the active backend's ContextBudget, falling back
