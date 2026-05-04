@@ -292,6 +292,44 @@ func TestExecute_HonoursToolTimeout(t *testing.T) {
 	}
 }
 
+// TestExecute_AbortKillsChildren pins the v0.2.0 fix for the
+// "Abort doesn't reach shell tool children" bug. A script that
+// spawns a long-running child (sleep) and waits on it would,
+// pre-fix, leave the child holding the stdout/stderr pipes
+// after CommandContext SIGKILLed only the script — Wait would
+// hang forever. With Setpgid + Cmd.Cancel killing the negative
+// pid + WaitDelay grace, Execute returns within a fraction of
+// a second of the ctx cancel.
+func TestExecute_AbortKillsChildren(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "spawn.sh")
+	// Spawn a 30-second sleep, then wait on it. Without the
+	// process-group kill, killing the script leaves the sleep
+	// alive and pipes open.
+	body := "#!/bin/bash\nsleep 30 &\nwait\n"
+	if err := os.WriteFile(script, []byte(body), 0755); err != nil {
+		t.Fatal(err)
+	}
+	tool := &Tool{Name: "spawn", ScriptPath: script, Timeout: 60 * time.Second}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	// Cancel after 200ms so the script is mid-sleep when Abort hits.
+	time.AfterFunc(200*time.Millisecond, cancel)
+
+	start := time.Now()
+	_, err := Execute(ctx, tool, "{}")
+	elapsed := time.Since(start)
+	if err == nil {
+		t.Fatal("expected error after ctx cancel")
+	}
+	// Should return well before the WaitDelay (2s) plus a little
+	// scheduler slack. Pre-fix this would block until Timeout
+	// (60s) tripped.
+	if elapsed >= 5*time.Second {
+		t.Errorf("Abort took %v; expected ≤ 5s — process-group kill not reaching children", elapsed)
+	}
+}
+
 // TestExecute_FallsBackToDefaultTimeout: when tool.Timeout is 0,
 // DefaultTimeout (30s) is used. A short sleep should complete
 // normally without hitting the cap.

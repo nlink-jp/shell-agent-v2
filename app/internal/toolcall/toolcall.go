@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/nlink-jp/shell-agent-v2/internal/logger"
@@ -157,8 +158,40 @@ func Execute(ctx context.Context, tool *Tool, argsJSON string, opts ...ExecOptio
 		cmd.Env = append(os.Environ(), "SHELL_AGENT_WORK_DIR="+cfg.workDir)
 	}
 
+	// Abort responsiveness fix: shell scripts spawn child processes
+	// (curl, sleep, gem-search, …) that exec.CommandContext's
+	// default cancel does NOT reach — it only signals the script
+	// itself, leaving the children holding the stdout/stderr
+	// pipes. CombinedOutput then blocks forever in Wait waiting
+	// for the pipes to close, so a UI Abort never terminates the
+	// tool round and the agent loop never advances.
+	//
+	// Three cooperating fixes:
+	//   1. Setpgid: put the script in its own process group so
+	//      we can signal the whole tree with one Kill.
+	//   2. Cmd.Cancel: override CommandContext's default kill to
+	//      SIGKILL the negative pid (= the entire group).
+	//   3. Cmd.WaitDelay: if a stubborn child still holds the
+	//      pipe past the cancel, force-close it after a short
+	//      grace so Wait returns.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		if cmd.Process == nil {
+			return nil
+		}
+		// Kill the entire process group. Negative pid means
+		// "every process whose pgid equals abs(pid)".
+		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	}
+	cmd.WaitDelay = 2 * time.Second
+
 	output, err := cmd.CombinedOutput()
 	if err != nil {
+		// Surface ctx-driven termination distinctly so the operator
+		// can tell whether Abort actually reached this layer.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return "", fmt.Errorf("tool %q cancelled: %w (ctx err: %v)\nOutput: %s", tool.Name, err, ctxErr, string(output))
+		}
 		return "", fmt.Errorf("tool %q failed: %w\nOutput: %s", tool.Name, err, string(output))
 	}
 
