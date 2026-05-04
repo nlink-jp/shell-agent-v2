@@ -1,0 +1,49 @@
+/* Main area */
+.main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding-top: 28px;
+    min-width: 0;
+}
+
+/* Messages */
+.messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+    min-width: 0;
+    --wails-draggable: no-drag;
+}
+
+.message {
+    margin-bottom: 16px;
+    max-width: 85%;
+    min-width: 0;
+}
+
+.message.user {
+    margin-left: auto;
+}
+
+.message.assistant {
+    margin-right: auto;
+}
+
+.message.system {
+    margin-right: auto;
+}
+
+.message.streaming {
+    opacity: 0.8;
+}
+
+.message.tool-event {
+    max-width: 100%;
+    margin-bottom: 4px;
+}
+
+.message.summary {
+    max-width: 100%;
+}
+

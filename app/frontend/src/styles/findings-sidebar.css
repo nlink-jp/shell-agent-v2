@@ -1,0 +1,54 @@
+/* Findings */
+.finding-card {
+    background: var(--bg-hover);
+    border: 1px solid var(--border-primary);
+    border-radius: 8px;
+    padding: 10px;
+    margin-bottom: 8px;
+    color: var(--text-primary);
+}
+
+.finding-content {
+    font-size: 13px;
+    line-height: 1.4;
+    margin-bottom: 6px;
+    color: var(--text-primary);
+}
+
+.finding-meta {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.finding-origin {
+    cursor: pointer;
+    color: var(--text-link);
+}
+
+.finding-origin:hover {
+    text-decoration: underline;
+}
+
+.finding-tags {
+    margin-top: 6px;
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+.tag {
+    padding: 1px 6px;
+    border-radius: 3px;
+    background: var(--bg-inline-code);
+    color: var(--text-muted);
+    font-size: 10px;
+}
+
+.tag.severity-critical { background: #8b1a1a; color: #ffaaaa; }
+.tag.severity-high { background: #7a3b1a; color: #ffcc88; }
+.tag.severity-medium { background: #6a5a1a; color: #eedd88; }
+.tag.severity-low { background: #2a4a3a; color: #88ccaa; }
+.tag.severity-info { background: #2a3a5a; color: #88aadd; }
+

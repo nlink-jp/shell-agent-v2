@@ -1,0 +1,109 @@
+/* Markdown styles */
+.message-content p {
+    margin: 0 0 8px;
+    white-space: pre-wrap;
+}
+
+.message-content p:last-child {
+    margin-bottom: 0;
+}
+
+.message-content pre,
+.report-content pre,
+.report-fullscreen-content pre {
+    background: var(--bg-code, #0d1520);
+    border-radius: 6px;
+    padding: 12px;
+    overflow-x: auto;
+    margin: 8px 0;
+    font-size: 13px;
+    max-width: 100%;
+}
+
+/* Override highlight.js colors for light/warm themes */
+[data-theme="light"] .hljs {
+    background: var(--bg-code) !important;
+    color: #2a2520 !important;
+}
+[data-theme="light"] .hljs-keyword { color: #1a60b8 !important; }
+[data-theme="light"] .hljs-string { color: #a04020 !important; }
+[data-theme="light"] .hljs-comment { color: #6a6560 !important; }
+[data-theme="light"] .hljs-number { color: #2a7a30 !important; }
+[data-theme="light"] .hljs-built_in { color: #5a50a0 !important; }
+[data-theme="light"] .hljs-title { color: #1058b0 !important; }
+[data-theme="light"] .hljs-type { color: #5a50a0 !important; }
+
+.message-content code {
+    font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+    font-size: 0.9em;
+}
+
+.message-content :not(pre) > code {
+    background: var(--bg-inline-code, #0d1520);
+    padding: 2px 5px;
+    border-radius: 3px;
+}
+
+.message-content table,
+.report-content table,
+.report-fullscreen-content table {
+    border-collapse: collapse;
+    margin: 8px 0;
+    width: 100%;
+    font-size: 13px;
+}
+
+.message-content th, .message-content td,
+.report-content th, .report-content td,
+.report-fullscreen-content th, .report-fullscreen-content td {
+    border: 1px solid #3a4a5a;
+    padding: 6px 10px;
+    text-align: left;
+}
+
+.message-content th,
+.report-content th,
+.report-fullscreen-content th {
+    background: rgba(128, 128, 128, 0.2);
+    font-weight: 600;
+    color: var(--text-primary, #e0e0e0);
+}
+
+.message-content ul, .message-content ol,
+.report-content ul, .report-content ol,
+.report-fullscreen-content ul, .report-fullscreen-content ol {
+    margin: 4px 0;
+    padding-left: 20px;
+}
+
+.message-content blockquote,
+.report-content blockquote,
+.report-fullscreen-content blockquote {
+    border-left: 3px solid #3a6a9a;
+    margin: 8px 0;
+    padding: 4px 12px;
+    color: #8899aa;
+}
+
+.message-content hr {
+    border: none;
+    border-top: 1px solid var(--border-primary, #2a3a4a);
+    margin: 12px 0;
+}
+
+.message-content a {
+    color: #5a8abf;
+    text-decoration: none;
+}
+
+.message-content a:hover {
+    text-decoration: underline;
+}
+
+.message-content img {
+    max-width: 100%;
+    border-radius: 6px;
+    margin: 8px 0;
+    cursor: pointer;
+}
+

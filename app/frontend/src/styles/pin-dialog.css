@@ -1,0 +1,145 @@
+/* Pin to Global Memory dialog (v0.2.0 Phase 9) */
+.modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 500;
+}
+
+.pin-dialog {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: 10px;
+    padding: 0;
+    width: min(520px, 90vw);
+    max-height: 80vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    color: var(--text-primary);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    --wails-draggable: no-drag;
+}
+
+.pin-dialog-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border-primary);
+    font-weight: 600;
+}
+
+.pin-dialog-close {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 16px;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+.pin-dialog-close:hover {
+    color: var(--text-primary);
+    background: var(--bg-hover);
+}
+
+.pin-dialog-body {
+    padding: 14px 18px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.pin-dialog-hint {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.pin-dialog-preview {
+    margin: 0;
+    padding: 8px 12px;
+    border-left: 3px solid var(--border-accent);
+    background: var(--bg-input-field);
+    border-radius: 0 4px 4px 0;
+    color: var(--text-primary);
+    font-size: 13px;
+    word-break: break-word;
+}
+
+.pin-dialog-fieldset {
+    border: 1px solid var(--border-primary);
+    border-radius: 6px;
+    padding: 8px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.pin-dialog-fieldset legend {
+    padding: 0 4px;
+    color: var(--text-muted);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.pin-dialog-fieldset label {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 13px;
+    cursor: pointer;
+    line-height: 1.4;
+}
+
+.pin-dialog-fieldset input[type="radio"] {
+    margin-top: 3px;
+}
+
+.pin-dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 12px 18px;
+    border-top: 1px solid var(--border-primary);
+    background: var(--bg-input-field);
+}
+
+.pin-dialog-cancel,
+.pin-dialog-confirm {
+    padding: 6px 14px;
+    border-radius: 4px;
+    font-size: 13px;
+    cursor: pointer;
+    border: 1px solid var(--border-primary);
+}
+
+.pin-dialog-cancel {
+    background: transparent;
+    color: var(--text-muted);
+}
+
+.pin-dialog-cancel:hover {
+    color: var(--text-primary);
+    background: var(--bg-hover);
+}
+
+.pin-dialog-confirm {
+    background: var(--bg-btn-primary);
+    color: var(--text-primary);
+    border-color: var(--border-accent);
+    font-weight: 600;
+}
+
+.pin-dialog-confirm:hover {
+    background: var(--bg-btn-primary-hover);
+}
+

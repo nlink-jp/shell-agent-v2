@@ -1,0 +1,28 @@
+/* Status panel */
+.status-section {
+    margin-bottom: 16px;
+}
+
+.status-section h3 {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted, #6688aa);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin: 0 0 8px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--border-primary, #2a3a4a);
+}
+
+.status-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    padding: 3px 0;
+    color: var(--text-secondary, #aabbcc);
+}
+
+.status-row span:first-child {
+    color: var(--text-muted, #8899aa);
+}
+

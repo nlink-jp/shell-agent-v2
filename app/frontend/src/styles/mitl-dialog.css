@@ -1,0 +1,177 @@
+/* MITL Dialog */
+.mitl-dialog {
+    position: fixed;
+    bottom: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--bg-primary, #1e2e3e);
+    border: 2px solid #cc9900;
+    border-radius: 10px;
+    padding: 16px 20px;
+    z-index: 300;
+    left: 280px;
+    right: 0;
+    transform: none;
+    margin: 0 16px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    color: var(--text-primary, #e0e0e0);
+    --wails-draggable: no-drag;
+}
+
+.mitl-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+    margin-bottom: 12px;
+    color: #cc9900;
+}
+
+.mitl-icon {
+    font-size: 18px;
+}
+
+.mitl-body {
+    margin-bottom: 12px;
+}
+
+.mitl-label {
+    color: var(--text-secondary, #8899aa);
+    font-size: 12px;
+    margin-right: 6px;
+}
+
+.mitl-tool-name {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.mitl-tool-name code {
+    font-family: 'SF Mono', 'Menlo', monospace;
+    font-size: 14px;
+    color: var(--text-primary, #aaccee);
+}
+
+.tool-category {
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    border: 1px solid var(--border-primary, #3a4a5a);
+    color: var(--text-secondary, #8899aa);
+}
+
+.mitl-args pre {
+    background: var(--bg-primary, #0d1520);
+    border: 1px solid var(--border-primary, #2a3a4a);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 12px;
+    font-family: 'SF Mono', 'Menlo', monospace;
+    color: var(--text-primary, #e0e0e0);
+    overflow-x: auto;
+    max-height: 150px;
+    margin-top: 4px;
+}
+
+.mitl-section {
+    margin-bottom: 10px;
+}
+
+.mitl-sql,
+.mitl-code {
+    background: var(--bg-primary, #0d1520);
+    border: 1px solid var(--border-primary, #2a3a4a);
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-size: 13px;
+    font-family: 'SF Mono', 'Menlo', monospace;
+    color: var(--text-primary, #e0e0e0);
+    overflow-x: auto;
+    overflow-y: auto;
+    max-height: 320px;
+    margin-top: 6px;
+    white-space: pre;
+    tab-size: 4;
+    line-height: 1.45;
+}
+
+.mitl-sql {
+    /* SQL is usually narrower; wrap is ok */
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 200px;
+}
+
+.mitl-perspective {
+    margin-top: 6px;
+    padding: 8px 12px;
+    border-left: 3px solid #cc9900;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text-primary, #e0e0e0);
+}
+
+.mitl-section code {
+    font-family: 'SF Mono', 'Menlo', monospace;
+    font-size: 13px;
+    color: var(--text-primary, #e0e0e0);
+    margin-left: 6px;
+}
+
+.mitl-feedback {
+    margin-top: 8px;
+}
+
+.mitl-feedback input {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--border-primary, #3a4a5a);
+    border-radius: 6px;
+    background: var(--bg-primary, #1a2a3a);
+    color: var(--text-primary, #d0d8e0);
+    font-size: 13px;
+}
+
+.mitl-feedback input::placeholder {
+    color: var(--text-secondary, #5a6a7a);
+}
+
+.mitl-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+}
+
+.mitl-approve {
+    padding: 8px 20px;
+    background: #1a6a3a;
+    border: 1px solid #44aa66;
+    border-radius: 6px;
+    color: #ffffff;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.mitl-approve:hover {
+    background: #2a7a4a;
+}
+
+.mitl-reject {
+    padding: 8px 20px;
+    background: #aa3333;
+    border: 1px solid #cc4444;
+    border-radius: 6px;
+    color: #ffffff;
+    cursor: pointer;
+    font-size: 13px;
+}
+
+.mitl-reject:hover {
+    background: #bb4444;
+}
+

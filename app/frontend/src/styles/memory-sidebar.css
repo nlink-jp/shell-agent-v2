@@ -1,0 +1,150 @@
+/* Pinned Memory */
+.pinned-item {
+    position: relative;
+    padding: 6px 8px;
+    margin-bottom: 4px;
+    background: var(--bg-hover, #1e2e3e);
+    border-radius: 6px;
+}
+
+.pinned-category {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+}
+
+.pinned-category.fact { background: #1a2a3a; color: #66aaee; }
+.pinned-category.preference { background: #2a1a3a; color: #aa88ee; }
+.pinned-category.decision { background: #1a3a2a; color: #66cc88; }
+.pinned-category.context { background: #3a2a1a; color: #ccaa66; }
+
+/* Memory-injection trust badge (v0.1.26).
+   See docs/en/memory-injection-hardening.md §5 Phase D.
+   Uses a CSS-pseudo-element tooltip rather than the HTML
+   title attribute because wkwebview's native title rendering
+   is unreliable in this app's chrome. */
+.trust-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+    margin-left: 4px;
+    margin-bottom: 4px;
+    cursor: help;
+    position: relative;
+}
+.trust-badge.trust-user {
+    background: #1a3a1a;
+    color: #88dd88;
+}
+.trust-badge.trust-derived {
+    background: #3a2a1a;
+    color: #ddaa66;
+}
+.trust-badge[data-tooltip]:hover::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 0;
+    z-index: 1000;
+    white-space: normal;
+    width: max-content;
+    max-width: 320px;
+    padding: 8px 10px;
+    background: #1a1a1a;
+    color: #ddd;
+    border: 1px solid #444;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 400;
+    text-transform: none;
+    line-height: 1.4;
+    box-shadow: 0 2px 8px rgba(0,0,0,.4);
+    pointer-events: none;
+}
+.trust-badge[data-tooltip]:hover::before {
+    content: '';
+    position: absolute;
+    bottom: 100%;
+    left: 8px;
+    border: 5px solid transparent;
+    border-top-color: #1a1a1a;
+    z-index: 1001;
+    pointer-events: none;
+}
+
+.pinned-content {
+    font-size: 12px;
+    color: var(--text-secondary, #aabbcc);
+}
+
+.pinned-fact {
+    display: block;
+    line-height: 1.4;
+}
+
+/* "learned YYYY-MM-DD" subtitle on each pinned row, surfacing the
+   CreatedAt date that's already in the system-prompt injection but
+   was previously invisible to the user. v0.1.28. */
+.pinned-date {
+    display: block;
+    font-size: 10px;
+    color: var(--text-tertiary, #888);
+    margin-top: 2px;
+}
+
+.pinned-fact-en {
+    display: block;
+    font-size: 11px;
+    color: var(--text-dim, #556677);
+    margin-top: 2px;
+}
+
+.pinned-delete {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1;
+    padding: 3px 6px;
+    border-radius: 3px;
+    transition: color 0.15s, background 0.15s;
+}
+
+.pinned-delete:hover {
+    color: var(--text-error);
+    background: var(--bg-msg-error);
+}
+
+/* Pin to Global Memory button on Session Memory rows
+ * (v0.2.0 Phase 7). Same position as .pinned-delete but to the
+ * left of it; the star glyph signals "promote to permanent". */
+.pinned-pin {
+    position: absolute;
+    top: 4px;
+    right: 28px;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1;
+    padding: 3px 6px;
+    border-radius: 3px;
+    transition: color 0.15s, background 0.15s;
+}
+
+.pinned-pin:hover {
+    color: var(--text-accent);
+    background: var(--bg-hover);
+}

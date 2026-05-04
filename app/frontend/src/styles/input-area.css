@@ -1,0 +1,177 @@
+/* Input area */
+.input-area {
+    display: flex;
+    flex-direction: column;
+    padding: 12px;
+    background: var(--bg-input);
+    border-top: 1px solid var(--border-primary, #2a3a4a);
+}
+
+.status-tokens {
+    font-size: 11px;
+    color: var(--text-secondary, #6688aa);
+}
+
+.tool-progress {
+    font-size: 12px;
+    color: var(--text-secondary, #8899aa);
+    font-style: italic;
+}
+
+.send-btn {
+    padding: 10px 16px;
+    border: 1px solid #3a6a9a;
+    border-radius: 8px;
+    background: #1a3a5a;
+    color: #aaccee;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.send-btn:hover {
+    background: #2a4a6a;
+}
+
+.send-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.abort-btn {
+    padding: 10px 16px;
+    border: 1px solid #aa4444;
+    border-radius: 8px;
+    background: transparent;
+    color: #ee6666;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.abort-btn:hover {
+    background: #331111;
+}
+
+/* ChatInput component */
+.input-row {
+    display: flex;
+    gap: 8px;
+    align-items: flex-end;
+}
+
+.textarea-wrap {
+    position: relative;
+    flex: 1;
+    display: flex;
+}
+
+.input-row textarea {
+    flex: 1;
+    padding: 10px 14px 10px 44px;
+    border: 1px solid var(--border-input);
+    border-radius: 8px;
+    background: var(--bg-input-field);
+    color: var(--text-primary);
+    font-size: 14px;
+    font-family: inherit;
+    line-height: 1.5;
+    outline: none;
+    resize: none;
+    box-sizing: border-box;
+    min-height: 84px;
+    max-height: 280px;
+    overflow-y: auto;
+    --wails-draggable: no-drag;
+}
+
+.input-row textarea:focus {
+    border-color: var(--border-accent);
+}
+
+.input-row textarea:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.input-row button {
+    padding: 10px 16px;
+    border: 1px solid var(--border-accent);
+    border-radius: 8px;
+    background: var(--bg-btn-primary);
+    color: var(--text-accent);
+    cursor: pointer;
+    font-size: 14px;
+    white-space: nowrap;
+    --wails-draggable: no-drag;
+}
+
+.input-row button:hover {
+    background: var(--bg-btn-primary-hover);
+}
+
+.input-row button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.attach-btn {
+    position: absolute !important;
+    left: 6px !important;
+    bottom: 6px !important;
+    width: 30px !important;
+    height: 30px !important;
+    padding: 0 !important;
+    border: none !important;
+    border-radius: 50% !important;
+    background: transparent !important;
+    color: var(--text-muted) !important;
+    font-size: 15px !important;
+    line-height: 1 !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.attach-btn:hover {
+    background: var(--bg-hover) !important;
+    color: var(--text-primary) !important;
+}
+
+/* Pending images */
+.pending-images {
+    display: flex;
+    gap: 8px;
+    padding: 8px 0;
+    flex-wrap: wrap;
+}
+
+.pending-image {
+    position: relative;
+    width: 60px;
+    height: 60px;
+}
+
+.pending-image img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 6px;
+    border: 1px solid #3a4a5a;
+}
+
+.pending-image-remove {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    border: none;
+    background: #aa4444;
+    color: white;
+    font-size: 10px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+

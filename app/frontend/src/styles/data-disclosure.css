@@ -1,0 +1,552 @@
+/* === Data disclosure (chat-pane top, info-display redesign Phase 2) === */
+
+.data-disclosure {
+    margin: 6px 12px 10px;
+    padding: 6px 10px;
+    background: var(--bg-hover);
+    border: 1px solid var(--border-primary);
+    border-radius: 8px;
+    font-size: 12px;
+}
+
+.data-disclosure-empty {
+    color: var(--text-dim);
+    font-style: italic;
+    text-align: center;
+    padding: 4px 10px;
+}
+
+.data-disclosure summary {
+    cursor: pointer;
+    list-style: none;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    color: var(--text-secondary);
+    user-select: none;
+}
+
+.data-disclosure summary::-webkit-details-marker {
+    display: none;
+}
+
+.data-summary-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.data-summary-marker {
+    color: var(--text-muted);
+    font-size: 11px;
+    line-height: 1;
+}
+
+.data-summary-title {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.data-summary-counts {
+    display: flex;
+    gap: 8px;
+    color: var(--text-muted);
+    font-size: 11px;
+}
+
+.data-body {
+    margin-top: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.data-section h4 {
+    margin: 0 0 4px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    font-weight: 600;
+}
+
+.data-section ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.data-section li {
+    display: grid;
+    /* icon | name | rows | columns. Columns slot takes any
+       remaining width so the row fully spans the disclosure. */
+    grid-template-columns: 18px auto auto 1fr;
+    gap: 12px;
+    align-items: baseline;
+    padding: 3px 4px;
+    border-radius: 4px;
+    cursor: default;
+}
+
+.data-section li:hover {
+    background: var(--bg-inline-code);
+}
+
+.data-table-row {
+    cursor: pointer;
+}
+
+.data-table-row .data-name {
+    font-weight: 500;
+}
+
+/* Bulk-actions strip in section header (Objects card grid) */
+/* Tab strip at the top of the disclosure body. Each tab shows
+   the section name + count badge; only sections with content
+   are rendered. Active tab gets a subtle highlight + bottom-
+   border accent so the current section is unambiguous. */
+.data-tabs {
+    display: flex;
+    gap: 2px;
+    border-bottom: 1px solid var(--border-primary);
+    margin-bottom: 8px;
+}
+
+.data-tab {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 6px 10px;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px; /* sit on the strip's border-bottom */
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.data-tab:hover {
+    color: var(--text-primary);
+}
+
+.data-tab.active {
+    color: var(--text-primary);
+    border-bottom-color: var(--border-accent);
+    font-weight: 600;
+}
+
+.data-tab-count {
+    font-size: 10px;
+    color: var(--text-muted);
+    background: var(--bg-inline-code);
+    padding: 1px 6px;
+    border-radius: 8px;
+    font-variant-numeric: tabular-nums;
+}
+
+.data-tab.active .data-tab-count {
+    color: var(--text-primary);
+}
+
+/* When the section header lives below the tabs, drop the
+   redundant h4 spacing — the tab itself already labels it. */
+.data-section-header-tabbed {
+    margin-bottom: 4px;
+    min-height: 0;
+}
+
+.data-section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+    gap: 8px;
+}
+
+.data-section-header h4 {
+    margin: 0;
+}
+
+.data-bulk-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.data-bulk-count {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.data-bulk-actions button {
+    font-size: 11px;
+    padding: 2px 8px;
+    background: transparent;
+    border: 1px solid var(--border-input);
+    color: var(--text-secondary);
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.data-bulk-actions button:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.data-bulk-delete {
+    border-color: var(--border-msg-error) !important;
+    color: var(--text-error) !important;
+}
+
+.data-bulk-delete:hover {
+    background: var(--bg-msg-error) !important;
+}
+
+/* Objects sub-section: card grid with image thumbnails */
+.data-object-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 8px;
+}
+
+.data-object-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: 6px;
+    overflow: hidden;
+    transition: border-color 0.1s, transform 0.05s;
+}
+
+.data-object-card:hover {
+    border-color: var(--border-accent);
+}
+
+.data-object-card.selected {
+    outline: 2px solid var(--border-accent);
+    outline-offset: -2px;
+}
+
+.data-object-thumb,
+.data-object-name {
+    cursor: pointer;
+}
+
+.data-object-card:active {
+    transform: scale(0.98);
+}
+
+.data-object-check {
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    z-index: 2;
+    margin: 0;
+    opacity: 0;
+    transition: opacity 0.1s;
+}
+
+.data-object-card:hover .data-object-check,
+.data-object-card.selected .data-object-check,
+.bulk-active .data-object-check {
+    opacity: 1;
+}
+
+.data-object-actions {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    z-index: 2;
+    display: flex;
+    gap: 2px;
+    opacity: 0;
+    transition: opacity 0.1s;
+}
+
+.data-object-card:hover .data-object-actions,
+.data-object-card.selected .data-object-actions {
+    opacity: 1;
+}
+
+.data-object-actions button {
+    /* Sit on top of image thumbnails, so use --bg-sidebar (mostly
+       opaque in every theme) for readability rather than a
+       hardcoded grey. */
+    background: var(--bg-sidebar);
+    color: var(--text-muted);
+    border: 1px solid var(--border-primary);
+    width: 22px;
+    height: 22px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 11px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.data-object-actions button:hover {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border-color: var(--border-accent);
+}
+
+.data-object-delete:hover {
+    color: var(--text-error) !important;
+    background: var(--bg-msg-error) !important;
+    border-color: var(--border-msg-error) !important;
+}
+
+/* Card-level confirm overlay (single-object delete).
+   Floats above the thumbnail with separate Yes / No buttons so a
+   stray click on the same delete spot can't accidentally proceed. */
+.data-object-confirm {
+    position: absolute;
+    inset: 0;
+    z-index: 4;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(2px);
+    padding: 6px;
+}
+
+.data-object-confirm .data-confirm-text {
+    color: #fff;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.data-confirm-buttons {
+    display: flex;
+    gap: 6px;
+}
+
+.data-confirm-yes,
+.data-confirm-no {
+    border: 1px solid var(--border-input);
+    border-radius: 4px;
+    font-size: 11px;
+    padding: 3px 12px;
+    cursor: pointer;
+    background: var(--bg-sidebar);
+    color: var(--text-primary);
+}
+
+.data-confirm-yes {
+    background: var(--bg-msg-error);
+    border-color: var(--text-error);
+    color: var(--text-error);
+    font-weight: 600;
+}
+
+.data-confirm-yes:hover {
+    background: var(--text-error);
+    color: var(--bg-primary);
+}
+
+.data-confirm-no:hover {
+    background: var(--bg-hover);
+}
+
+/* Section-header confirm bar (bulk delete). Replaces the
+   bulk-actions strip while a confirmation is pending. */
+.data-confirm-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 8px;
+    background: var(--bg-msg-error);
+    border: 1px solid var(--text-error);
+    border-radius: 4px;
+}
+
+.data-confirm-bar .data-confirm-text {
+    color: var(--text-error);
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.data-object-thumb {
+    aspect-ratio: 16 / 10;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-inline-code);
+    overflow: hidden;
+}
+
+.data-object-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    margin: 0;
+    padding: 0;
+}
+
+.data-object-glyph {
+    font-size: 28px;
+    color: var(--text-muted);
+}
+
+.data-object-meta {
+    padding: 4px 8px 6px;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 6px;
+}
+
+.data-object-name {
+    font-size: 11px;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+}
+
+.data-object-size {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+}
+
+/* /work files: lighter card grid (no real preview, ext badge) */
+.data-work-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 6px;
+}
+
+.data-work-card {
+    display: grid;
+    grid-template-columns: 36px 1fr;
+    grid-template-rows: auto auto;
+    column-gap: 8px;
+    align-items: center;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: 6px;
+    padding: 5px 8px;
+}
+
+.data-work-ext {
+    grid-row: 1 / 3;
+    background: var(--bg-inline-code);
+    color: var(--text-muted);
+    font-size: 10px;
+    font-weight: 600;
+    text-align: center;
+    padding: 4px 0;
+    border-radius: 4px;
+    letter-spacing: 0.5px;
+}
+
+.data-work-name {
+    grid-column: 2;
+    grid-row: 1;
+    font-size: 11px;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.data-work-size {
+    grid-column: 2;
+    grid-row: 2;
+    font-size: 10px;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.data-icon {
+    text-align: center;
+    color: var(--text-muted);
+}
+
+.data-name {
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.data-size {
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    font-size: 11px;
+}
+
+.data-cols {
+    color: var(--text-dim);
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    /* Columns slot is the trailing 1fr in .data-section li, so
+       the column list fills whatever width the disclosure has
+       — finally putting the per-row real estate to use. */
+    min-width: 0;
+}
+
+/* Table preview modal */
+.preview-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 90;
+}
+
+.preview-modal {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: 8px;
+    width: min(1400px, 96vw);
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+}
+
+.preview-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border-primary);
+}
+
+.preview-title {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.preview-close {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 16px;
+}
+
+.preview-close:hover {
+    color: var(--text-primary);
+}
+

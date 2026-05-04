@@ -1,0 +1,170 @@
+/* Findings panel (chat-pane) — v0.2.0 Phase 8.
+ * Reuses .data-disclosure surface treatment (rounded card on
+ * --bg-hover). Closed by default to keep the chat-pane compact;
+ * opens when the user wants to triage the analysis backlog.
+ */
+.findings-disclosure {
+    margin: 6px 12px 10px;
+    padding: 6px 10px;
+    background: var(--bg-hover);
+    border: 1px solid var(--border-primary);
+    border-radius: 8px;
+    font-size: 12px;
+}
+
+.findings-disclosure summary {
+    cursor: pointer;
+    list-style: none;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    color: var(--text-secondary);
+    user-select: none;
+}
+
+.findings-disclosure summary::-webkit-details-marker {
+    display: none;
+}
+
+.findings-body {
+    margin-top: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.findings-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+}
+
+.findings-filter {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+.findings-filter-btn {
+    padding: 2px 8px;
+    border: 1px solid var(--border-primary);
+    background: var(--bg-input-field);
+    color: var(--text-muted);
+    font-size: 11px;
+    cursor: pointer;
+    border-radius: 10px;
+    text-transform: capitalize;
+}
+
+.findings-filter-btn.active {
+    background: var(--bg-btn-primary);
+    color: var(--text-accent);
+    border-color: var(--border-accent);
+}
+
+.findings-search {
+    flex: 1;
+    min-width: 120px;
+    padding: 3px 8px;
+    border: 1px solid var(--border-primary);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 11px;
+    border-radius: 4px;
+}
+
+.findings-bulk {
+    padding: 4px 8px;
+    border-radius: 4px;
+    background: var(--bg-input-field);
+    border: 1px solid var(--border-primary);
+}
+
+.findings-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 320px;
+    overflow-y: auto;
+}
+
+.findings-empty {
+    color: var(--text-muted);
+    font-style: italic;
+    text-align: center;
+    padding: 6px;
+}
+
+.findings-row {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    padding: 6px 8px;
+    border-radius: 4px;
+    background: var(--bg-input-field);
+    border: 1px solid transparent;
+}
+
+.findings-row.selected {
+    border-color: var(--border-accent);
+}
+
+.findings-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.findings-text {
+    color: var(--text-primary);
+    line-height: 1.4;
+    word-break: break-word;
+}
+
+.findings-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    margin-top: 4px;
+    color: var(--text-muted);
+    font-size: 11px;
+}
+
+.findings-tags {
+    display: flex;
+    gap: 4px;
+}
+
+.findings-actions {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.findings-pin,
+.findings-delete {
+    background: transparent;
+    border: 1px solid var(--border-primary);
+    color: var(--text-muted);
+    padding: 2px 6px;
+    cursor: pointer;
+    border-radius: 4px;
+    font-size: 12px;
+    line-height: 1;
+}
+
+.findings-pin:hover {
+    color: var(--text-accent);
+    border-color: var(--border-accent);
+}
+
+.findings-delete:hover {
+    color: #c44;
+    border-color: #c44;
+}
+

@@ -1,0 +1,428 @@
+/* Sidebar */
+.sidebar {
+    flex-shrink: 0;
+    padding: 36px 0 0;
+    background: var(--bg-sidebar, rgba(30, 30, 30, 0.95));
+    border-right: 1px solid var(--border-primary, #2a3a4a);
+    display: flex;
+    flex-direction: column;
+}
+
+/* Collapsed sidebar: same DOM as expanded, just narrower with
+   labels and content panels hidden. The icon Y-positions and
+   section dividers therefore stay byte-for-byte identical
+   between modes — there's literally no separate layout. */
+.sidebar.is-collapsed {
+    width: 42px;
+}
+
+.sidebar.is-collapsed .sidebar-nav-label {
+    display: none;
+}
+
+.sidebar.is-collapsed .acc-content {
+    display: none;
+}
+/* No padding / alignment overrides for the buttons in collapsed
+   mode — keeping their native padding (acc-header: 0 12px,
+   sidebar-nav-btn: 6px 8px) gives the icon the same left
+   position in both modes. */
+
+.sidebar-top {
+    padding: 4px;
+    --wails-draggable: no-drag;
+}
+
+.sidebar-resize {
+    width: 4px;
+    cursor: col-resize;
+    background: transparent;
+    flex-shrink: 0;
+}
+
+.sidebar-resize:hover {
+    background: var(--border-accent, #5a8abf);
+}
+
+.sidebar-panel {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 12px;
+    --wails-draggable: no-drag;
+}
+
+/* Accordion-style sidebar — Sessions and Memory each have a
+   header that's always visible; the active section's content
+   fills the available vertical space. Inactive section is just
+   a clickable header with a ▸ caret. */
+.sidebar-accordion {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    --wails-draggable: no-drag;
+    min-height: 0;
+}
+
+.acc-section {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+/* Single divider between Sessions and Memory sections, mirrors
+   the divider that .sidebar-collapsed-bottom's border-top
+   provides in the collapsed layout. The previous "every
+   section gets a border-bottom" was double-bordering against
+   the bottom-nav and looked inconsistent with collapsed mode. */
+.acc-section:not(:last-child) {
+    border-bottom: 1px solid var(--border-primary);
+}
+
+.acc-section.expanded {
+    flex: 1;
+    min-height: 0;
+}
+
+.acc-section.collapsed {
+    flex: 0 0 auto;
+}
+
+/* Sessions/Memory section headers reuse .sidebar-nav-btn styling
+   exactly so their icon position lines up with New Chat /
+   Settings (same padding, same display, same icon span). The
+   `.active` modifier class provides the highlight when a
+   section is the currently-shown panel. */
+
+.acc-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 12px;
+    min-height: 0;
+}
+
+.sidebar-bottom {
+    margin-top: auto;
+    /* Padding 0: buttons inside use their own 8px padding-left,
+       which now matches the buttons in the accordion sections
+       above (those sit directly inside .acc-section with no
+       extra wrapping padding). border-top still spans the
+       sidebar's full width. */
+    padding: 0;
+    border-top: 1px solid var(--border-primary, #2a3a4a);
+    --wails-draggable: no-drag;
+}
+
+.sidebar-nav-btn {
+    --wails-draggable: no-drag;
+    /* Flex with align-items: center makes the icon and label
+       share the row's vertical midline (GitHub #3). Horizontal
+       alignment is preserved across all buttons because both
+       the accordion sections and .sidebar-bottom now have zero
+       horizontal padding — icons land at button-padding-left
+       (8px) from the sidebar edge in every row. */
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    background: none;
+    border: none;
+    color: var(--text-secondary, #8899aa);
+    cursor: pointer;
+    font-size: 13px;
+    height: 34px;
+    /* 10px horizontal so the 22px icon is centered in the
+       42px-wide collapsed sidebar ((42-22)/2 = 10). Same
+       padding in expanded mode shifts everything 2px right
+       which lines up the icons across modes. */
+    padding: 6px 10px;
+    border-radius: 4px;
+    text-align: left;
+}
+
+.sidebar-nav-btn:hover {
+    color: var(--text-accent, #aaccee);
+    background: var(--bg-hover, rgba(255,255,255,0.05));
+}
+
+.sidebar-nav-btn.active {
+    color: var(--text-accent, #aaccee);
+    background: var(--bg-hover, rgba(255,255,255,0.08));
+}
+
+.sidebar-nav-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.sidebar-nav-ic {
+    /* inline-flex (vs inline-block) lets the parent flex
+       button's align-items: center actually take effect on
+       the icon row. Without this the inline-block's intrinsic
+       baseline was throwing off the centering. */
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 22px;
+    width: 22px;
+    font-size: 18px;
+    line-height: 1;
+}
+
+.sidebar-nav-divider {
+    height: 1px;
+    background: var(--border-primary, #2a3a4a);
+    margin: 4px 0;
+}
+
+.cmd-popup {
+    margin: 0 12px;
+    border: 1px solid var(--border-primary, #2a3a4a);
+    border-radius: 8px;
+    background: var(--bg-primary, #1b2636);
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.cmd-popup-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary, #8899aa);
+    border-bottom: 1px solid var(--border-primary, #2a3a4a);
+}
+
+.cmd-popup-header button {
+    border: none;
+    background: none;
+    color: var(--text-secondary, #8899aa);
+    cursor: pointer;
+    font-size: 14px;
+    padding: 0 4px;
+}
+
+.cmd-popup-header button:hover {
+    color: var(--text-primary, #e0e0e0);
+}
+
+.cmd-popup-body {
+    padding: 10px 14px;
+    font-size: 13px;
+    color: var(--text-primary, #e0e0e0);
+    line-height: 1.5;
+}
+
+.cmd-popup-body table {
+    border-collapse: collapse;
+    width: 100%;
+}
+
+.cmd-popup-body th, .cmd-popup-body td {
+    border: 1px solid var(--border-primary, #2a3a4a);
+    padding: 4px 8px;
+    text-align: left;
+    font-size: 12px;
+}
+
+.cmd-popup-body th {
+    background: rgba(128, 128, 128, 0.2);
+    font-weight: 600;
+}
+
+.input-status-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    padding: 4px 12px;
+    border-top: 1px solid var(--border-primary, #2a3a4a);
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.status-msg-counts {
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.sidebar-hint {
+    color: var(--text-dim, #556677);
+    font-size: 13px;
+    text-align: center;
+    margin-top: 24px;
+}
+
+/* Sessions */
+.new-session-btn {
+    width: 100%;
+    padding: 8px;
+    margin-bottom: 8px;
+    border: 1px dashed var(--border-input, #3a4a5a);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-muted, #6688aa);
+    cursor: pointer;
+    font-size: 13px;
+    --wails-draggable: no-drag;
+}
+
+.new-session-btn:hover {
+    background: var(--bg-hover, #1a2a3a);
+    border-color: var(--border-accent, #5a8abf);
+    color: var(--text-accent, #aaccee);
+}
+
+.new-session-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.session-item {
+    padding: 8px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    margin-bottom: 2px;
+    color: var(--text-primary, #e0e0e0);
+    --wails-draggable: no-drag;
+}
+
+.session-item:hover {
+    background: var(--bg-hover, #1a2a3a);
+}
+
+.session-item.active {
+    background: var(--bg-btn-primary, #1a3a5a);
+}
+
+.session-title,
+.session-title-edit {
+    font-size: 13px;
+    height: 20px;
+    line-height: 20px;
+    box-sizing: border-box;
+}
+
+.session-title {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+    color: var(--text-primary, #e0e0e0);
+}
+
+.session-title-edit {
+    width: 100%;
+    padding: 0 2px;
+    margin: 0;
+    border: 1px solid var(--border-accent, #5a8abf);
+    border-radius: 3px;
+    background: var(--bg-input-field, #0d1520);
+    color: var(--text-primary, #e0e0e0);
+    outline: none;
+    font-family: inherit;
+}
+
+.session-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 2px;
+}
+
+.session-date {
+    font-size: 11px;
+    color: var(--text-dim, #556677);
+}
+
+.session-actions {
+    display: flex;
+    gap: 4px;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.session-item:hover .session-actions {
+    opacity: 1;
+}
+
+.session-actions button {
+    border: none;
+    background: transparent;
+    color: var(--text-dim, #556677);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 1px 4px;
+    border-radius: 3px;
+}
+
+.session-actions button:hover {
+    background: #2a3a4a;
+    color: #aabbcc;
+}
+
+/* sidebar-footer and settings-btn removed — settings is in sidebar nav */
+
+/* Backend badge */
+.backend-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.backend-badge.local {
+    background: #1a3a2a;
+    color: #66cc88;
+}
+
+.backend-badge.vertex_ai {
+    background: #1a2a3a;
+    color: #66aaee;
+}
+
+.retry-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    background: var(--bg-msg-error);
+    color: var(--text-error);
+    opacity: 0.85;
+}
+
+/* Post-response background task indicators (title generation,
+   memory compaction, pinned-memory extraction). The grey badge
+   marks active work; the red badge flashes for 5 s on failure. */
+.bg-task-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    background: var(--bg-hover);
+    color: var(--text-secondary);
+    opacity: 0.85;
+}
+
+.bg-task-failure {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    background: var(--bg-msg-error);
+    color: var(--text-error);
+    animation: bg-task-fade 5s ease-out forwards;
+}
+
+@keyframes bg-task-fade {
+    0%   { opacity: 1; }
+    80%  { opacity: 1; }
+    100% { opacity: 0; }
+}
+

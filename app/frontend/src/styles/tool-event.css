@@ -1,0 +1,144 @@
+/* The chat bubble for a tool-event row. Class is distinct from
+   the outer `.message.tool-event` wrapper so the bubble styles
+   only apply once. running is muted (still pulsing); success
+   and error tint the whole bubble (background + border + icon)
+   so the outcome is readable from across the chat at a glance. */
+.tool-bubble {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 10px;
+    border-radius: 10px;
+    background: var(--bg-hover);
+    border: 1px solid var(--border-primary);
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+}
+
+.tool-bubble.clickable {
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s;
+}
+
+.tool-bubble.clickable:hover {
+    background: var(--bg-input-field);
+    border-color: var(--border-accent);
+}
+
+.tool-bubble.running {
+    opacity: 0.85;
+}
+
+.tool-bubble.running .tool-bubble-icon {
+    animation: pulse 1.2s ease-in-out infinite;
+    color: var(--text-secondary);
+}
+
+.tool-bubble.success {
+    background: var(--bg-msg-tool);
+    border-color: var(--border-msg-tool);
+    color: var(--text-tool);
+}
+
+.tool-bubble.success .tool-bubble-icon {
+    color: var(--text-tool);
+}
+
+.tool-bubble.error {
+    background: var(--bg-msg-error);
+    border-color: var(--border-msg-error);
+    color: var(--text-error);
+}
+
+.tool-bubble.error .tool-bubble-icon {
+    color: var(--text-error);
+}
+
+.tool-bubble-icon {
+    font-size: 9px;
+    line-height: 1;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 1; }
+}
+
+.message-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+}
+
+.message-role {
+    font-size: 11px;
+    color: #6688aa;
+    text-transform: uppercase;
+    font-weight: 600;
+}
+
+.message-footer {
+    display: flex;
+    align-items: center;
+    margin-top: 4px;
+}
+
+.message-copy {
+    background: none;
+    border: none;
+    color: #445566;
+    cursor: pointer;
+    font-size: 22px;
+    padding: 0;
+    line-height: 1;
+}
+
+.message-copy .copy-check {
+    display: none;
+    font-size: 18px;
+}
+
+.message-copy.copied .copy-icon {
+    display: none;
+}
+
+.message-copy.copied .copy-check {
+    display: inline;
+    color: #66cc88;
+}
+
+.message-copy:hover {
+    color: #5a8abf;
+}
+
+.message-time {
+    font-size: 11px;
+    color: #556677;
+}
+
+.message-content {
+    padding: 10px 14px;
+    border-radius: 10px;
+    font-size: 14px;
+    line-height: 1.6;
+    word-break: break-word;
+}
+
+.message.user .message-content {
+    background: var(--bg-msg-user, #1a2a3a);
+    border: 1px solid var(--border-msg-user, #2a3a4a);
+}
+
+.message.assistant .message-content {
+    background: var(--bg-msg-assistant, #1e2e3e);
+    border: 1px solid var(--border-msg-assistant, #2a3a4a);
+}
+
+.message.system .message-content {
+    background: var(--bg-msg-error, #3a2020);
+    border: 1px solid var(--border-msg-error, #4a2a2a);
+    font-size: 13px;
+}
+

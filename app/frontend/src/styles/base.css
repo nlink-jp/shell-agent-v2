@@ -1,0 +1,28 @@
+.app {
+    display: flex;
+    height: 100vh;
+    background: var(--bg-primary, #1b2636);
+    color: var(--text-primary, #e0e0e0);
+}
+
+.app input, .app textarea {
+    -webkit-text-size-adjust: none;
+}
+
+/* Disable OS auto-correct globally */
+input, textarea {
+    autocorrect: off;
+    autocapitalize: off;
+    spellcheck: false;
+}
+
+.titlebar-drag {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 28px;
+    --wails-draggable: drag;
+    z-index: 100;
+}
+

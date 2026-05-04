@@ -1,0 +1,31 @@
+/* Message images */
+.message-images {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+}
+
+.message-image {
+    max-width: 300px;
+    max-height: 200px;
+    border-radius: 6px;
+    cursor: pointer;
+    border: 1px solid #2a3a4a;
+}
+
+.message-image:hover {
+    border-color: #5a8abf;
+}
+
+.object-loading {
+    color: var(--text-dim, #556677);
+    font-size: 12px;
+    font-style: italic;
+}
+
+.object-error {
+    color: var(--text-error, #ee6666);
+    font-size: 12px;
+}
+
