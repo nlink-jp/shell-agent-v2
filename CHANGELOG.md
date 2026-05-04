@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.4] - 2026-05-04
+
+### Fixed
+
+- **`resolve-date` rejected expressions when the conversation
+  was in Japanese.** The resolver does pure-English keyword
+  matching, but the parameter description didn't say so. The
+  LLM mirrored the conversation language into the tool
+  argument (e.g. `"先週の木曜日"`), which the resolver
+  immediately rejected with `"unrecognized expression"`. The
+  description now explicitly says ENGLISH ONLY, lists the
+  supported forms verbatim, and tells the LLM to translate the
+  date concept to English before calling the tool.
+
 ## [0.2.3] - 2026-05-04
 
 ### Fixed
