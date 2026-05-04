@@ -16,6 +16,7 @@ import Lightbox from './dialogs/Lightbox'
 import ReportViewer from './dialogs/ReportViewer'
 import BlobPreview, {type BlobPreviewData} from './dialogs/BlobPreview'
 import PinToGlobalDialog, {type PinSource} from './dialogs/PinToGlobalDialog'
+import ToolCallDetailsDialog from './dialogs/ToolCallDetailsDialog'
 import 'highlight.js/styles/github-dark.css'
 import 'katex/dist/katex.min.css'
 import './themes.css'
@@ -101,6 +102,10 @@ function App() {
     const [lightboxImage, setLightboxImage] = useState<string | null>(null)
     const [blobPreview, setBlobPreview] = useState<BlobPreviewData | null>(null)
     const [expandedReport, setExpandedReport] = useState<ExpandedReport | null>(null)
+    // Tool-event detail overlay: holds the tool_call_id for the
+    // bubble the user just clicked. The dialog itself fetches the
+    // args + result via GetToolCallDetails, so App only needs the id.
+    const [inspectingToolCallId, setInspectingToolCallId] = useState<string | null>(null)
     // Pin to Global Memory dialog state. The dialog is reused for
     // both Session Memory rows and Findings; the kind discriminates
     // which backend binding to call on confirm.
@@ -172,13 +177,17 @@ function App() {
                         }
                         if (idx === -1) return prev
                         const next = prev.slice()
-                        next[idx] = {...next[idx], status: endStatus}
+                        // Stamp toolCallId from the tool_end event so
+                        // the bubble becomes clickable for inspection
+                        // (tool_start usually arrives with the same id
+                        // already, but tool_end is authoritative).
+                        next[idx] = {...next[idx], status: endStatus, toolCallId: data.tool_call_id || next[idx].toolCallId}
                         return next
                     })
                 } else if (data.type === 'tool_start') {
                     setProgressTool(data.detail || '')
                     setRetryStatus('')
-                    setMessages(prev => [...prev, {role: 'tool-event', content: data.detail || '', status: 'running', timestamp: nowTime()}])
+                    setMessages(prev => [...prev, {role: 'tool-event', content: data.detail || '', status: 'running', timestamp: nowTime(), toolCallId: data.tool_call_id || undefined}])
                 } else if (data.type === 'thinking') {
                     setProgressTool(data.detail || '')
                 } else if (data.type === 'assistant_text') {
@@ -385,6 +394,9 @@ function App() {
             ...(m.object_ids && m.object_ids.length > 0
                 ? {imageUrls: m.object_ids.map(id => `object:${id}`)}
                 : {}),
+            // Restored tool-event rows carry tool_call_id so the
+            // bubble is clickable for the inspect overlay.
+            ...(m.tool_call_id ? {toolCallId: m.tool_call_id} : {}),
         }))
 
     const handleLoadSession = useCallback(async (id: string) => {
@@ -675,7 +687,7 @@ function App() {
                 <div className="messages" ref={messagesContainerRef}>
                     {messages.filter(msg => msg.role !== 'tool').map((msg, i) => (
                         <div key={i} className={`message ${msg.role}`}>
-                            <MessageItem msg={msg} onLightbox={setLightboxImage} onExpandReport={setExpandedReport} />
+                            <MessageItem msg={msg} onLightbox={setLightboxImage} onExpandReport={setExpandedReport} onToolEventClick={setInspectingToolCallId} />
                         </div>
                     ))}
                     {streaming && (
@@ -800,6 +812,13 @@ function App() {
                     onClose={() => setExpandedReport(null)}
                     onLightbox={setLightboxImage}
                     onSaveReport={(content, filename) => window.go?.main.Bindings.SaveReport(content, filename)}
+                />
+            )}
+
+            {inspectingToolCallId && (
+                <ToolCallDetailsDialog
+                    toolCallId={inspectingToolCallId}
+                    onClose={() => setInspectingToolCallId(null)}
                 />
             )}
 

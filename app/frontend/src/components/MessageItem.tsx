@@ -31,9 +31,10 @@ interface MessageItemProps {
     msg: ChatMessage;
     onLightbox: (url: string) => void;
     onExpandReport: (r: {title: string; content: string}) => void;
+    onToolEventClick?: (toolCallId: string) => void;
 }
 
-const MessageItem = memo(function MessageItem({msg, onLightbox, onExpandReport}: MessageItemProps) {
+const MessageItem = memo(function MessageItem({msg, onLightbox, onExpandReport, onToolEventClick}: MessageItemProps) {
     const components = useMemo(() => ({
         img: ({src, alt}: {src?: string; alt?: string}) => {
             if (src?.startsWith('object:')) {
@@ -55,8 +56,17 @@ const MessageItem = memo(function MessageItem({msg, onLightbox, onExpandReport}:
         // .message.tool-event wrapper — otherwise both elements
         // pick up the bubble styling and we get a frame inside a
         // frame.
+        // Click-to-inspect is enabled only for completed bubbles
+        // that carry a tool_call_id — running bubbles have no
+        // recorded result yet, and legacy restored rows without
+        // an id can't fetch details.
+        const clickable = msg.status !== 'running' && !!msg.toolCallId && !!onToolEventClick
         return (
-            <div className={`tool-bubble ${cls}`}>
+            <div
+                className={`tool-bubble ${cls}${clickable ? ' clickable' : ''}`}
+                onClick={clickable && msg.toolCallId ? () => onToolEventClick!(msg.toolCallId!) : undefined}
+                title={clickable ? 'Click to view arguments and result' : undefined}
+            >
                 <span className="tool-bubble-icon">{icon}</span>
                 <span className="tool-bubble-name">{msg.content}</span>
             </div>

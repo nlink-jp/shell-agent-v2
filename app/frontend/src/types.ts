@@ -16,6 +16,20 @@ export interface ChatMessage {
     // classification was finalised in v0.1.13 (sandbox via
     // ExecResult, MCP via result.isError, etc.).
     status?: 'running' | 'success' | 'error';
+    // Populated for `tool-event` rows so the chat pane can fetch
+    // full args + result on click via GetToolCallDetails. Empty for
+    // legacy rows that predate the field.
+    toolCallId?: string;
+}
+
+export interface ToolCallDetails {
+    tool_call_id: string;
+    tool_name: string;
+    arguments: string;
+    result: string;
+    status: string;
+    call_timestamp: string;
+    result_timestamp: string;
 }
 
 export interface SessionInfo {
@@ -37,6 +51,9 @@ export interface MessageData {
     // routes them through ObjectImage so the restored chat shows
     // the same images the user originally attached.
     object_ids?: string[];
+    // Populated for restored `tool-event` rows so the click-to-
+    // inspect overlay can fetch full args + result.
+    tool_call_id?: string;
 }
 
 export interface Finding {

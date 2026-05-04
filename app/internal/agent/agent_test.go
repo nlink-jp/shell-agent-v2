@@ -123,6 +123,139 @@ func TestLoadSessionRejectsDuringBusy(t *testing.T) {
 	}
 }
 
+// TestGetToolCallDetails pins the lookup the chat-pane detail
+// dialog depends on: an assistant turn carries the tool_call_id +
+// arguments, a subsequent tool turn carries the result and status,
+// and they're paired by tool_call_id. The agent must stitch them
+// back together when the user clicks a tool-event bubble.
+func TestGetToolCallDetails(t *testing.T) {
+	a := New(config.Default())
+	now := time.Now()
+	a.session = &memory.Session{
+		ID:    "details-test",
+		Title: "T",
+		Records: []memory.Record{
+			{Role: "user", Content: "hi", Timestamp: now},
+			{
+				Role:      "assistant",
+				Content:   "Calling weather",
+				Timestamp: now.Add(time.Second),
+				ToolCalls: []memory.ToolCallRecord{
+					{ID: "tc-7", Name: "weather", Arguments: `{"city":"Tokyo"}`},
+				},
+			},
+			{
+				Role:       "tool",
+				ToolCallID: "tc-7",
+				ToolName:   "weather",
+				Content:    "Tokyo: 22°C, clear",
+				Status:     "success",
+				Timestamp:  now.Add(2 * time.Second),
+			},
+		},
+	}
+
+	d, err := a.GetToolCallDetails("tc-7")
+	if err != nil {
+		t.Fatalf("GetToolCallDetails: %v", err)
+	}
+	if d.ToolName != "weather" {
+		t.Errorf("ToolName = %q, want weather", d.ToolName)
+	}
+	if d.Arguments != `{"city":"Tokyo"}` {
+		t.Errorf("Arguments = %q", d.Arguments)
+	}
+	if d.Result != "Tokyo: 22°C, clear" {
+		t.Errorf("Result = %q", d.Result)
+	}
+	if d.Status != "success" {
+		t.Errorf("Status = %q, want success", d.Status)
+	}
+	if d.CallTimestamp == "" || d.ResultTimestamp == "" {
+		t.Errorf("timestamps not populated: %+v", d)
+	}
+
+	// Legacy tool record without Status defaults to "success" so the
+	// detail dialog doesn't render an empty badge for old sessions.
+	a.session.Records[2].Status = ""
+	d2, err := a.GetToolCallDetails("tc-7")
+	if err != nil {
+		t.Fatalf("GetToolCallDetails (legacy): %v", err)
+	}
+	if d2.Status != "success" {
+		t.Errorf("legacy Status = %q, want success", d2.Status)
+	}
+
+	// Unknown ID errors out so the binding can surface "not found".
+	if _, err := a.GetToolCallDetails("nope"); err == nil {
+		t.Error("expected error for unknown tool_call_id")
+	}
+}
+
+// TestGetToolCallDetails_IdxBackfill pins the legacy-Vertex
+// recovery path: tool records written before vertex.go started
+// synthesising FunctionCall IDs have ToolCallID="" — LoadSession
+// surfaces them with synthetic "idx:N" IDs and GetToolCallDetails
+// must resolve those back to the right record + assistant pair.
+//
+// Layout exercised:
+//
+//	[0] user
+//	[1] assistant tool_calls=[a, b, c]   (no IDs — legacy Vertex)
+//	[2] tool name=a (no ToolCallID)
+//	[3] tool name=b (no ToolCallID)
+//	[4] tool name=c (no ToolCallID)
+//
+// "idx:3" must resolve to record[3] (tool b) and pair with the
+// 2nd ToolCall on record[1] (= b).
+func TestGetToolCallDetails_IdxBackfill(t *testing.T) {
+	a := New(config.Default())
+	now := time.Now()
+	a.session = &memory.Session{
+		ID: "legacy-vertex",
+		Records: []memory.Record{
+			{Role: "user", Content: "go", Timestamp: now},
+			{
+				Role:      "assistant",
+				Timestamp: now.Add(time.Second),
+				ToolCalls: []memory.ToolCallRecord{
+					{Name: "a", Arguments: `{"x":1}`},
+					{Name: "b", Arguments: `{"x":2}`},
+					{Name: "c", Arguments: `{"x":3}`},
+				},
+			},
+			{Role: "tool", ToolName: "a", Content: "result a", Timestamp: now.Add(2 * time.Second)},
+			{Role: "tool", ToolName: "b", Content: "result b", Timestamp: now.Add(3 * time.Second)},
+			{Role: "tool", ToolName: "c", Content: "result c", Timestamp: now.Add(4 * time.Second)},
+		},
+	}
+
+	d, err := a.GetToolCallDetails("idx:3")
+	if err != nil {
+		t.Fatalf("GetToolCallDetails(idx:3): %v", err)
+	}
+	if d.ToolName != "b" {
+		t.Errorf("ToolName = %q, want b", d.ToolName)
+	}
+	if d.Arguments != `{"x":2}` {
+		t.Errorf("Arguments = %q, want {\"x\":2} (Nth-in-run pairing)", d.Arguments)
+	}
+	if d.Result != "result b" {
+		t.Errorf("Result = %q", d.Result)
+	}
+	if d.Status != "success" {
+		t.Errorf("Status = %q, want success", d.Status)
+	}
+
+	// Out-of-range / wrong-role idx errors out cleanly.
+	if _, err := a.GetToolCallDetails("idx:99"); err == nil {
+		t.Error("expected error for out-of-range idx")
+	}
+	if _, err := a.GetToolCallDetails("idx:0"); err == nil {
+		t.Error("expected error: idx:0 points at user record, not tool")
+	}
+}
+
 func TestNormalizeToolArgs(t *testing.T) {
 	cases := []struct {
 		name string

@@ -2,7 +2,9 @@ package llm
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -306,8 +308,20 @@ func (v *Vertex) parseResponse(resp *genai.GenerateContentResponse) *Response {
 		}
 		if part.FunctionCall != nil {
 			args, _ := json.Marshal(part.FunctionCall.Args)
+			// Vertex Gemini's FunctionCall has no first-class id
+			// (unlike OpenAI's tool_calls[].id). Synthesise one so
+			// downstream session storage can pair the tool record
+			// back to the assistant call — used by the chat-pane
+			// "click a tool-event bubble to inspect" overlay.
+			id := part.FunctionCall.ID
+			if id == "" {
+				b := make([]byte, 6)
+				if _, err := rand.Read(b); err == nil {
+					id = "vc-" + hex.EncodeToString(b)
+				}
+			}
 			result.ToolCalls = append(result.ToolCalls, ToolCall{
-				ID:        part.FunctionCall.ID,
+				ID:        id,
 				Name:      part.FunctionCall.Name,
 				Arguments: string(args),
 			})

@@ -20,6 +20,7 @@ import type {
     Settings,
     SandboxImageStatus,
     SandboxImageInfo,
+    ToolCallDetails,
     ToolInfo,
 } from './types'
 
@@ -62,6 +63,7 @@ declare global {
                     SaveImage(dataURL: string): Promise<string>;
                     GetImageDataURL(id: string): Promise<string>;
                     GetTools(): Promise<ToolInfo[]>;
+                    GetToolCallDetails(toolCallID: string): Promise<ToolCallDetails>;
                     GetGlobalMemories(): Promise<GlobalMemory[]>;
                     UpdateGlobalMemory(fact: string, native: string, category: string): Promise<void>;
                     DeleteGlobalMemory(fact: string): Promise<void>;

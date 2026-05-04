@@ -1737,6 +1737,16 @@ input, textarea {
     font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
 }
 
+.tool-bubble.clickable {
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s;
+}
+
+.tool-bubble.clickable:hover {
+    background: var(--bg-input-field);
+    border-color: var(--border-accent);
+}
+
 .tool-bubble.running {
     opacity: 0.85;
 }
@@ -3186,4 +3196,124 @@ input, textarea {
 
 .pin-dialog-confirm:hover {
     background: var(--bg-btn-primary-hover);
+}
+
+/* Tool-call details dialog (v0.2.2): shown when a completed
+ * tool-event bubble is clicked. Reuses .modal-backdrop. */
+.tool-details-dialog {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: 10px;
+    width: min(720px, 92vw);
+    max-height: 82vh;
+    display: flex;
+    flex-direction: column;
+    color: var(--text-primary);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    --wails-draggable: no-drag;
+}
+
+.tool-details-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-primary);
+    font-weight: 600;
+    gap: 8px;
+}
+
+.tool-details-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.tool-details-status {
+    font-size: 11px;
+    font-weight: 500;
+    padding: 1px 8px;
+    border-radius: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border: 1px solid var(--border-primary);
+}
+
+.tool-details-status.success {
+    color: var(--text-tool);
+    border-color: var(--border-msg-tool);
+}
+
+.tool-details-status.error {
+    color: var(--text-error);
+    border-color: var(--border-msg-error);
+}
+
+.tool-details-close {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 16px;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+.tool-details-close:hover {
+    color: var(--text-primary);
+    background: var(--bg-hover);
+}
+
+.tool-details-body {
+    padding: 14px 16px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.tool-details-loading,
+.tool-details-error {
+    color: var(--text-muted);
+    font-style: italic;
+    padding: 20px;
+    text-align: center;
+}
+
+.tool-details-error {
+    color: var(--text-error);
+    font-style: normal;
+}
+
+.tool-details-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+.tool-details-section h4 {
+    margin: 0 0 6px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    font-weight: 600;
+}
+
+.tool-details-pre {
+    margin: 0;
+    padding: 10px 12px;
+    background: var(--bg-input-field);
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 40vh;
+    overflow-y: auto;
 }

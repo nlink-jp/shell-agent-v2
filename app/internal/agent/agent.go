@@ -118,6 +118,12 @@ type Agent struct {
 	titleHandler         TitleHandler
 	mitlHandler          MITLHandler
 	reportHandler        func(title, content string)
+	// pendingReport, when set by toolCreateReport, holds a report
+	// that should be flushed to the frontend AFTER the tool_end
+	// activity event for the call. The flush happens in the agent
+	// loop right after AddToolResult/emit tool_end so the chat
+	// pane sees "tool-event bubble → report bubble" in order.
+	pendingReport        *pendingReport
 	globalMemoryHandler        func()
 	findingsHandler      func()
 	sessionMemoryHandler func()
@@ -325,6 +331,31 @@ const (
 	ActivityStatusError   ActivityEventStatus = "error"
 )
 
+// pendingReport buffers a create-report side-effect so the agent
+// loop can flush it to the reportHandler after tool_end has been
+// emitted, preserving "tool-event → report" rendering order.
+type pendingReport struct {
+	title   string
+	content string
+}
+
+// flushPendingReport delivers any buffered report to the
+// reportHandler and clears the buffer. Called by the agent loop
+// after each tool_end emission so the chat pane sees the report
+// bubble after the tool-event bubble. Safe to call when no report
+// is pending (no-op).
+func (a *Agent) flushPendingReport() {
+	a.mu.Lock()
+	pending := a.pendingReport
+	a.pendingReport = nil
+	h := a.reportHandler
+	a.mu.Unlock()
+	if pending == nil || h == nil {
+		return
+	}
+	h(pending.title, pending.content)
+}
+
 // ActivityEvent describes a transient agent activity surfaced
 // to the UI. Type is one of "tool_start" / "tool_end" /
 // "thinking"; Detail is the tool name (or thinking content);
@@ -334,6 +365,11 @@ type ActivityEvent struct {
 	Type   string
 	Detail string
 	Status ActivityEventStatus
+	// ToolCallID, when non-empty, lets the frontend correlate the
+	// transient bubble with the persisted tool record so the user
+	// can later click the bubble to inspect args + result via
+	// GetToolCallDetails. Populated for tool_start / tool_end.
+	ToolCallID string
 }
 
 // SetActivityHandler sets the callback for agent activity events.
@@ -990,6 +1026,134 @@ func (a *Agent) SessionMemoryDeleteByFacts(facts []string) (int, error) {
 	return n, a.sessionMemory.Save()
 }
 
+// ToolCallDetails is the assistant call + tool result pair for a
+// single tool invocation, exposed to the frontend so the user can
+// inspect what was actually executed and what came back.
+type ToolCallDetails struct {
+	ToolCallID    string `json:"tool_call_id"`
+	ToolName      string `json:"tool_name"`
+	Arguments     string `json:"arguments"`              // raw arguments from the assistant call (usually JSON)
+	Result        string `json:"result"`                 // tool result content
+	Status        string `json:"status"`                 // success | error
+	CallTimestamp string `json:"call_timestamp"`         // RFC3339, when the assistant emitted the call
+	ResultTimestamp string `json:"result_timestamp"`     // RFC3339, when the result landed
+}
+
+// GetToolCallDetails returns the recorded args + result for the
+// given tool-call ID from the active session, looking up both the
+// assistant turn that issued the call and the tool turn that
+// returned the result. Returns an error when no session is loaded
+// or the ID isn't found in the current session's records.
+//
+// Two id formats are accepted:
+//   - real ID (e.g. "call_abc123" / "vc-d4e5f6") — exact-match
+//     lookup against assistant.ToolCalls[i].ID and tool.ToolCallID
+//   - synthetic "idx:N" — used by LoadSession to backfill legacy
+//     Vertex sessions whose tool records have empty ToolCallID
+//     (Vertex Gemini didn't carry a function-call id until the
+//     v0.2.2 synth fix). Resolved by absolute record index, with
+//     the assistant pair found via the run of preceding tool
+//     records (Nth tool record in the run pairs with the Nth
+//     ToolCall on the assistant turn that opened the run).
+func (a *Agent) GetToolCallDetails(toolCallID string) (ToolCallDetails, error) {
+	if a.session == nil {
+		return ToolCallDetails{}, fmt.Errorf("no session loaded")
+	}
+	if toolCallID == "" {
+		return ToolCallDetails{}, fmt.Errorf("tool_call_id required")
+	}
+	if strings.HasPrefix(toolCallID, "idx:") {
+		return a.toolCallDetailsByIndex(toolCallID)
+	}
+	out := ToolCallDetails{ToolCallID: toolCallID}
+	for _, r := range a.session.Records {
+		if r.Role == "assistant" {
+			for _, tc := range r.ToolCalls {
+				if tc.ID == toolCallID {
+					out.ToolName = tc.Name
+					out.Arguments = tc.Arguments
+					out.CallTimestamp = r.Timestamp.Format(time.RFC3339)
+				}
+			}
+		}
+		if r.Role == "tool" && r.ToolCallID == toolCallID {
+			if out.ToolName == "" {
+				out.ToolName = r.ToolName
+			}
+			out.Result = r.Content
+			out.Status = r.Status
+			if out.Status == "" {
+				out.Status = "success" // legacy records predate Status
+			}
+			out.ResultTimestamp = r.Timestamp.Format(time.RFC3339)
+		}
+	}
+	if out.ResultTimestamp == "" && out.CallTimestamp == "" {
+		return ToolCallDetails{}, fmt.Errorf("tool_call_id not found: %s", toolCallID)
+	}
+	return out, nil
+}
+
+// toolCallDetailsByIndex handles the "idx:N" backfill path.
+// records[N] must be the tool record. The assistant pair is the
+// most recent assistant record before N that has ToolCalls, and
+// the call within it is the (nth-in-run)th — counting how many
+// tool records sit between the assistant turn and N.
+func (a *Agent) toolCallDetailsByIndex(toolCallID string) (ToolCallDetails, error) {
+	idxStr := strings.TrimPrefix(toolCallID, "idx:")
+	idx, err := strconv.Atoi(idxStr)
+	if err != nil || idx < 0 || idx >= len(a.session.Records) {
+		return ToolCallDetails{}, fmt.Errorf("idx out of range: %s", toolCallID)
+	}
+	r := a.session.Records[idx]
+	if r.Role != "tool" {
+		return ToolCallDetails{}, fmt.Errorf("idx:%d is not a tool record", idx)
+	}
+	out := ToolCallDetails{ToolCallID: toolCallID, ToolName: r.ToolName, Result: r.Content, Status: r.Status, ResultTimestamp: r.Timestamp.Format(time.RFC3339)}
+	if out.Status == "" {
+		out.Status = "success"
+	}
+	// Walk backward to find the assistant record that opened the
+	// current run of tool records. nthInRun = how many tool
+	// records sit between the assistant turn and idx (so 0 means
+	// idx is the first tool record after the assistant call).
+	nthInRun := 0
+	assistantIdx := -1
+	for j := idx - 1; j >= 0; j-- {
+		switch a.session.Records[j].Role {
+		case "tool":
+			nthInRun++
+		case "assistant":
+			assistantIdx = j
+		}
+		if assistantIdx >= 0 {
+			break
+		}
+	}
+	if assistantIdx >= 0 {
+		ar := a.session.Records[assistantIdx]
+		out.CallTimestamp = ar.Timestamp.Format(time.RFC3339)
+		// Prefer the Nth ToolCall in the assistant record; fall
+		// back to a name match when the run ordering doesn't line
+		// up (e.g. interleaved error retries).
+		if nthInRun < len(ar.ToolCalls) {
+			tc := ar.ToolCalls[nthInRun]
+			out.Arguments = tc.Arguments
+			if out.ToolName == "" {
+				out.ToolName = tc.Name
+			}
+		} else {
+			for _, tc := range ar.ToolCalls {
+				if tc.Name == r.ToolName {
+					out.Arguments = tc.Arguments
+					break
+				}
+			}
+		}
+	}
+	return out, nil
+}
+
 // FindingsDeleteByIDs bulk-removes findings from the active
 // session. Returns the count actually deleted.
 func (a *Agent) FindingsDeleteByIDs(ids []string) (int, error) {
@@ -1308,14 +1472,15 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 
 		// Execute each tool call
 		for _, tc := range resp.ToolCalls {
-			a.emitActivity(ActivityEvent{Type: "tool_start", Detail: tc.Name})
+			a.emitActivity(ActivityEvent{Type: "tool_start", Detail: tc.Name, ToolCallID: tc.ID})
 			// Avoid logging full tool arguments at Info level (may contain credentials, paths, etc.)
 			logger.Info("agentLoop: tool_call name=%s args_len=%d", tc.Name, len(tc.Arguments))
 			logger.Debug("agentLoop: tool_call args=%s", logger.Truncate(tc.Arguments, 200))
 			result, status := a.executeTool(ctx, tc)
 			logger.Debug("agentLoop: tool_result name=%s status=%s result=%s", tc.Name, status, logger.Truncate(result, 200))
 			a.session.AddToolResult(tc.ID, tc.Name, result, string(status))
-			a.emitActivity(ActivityEvent{Type: "tool_end", Detail: tc.Name, Status: status})
+			a.emitActivity(ActivityEvent{Type: "tool_end", Detail: tc.Name, Status: status, ToolCallID: tc.ID})
+			a.flushPendingReport()
 			recentToolCalls = pushToolCallTrace(recentToolCalls, toolCallTrace{Name: tc.Name, Status: status})
 		}
 		_ = a.session.Save() // auto-save after tool execution

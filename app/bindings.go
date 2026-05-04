@@ -123,6 +123,9 @@ func (b *Bindings) startup(ctx context.Context) {
 		if ev.Status != "" {
 			payload["status"] = string(ev.Status)
 		}
+		if ev.ToolCallID != "" {
+			payload["tool_call_id"] = ev.ToolCallID
+		}
 		wailsRuntime.EventsEmit(b.ctx, "agent:activity", payload)
 	})
 	b.agent.SetBgTaskHandler(func(e agent.BgTaskEvent) {
@@ -294,7 +297,7 @@ func (b *Bindings) LoadSession(sessionID string) ([]MessageData, error) {
 	// Filter records for frontend display
 	// Design: docs/en/agent-data-flow.md Section 3.2
 	var msgs []MessageData
-	for _, r := range session.Records {
+	for i, r := range session.Records {
 		switch r.Role {
 		case "tool":
 			// Reconstruct the live `tool-event` bubble: tool name
@@ -310,11 +313,23 @@ func (b *Bindings) LoadSession(sessionID string) ([]MessageData, error) {
 			if status == "" {
 				status = "success"
 			}
+			// Vertex Gemini sessions written before vertex.go
+			// started synthesising FunctionCall IDs have empty
+			// ToolCallID. Fall back to the absolute record index
+			// as a synthetic id ("idx:N") so the click-to-inspect
+			// overlay can still locate the record on
+			// GetToolCallDetails. New sessions have real ids and
+			// take this path through the non-empty branch.
+			toolCallID := r.ToolCallID
+			if toolCallID == "" {
+				toolCallID = fmt.Sprintf("idx:%d", i)
+			}
 			msgs = append(msgs, MessageData{
-				Role:      "tool-event",
-				Content:   r.ToolName,
-				Status:    status,
-				Timestamp: r.Timestamp.Format("15:04:05"),
+				Role:       "tool-event",
+				Content:    r.ToolName,
+				Status:     status,
+				Timestamp:  r.Timestamp.Format("15:04:05"),
+				ToolCallID: toolCallID,
 			})
 			continue
 		case "assistant":
@@ -430,6 +445,10 @@ type MessageData struct {
 	Timestamp string   `json:"timestamp"`
 	Status    string   `json:"status,omitempty"`
 	ObjectIDs []string `json:"object_ids,omitempty"`
+	// ToolCallID is populated for `tool-event` rows reconstructed
+	// in LoadSession so the frontend can fetch full args + result
+	// via GetToolCallDetails when the user clicks the bubble.
+	ToolCallID string `json:"tool_call_id,omitempty"`
 }
 
 // --- MITL bindings ---
@@ -516,6 +535,39 @@ func (b *Bindings) GetFindings() []FindingsResult {
 		}
 	}
 	return results
+}
+
+// ToolCallDetailsData mirrors agent.ToolCallDetails for the
+// frontend's tool-event detail dialog. Surfaced via
+// GetToolCallDetails when the user clicks a completed tool-event
+// bubble in the chat pane.
+type ToolCallDetailsData struct {
+	ToolCallID      string `json:"tool_call_id"`
+	ToolName        string `json:"tool_name"`
+	Arguments       string `json:"arguments"`
+	Result          string `json:"result"`
+	Status          string `json:"status"`
+	CallTimestamp   string `json:"call_timestamp"`
+	ResultTimestamp string `json:"result_timestamp"`
+}
+
+// GetToolCallDetails returns the recorded args + result for the
+// given tool-call ID. Used by the chat pane to populate the
+// tool-event detail overlay when a completed bubble is clicked.
+func (b *Bindings) GetToolCallDetails(toolCallID string) (ToolCallDetailsData, error) {
+	d, err := b.agent.GetToolCallDetails(toolCallID)
+	if err != nil {
+		return ToolCallDetailsData{}, err
+	}
+	return ToolCallDetailsData{
+		ToolCallID:      d.ToolCallID,
+		ToolName:        d.ToolName,
+		Arguments:       d.Arguments,
+		Result:          d.Result,
+		Status:          d.Status,
+		CallTimestamp:   d.CallTimestamp,
+		ResultTimestamp: d.ResultTimestamp,
+	}, nil
 }
 
 // --- Settings bindings ---
