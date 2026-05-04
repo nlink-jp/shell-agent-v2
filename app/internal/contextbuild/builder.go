@@ -64,6 +64,17 @@ func Build(ctx context.Context, session *memory.Session, cache *SummaryCache, op
 		if r.Role == "assistant" && strings.HasPrefix(r.Content, "[Calling:") {
 			continue
 		}
+		// Skip report records: they're a user-facing side effect
+		// of the create-report tool (rendered as a dedicated chat
+		// bubble) and the matching tool result already says
+		// "Report '...' has been created and displayed to the
+		// user". Including the report content again as another
+		// assistant turn confused LM Studio's chat template,
+		// producing broken token output ("<|\"|>" etc.) on the
+		// next turn.
+		if r.Role == "report" {
+			continue
+		}
 		raw = append(raw, r)
 	}
 
