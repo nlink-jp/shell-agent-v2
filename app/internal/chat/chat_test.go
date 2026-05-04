@@ -113,6 +113,43 @@ func TestWrapUserToolContent_RotatesWithSystemPrompt(t *testing.T) {
 	}
 }
 
+// TestStripCurrentGuardTags pins the v0.2.0 fix for the
+// guard-envelope leak: when Vertex Gemini quoted a wrapped
+// tool result and reproduced the `<user_data_NONCE>` envelope
+// verbatim, the chat pane would render the marker as text. The
+// agent loop now scrubs those tags using the *current turn's*
+// nonce so unrelated user prose mentioning a similar-looking
+// placeholder isn't mangled.
+func TestStripCurrentGuardTags(t *testing.T) {
+	e := New("base")
+	_ = e.BuildSystemPrompt("", "", "")
+	// Simulate a wrapped tool result that the LLM then quoted.
+	wrapped, err := e.WrapUserToolContent("payload body")
+	if err != nil {
+		t.Fatalf("WrapUserToolContent: %v", err)
+	}
+	leaked := "Here is what the tool said: " + wrapped + " — that's the result."
+	cleaned := e.StripCurrentGuardTags(leaked)
+	if strings.Contains(cleaned, "user_data_") {
+		t.Errorf("current-turn guard tag should be stripped: %q", cleaned)
+	}
+	if !strings.Contains(cleaned, "payload body") {
+		t.Errorf("payload body should survive: %q", cleaned)
+	}
+
+	// A different turn's tag must NOT be touched (precision check) —
+	// rotate the engine's tag, then ask it to strip a previous-turn
+	// envelope. The previous nonce no longer matches, so the text
+	// survives. This is the property that distinguishes targeted
+	// nonce-stripping from a generic regex sweep over the family.
+	staleEnvelope := wrapped // produced under the now-rotated tag
+	_ = e.BuildSystemPrompt("", "", "")
+	stillThere := e.StripCurrentGuardTags(staleEnvelope)
+	if !strings.Contains(stillThere, "user_data_") {
+		t.Errorf("previous-turn envelope should be left alone after rotation: %q", stillThere)
+	}
+}
+
 func TestBuildMessagesWithFindings(t *testing.T) {
 	e := New("test")
 	session := &memory.Session{}

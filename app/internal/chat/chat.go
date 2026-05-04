@@ -152,6 +152,29 @@ func (e *Engine) WrapUserToolContent(s string) (string, error) {
 	return wrapped, nil
 }
 
+// StripCurrentGuardTags removes the *current turn's* guard envelope
+// open / close tags from s. Targets the exact `<NAME>` / `</NAME>`
+// strings derived from the active guardTag's Name(), not a generic
+// regex over the family — so user prose like "the placeholder
+// `<user_data_xxx>`" survives intact, while a Vertex Gemini reply
+// that quoted a wrapped tool result and reproduced the wrapper
+// verbatim gets cleaned.
+//
+// The guard tag rotates on every BuildMessages / BuildSystemPrompt
+// call (each turn), so this method must be called after the LLM
+// response that came from *that* turn's prompt — calling it after
+// the next turn's wrap rotation would target the wrong nonce.
+func (e *Engine) StripCurrentGuardTags(s string) string {
+	if e.guardTag.Name() == "" {
+		return s
+	}
+	open := "<" + e.guardTag.Name() + ">"
+	close := "</" + e.guardTag.Name() + ">"
+	s = strings.ReplaceAll(s, open, "")
+	s = strings.ReplaceAll(s, close, "")
+	return s
+}
+
 // BuildMessages constructs the message array for the API call,
 // injecting temporal context, pinned memory, and findings.
 // User and tool content is wrapped with guard tags for prompt
