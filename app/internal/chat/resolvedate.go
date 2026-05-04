@@ -141,8 +141,17 @@ func ResolveDateToolDef() map[string]any {
 		"type": "object",
 		"properties": map[string]any{
 			"expression": map[string]any{
-				"type":        "string",
-				"description": "Natural language date expression (e.g., 'last Thursday', '3 weeks ago', 'next Monday')",
+				"type": "string",
+				// Language constraint is critical: the resolver
+				// does pure-English keyword matching ("last X" /
+				// "next X" / "N days ago" / "N weeks from now" /
+				// today / yesterday / tomorrow). Passing the
+				// expression in the conversation language
+				// (e.g. "先週の木曜日", "3 semaines plus tard")
+				// returns "unrecognized expression". State the
+				// constraint here so the LLM doesn't mirror the
+				// user's language into the parameter.
+				"description": "Natural language date expression in ENGLISH ONLY. Supported forms: 'today', 'yesterday', 'tomorrow', 'last|next <weekday>' (e.g. 'last Thursday'), 'N days|weeks|months|years ago', 'N days|weeks|months|years from now'. Do NOT pass localized expressions like '先週の木曜日' even when the user is speaking another language — translate the date concept to English first.",
 			},
 			"reference_date": map[string]any{
 				"type":        "string",
