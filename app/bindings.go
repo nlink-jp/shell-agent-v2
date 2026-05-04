@@ -395,6 +395,20 @@ func (b *Bindings) LoadSession(sessionID string) ([]MessageData, error) {
 			})
 		}
 	}
+	// Legacy create-report ordering fix: pre-v0.2.3 sessions
+	// wrote the report record into chat.json BEFORE the
+	// matching tool record (toolCreateReport called
+	// AddReportMessage immediately, while AddToolResult ran a
+	// moment later in the agent loop). New sessions write them
+	// in the correct "tool → report" order, but older sessions
+	// would replay backwards. Swap any adjacent
+	// (report, tool-event=create-report) pair so the chat pane
+	// always sees "create-report bubble → report bubble".
+	for i := 0; i+1 < len(msgs); i++ {
+		if msgs[i].Role == "report" && msgs[i+1].Role == "tool-event" && msgs[i+1].Content == "create-report" {
+			msgs[i], msgs[i+1] = msgs[i+1], msgs[i]
+		}
+	}
 	return msgs, nil
 }
 

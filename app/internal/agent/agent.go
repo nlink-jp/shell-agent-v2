@@ -332,28 +332,41 @@ const (
 )
 
 // pendingReport buffers a create-report side-effect so the agent
-// loop can flush it to the reportHandler after tool_end has been
-// emitted, preserving "tool-event → report" rendering order.
+// loop can flush it to the reportHandler AND append it to
+// session.Records after the tool result, preserving
+// "tool-event → report" order in both the live chat pane and
+// the persisted record stream that LoadSession replays.
 type pendingReport struct {
-	title   string
-	content string
+	title    string
+	content  string
+	objectID string
 }
 
-// flushPendingReport delivers any buffered report to the
-// reportHandler and clears the buffer. Called by the agent loop
-// after each tool_end emission so the chat pane sees the report
-// bubble after the tool-event bubble. Safe to call when no report
-// is pending (no-op).
+// flushPendingReport appends the buffered report to session.Records
+// (so it persists in source order: tool-result → report) and
+// notifies the frontend via reportHandler. Called by the agent
+// loop after each tool_end + AddToolResult so both the on-disk
+// chat.json and the live event stream show "tool-event → report".
+// Safe to call when no report is pending (no-op).
 func (a *Agent) flushPendingReport() {
 	a.mu.Lock()
 	pending := a.pendingReport
 	a.pendingReport = nil
 	h := a.reportHandler
 	a.mu.Unlock()
-	if pending == nil || h == nil {
+	if pending == nil {
 		return
 	}
-	h(pending.title, pending.content)
+	if a.session != nil {
+		a.session.AddReportMessage(pending.title, pending.content)
+		if pending.objectID != "" {
+			last := &a.session.Records[len(a.session.Records)-1]
+			last.ObjectIDs = []string{pending.objectID}
+		}
+	}
+	if h != nil {
+		h(pending.title, pending.content)
+	}
 }
 
 // ActivityEvent describes a transient agent activity surfaced

@@ -602,22 +602,21 @@ func (a *Agent) toolCreateReport(argsJSON string) (string, error) {
 		}
 	}
 
-	// Store report in session records with ObjectID reference.
-	// Frontend notification used to fire here, but that put the
-	// `report:created` event AHEAD of the tool_end activity event
-	// in the Wails outbound queue — the chat pane then rendered
-	// the report bubble before the create-report tool-event
-	// bubble, which read backwards. The agent loop now picks up
-	// the pending report after emitting tool_end so the user sees
-	// "tool-event bubble → report bubble" in source order.
+	// Buffer the report so the agent loop can append it to
+	// session.Records AFTER AddToolResult — this guarantees the
+	// persisted order is "assistant tool_call → tool result →
+	// report", which is also the order the chat pane should
+	// render. Writing the report to records here would put it
+	// BEFORE the tool result (which the loop appends moments
+	// later), and a subsequent LoadSession would replay them in
+	// the reversed order.
 	if a.session != nil {
-		a.session.AddReportMessage(args.Title, reportContent)
-		if reportObjectID != "" {
-			last := &a.session.Records[len(a.session.Records)-1]
-			last.ObjectIDs = []string{reportObjectID}
-		}
 		a.mu.Lock()
-		a.pendingReport = &pendingReport{title: args.Title, content: reportContent}
+		a.pendingReport = &pendingReport{
+			title:    args.Title,
+			content:  reportContent,
+			objectID: reportObjectID,
+		}
 		a.mu.Unlock()
 	}
 
