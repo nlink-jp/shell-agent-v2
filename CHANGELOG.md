@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.2] - 2026-05-04
+
+### Added
+
+- **Click-to-inspect tool-event bubbles.** Completed tool-event
+  bubbles in the chat pane (✓ / ✕) are now clickable and open an
+  overlay showing the tool's arguments (JSON pretty-printed when
+  applicable), the result it returned, status, and call/return
+  timestamps. Running bubbles (●) stay non-clickable since the
+  result isn't recorded yet. Works for legacy sessions too —
+  Vertex Gemini sessions written before this release stored
+  empty `ToolCallID` (Gemini's FunctionCall has no first-class
+  id), so `LoadSession` backfills them with `idx:N` synthetic
+  ids and `GetToolCallDetails` resolves them via record-index
+  lookup with run-order assistant pairing.
+- **`vertex.go` synthesises FunctionCall IDs** as `vc-<hex>`
+  when the API returns none, so all new Vertex sessions carry
+  real ids end-to-end.
+
+### Fixed
+
+- **`create-report` bubble appeared after the report bubble.**
+  The tool used to invoke `reportHandler` while still running,
+  which raced the `tool_end` activity event in the Wails
+  outbound queue and produced a rendering order of "report
+  bubble → create-report tool-event bubble". Reports are now
+  buffered in `Agent.pendingReport` and flushed by the agent
+  loop after `tool_end` emission, so the chat pane sees them in
+  source order ("create-report bubble → report bubble").
+
 ## [0.2.1] - 2026-05-04
 
 ### Fixed
