@@ -559,7 +559,9 @@ func (a *Agent) Abort() {
 	a.mu.Lock()
 	cancel := a.cancel
 	postCancel := a.postCancel
+	state := a.state
 	a.mu.Unlock()
+	logger.Info("Agent.Abort: state=%s cancel=%v postCancel=%v", state, cancel != nil, postCancel != nil)
 	if cancel != nil {
 		cancel()
 	}

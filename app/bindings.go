@@ -225,6 +225,7 @@ func (b *Bindings) SendWithImages(message string, imageDataURLs []string) (strin
 
 // Abort cancels the current agent task.
 func (b *Bindings) Abort() {
+	logger.Info("Bindings.Abort: invoked from frontend")
 	if b.agent != nil {
 		b.agent.Abort()
 	}
