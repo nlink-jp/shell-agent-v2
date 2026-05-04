@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.3] - 2026-05-04
+
+### Fixed
+
+- **`create-report` bubble appeared after the report bubble on
+  session restore.** v0.2.2 only fixed the live-event ordering;
+  records on disk were still written in the wrong order
+  (`AddReportMessage` ran before `AddToolResult`), so cycling
+  sessions reintroduced the swap. `toolCreateReport` now buffers
+  into `Agent.pendingReport` and the agent loop's
+  `flushPendingReport` appends the report record AFTER
+  `AddToolResult`. Legacy sessions saved before this release
+  are auto-corrected at `LoadSession` time by swapping any
+  adjacent `(report, tool-event=create-report)` pair in the
+  rendered view (the on-disk records aren't rewritten).
+- **Local LLM emitted broken token output (e.g. `<|"|>`) after
+  `create-report`.** The new tool→report record order put two
+  assistant turns back-to-back across a tool boundary (`RoleReport`
+  maps to `"assistant"` in LM Studio's OpenAI-compat layer),
+  which trips some gemma-style chat templates' role-transition
+  logic. Report records are now excluded from the LLM context
+  the contextbuild assembles — the matching tool result already
+  carries the "Report has been created and displayed" signal,
+  and the full markdown was redundant kilobytes the model wrote
+  itself moments ago. The chat-pane report bubble is unaffected.
+
+### Refactored
+
+- **`App.css` split into per-concern files under `frontend/src/styles/`.**
+  The 3300-line monolithic stylesheet became 21 files (28-552
+  lines each) plus a 47-line `App.css` import manifest. Vite
+  inlines `@import` at build time so the bundled CSS is
+  byte-identical to v0.2.2 — purely a maintenance reorganisation.
+
 ## [0.2.2] - 2026-05-04
 
 ### Added
