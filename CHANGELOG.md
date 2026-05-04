@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.1] - 2026-05-04
+
+### Fixed
+
+- **Abort responsiveness during shell-tool execution.** Clicking
+  Abort while a shell tool was in flight had no effect — the
+  tool's child processes (curl, sleep, etc.) held the script's
+  stdout/stderr pipes after `exec.CommandContext` SIGKILLed only
+  the parent, and `CombinedOutput` blocked indefinitely waiting
+  for the pipes to close. `toolcall.Execute` now puts each
+  script in its own process group (`Setpgid`), overrides
+  `Cmd.Cancel` to `kill(-pid, SIGKILL)` so the entire tree gets
+  signalled at once, and sets `Cmd.WaitDelay = 2s` so a
+  pipe-hoarding child can't keep `Wait` from returning past the
+  cancel.
+- **Guard envelope tags leaking into assistant responses.**
+  Vertex Gemini, when quoting data from a wrapped user / tool
+  record, sometimes reproduced the `<user_data_NONCE>...
+  </user_data_NONCE>` envelope verbatim. The envelope is an
+  internal prompt-injection defence marker, not user-visible
+  content. Two-layer fix: the system prompt now explicitly tells
+  the LLM never to reproduce the envelope, and the agent loop
+  scrubs any leaked envelope tags using the *current turn's*
+  guard nonce (so unrelated user prose mentioning a similar
+  placeholder isn't mangled).
+
+### Added
+
+- Trace logging on the Abort path (`Bindings.Abort` /
+  `Agent.Abort` / `toolcall.Execute` ctx-cancelled error) so
+  future hangs are immediately diagnosable from `app.log`.
+
 ## [0.2.0] - 2026-05-03
 
 ### Breaking changes — memory architecture rewrite
