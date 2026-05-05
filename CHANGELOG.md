@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.5] - 2026-05-05
+
+### Fixed
+
+- **LLM settings changes (model name, endpoint, retry, context
+  budget) didn't take effect until the next app restart.**
+  `SaveSettings` persisted the updated config to disk but never
+  called `RestartLLMBackend`, so the running agent kept using
+  the previous Local / Vertex client. The Settings dialog now
+  detects any change in `LLMConfig` (mirrors the existing
+  `prevSandbox` pattern) and rebuilds the backend live.
+
 ## [0.2.4] - 2026-05-04
 
 ### Fixed
