@@ -695,6 +695,12 @@ func (b *Bindings) GetSettings() SettingsData {
 // SaveSettings persists updated settings.
 func (b *Bindings) SaveSettings(s SettingsData) error {
 	prevSandbox := b.cfg.Sandbox
+	// Snapshot LLM config so we can detect any change (model
+	// name, endpoint, retry policy, context budget, …) and
+	// rebuild the backend live. Without this the SettingsDialog
+	// silently saved to disk but the running agent kept calling
+	// the previous Local/Vertex client until the next app restart.
+	prevLLM := b.cfg.LLM
 
 	b.cfg.LLM.DefaultBackend = config.LLMBackend(s.DefaultBackend)
 	b.cfg.LLM.Local.Endpoint = s.LocalEndpoint
@@ -753,6 +759,12 @@ func (b *Bindings) SaveSettings(s SettingsData) error {
 	// (allowed) network until they restarted manually.
 	if b.agent != nil && prevSandbox != b.cfg.Sandbox {
 		b.agent.RestartSandbox()
+	}
+	// Same idea for the LLM backend: rebuild it whenever the
+	// model, endpoint, retry policy, context budget, etc. changed.
+	// LLMConfig is a struct of comparable types, so == suffices.
+	if b.agent != nil && prevLLM != b.cfg.LLM {
+		b.agent.RestartLLMBackend()
 	}
 	return nil
 }
