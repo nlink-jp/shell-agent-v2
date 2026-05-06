@@ -40,6 +40,8 @@ declare global {
                     ListSessions(): Promise<SessionInfo[]>;
                     RenameSession(id: string, title: string): Promise<void>;
                     DeleteSession(id: string): Promise<void>;
+                    ExportSession(id: string): Promise<string>;
+                    ImportSession(): Promise<string>;
                     HasData(): Promise<boolean>;
                     GetFindings(): Promise<Finding[]>;
                     DeleteFindings(ids: string[]): Promise<number>;

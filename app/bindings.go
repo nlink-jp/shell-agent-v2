@@ -22,6 +22,7 @@ import (
 	"github.com/nlink-jp/shell-agent-v2/internal/objstore"
 	"github.com/nlink-jp/shell-agent-v2/internal/sandbox"
 	"github.com/nlink-jp/shell-agent-v2/internal/sandbox/imagebuild"
+	"github.com/nlink-jp/shell-agent-v2/internal/sessionio"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -470,6 +471,103 @@ func (b *Bindings) DeleteSession(sessionID string) error {
 		_ = b.agent.SandboxStop(b.ctx, sessionID)
 	}
 	return memory.DeleteSessionDir(sessionID)
+}
+
+// ExportSession packages a session into a .shellagent bundle via
+// a native save dialog. Returns the destination path on success
+// or an empty string if the user cancelled the dialog.
+//
+// For an active session the analysis Engine is closed before the
+// bundle copy and re-created via switchAnalysis afterwards (the
+// new instance is wired back into the agent so subsequent
+// analysis tool calls work normally).
+//
+// Design: docs/en/session-import-export.md §4 / §6.
+func (b *Bindings) ExportSession(sessionID string) (string, error) {
+	if b.agent == nil {
+		return "", fmt.Errorf("agent not initialised")
+	}
+
+	diskSession, err := memory.LoadSession(sessionID)
+	if err != nil {
+		return "", fmt.Errorf("export: load session: %w", err)
+	}
+
+	defaultName := sessionio.SafeBundleFilename(diskSession.Title, sessionID, time.Now())
+	dest, err := wailsRuntime.SaveFileDialog(b.ctx, wailsRuntime.SaveDialogOptions{
+		DefaultFilename: defaultName,
+		Filters: []wailsRuntime.FileFilter{
+			{DisplayName: "shell-agent-v2 session", Pattern: "*.shellagent"},
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+	if dest == "" {
+		// User cancelled — surface as a no-op.
+		return "", nil
+	}
+
+	current := b.agent.CurrentSession()
+	wasActive := current != nil && current.ID == sessionID
+
+	if _, _, err := b.agent.ExportSession(sessionID, dest, version); err != nil {
+		// agent.ExportSession may have closed the active session's
+		// analysis Engine before failing (e.g. if the bundle write
+		// fails). Re-create it so the UI doesn't end up with a
+		// dead engine pointer.
+		if wasActive {
+			b.switchAnalysis(sessionID)
+		}
+		return "", err
+	}
+
+	if wasActive {
+		b.switchAnalysis(sessionID)
+	}
+	return dest, nil
+}
+
+// ImportSession opens a .shellagent bundle via a native open
+// dialog, extracts it as a fresh session, and switches to it.
+// Returns the new session ID, or an empty string if the user
+// cancelled the dialog.
+//
+// Design: docs/en/session-import-export.md §5 / §6.
+func (b *Bindings) ImportSession() (string, error) {
+	if b.agent == nil {
+		return "", fmt.Errorf("agent not initialised")
+	}
+
+	src, err := wailsRuntime.OpenFileDialog(b.ctx, wailsRuntime.OpenDialogOptions{
+		Filters: []wailsRuntime.FileFilter{
+			{DisplayName: "shell-agent-v2 session", Pattern: "*.shellagent"},
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+	if src == "" {
+		return "", nil
+	}
+
+	newID, _, _, _, err := b.agent.ImportSession(src)
+	if err != nil {
+		return "", err
+	}
+
+	// Auto-switch to the newly imported session — mirrors the
+	// existing NewSession / NewPrivateSession contract: the binding
+	// returns an ID and the session is already active.
+	loaded, err := memory.LoadSession(newID)
+	if err != nil {
+		return "", fmt.Errorf("import: load new session: %w", err)
+	}
+	b.switchAnalysis(newID)
+	if err := b.agent.LoadSession(loaded); err != nil {
+		return "", err
+	}
+	return newID, nil
 }
 
 // MessageData is a message for the frontend.

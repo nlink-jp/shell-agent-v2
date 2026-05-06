@@ -65,6 +65,10 @@ interface Props {
     onLoadSession: (id: string) => void;
     onNewSession: () => void;
     onNewPrivateSession: () => void;
+    /** v0.4.0: per-row Export action + bottom-nav Import button.
+     *  Export is hidden while busy (the binding would error anyway). */
+    onExportSession: (id: string) => void;
+    onImportSession: () => void;
     onDeleteSession: (id: string) => void;
     onRenameSession: (id: string, title: string) => void;
 
@@ -87,6 +91,7 @@ export default function Sidebar({
     sidebarWidth, onStartResize,
     sessions, currentSessionId, currentSessionPrivate, busy,
     onLoadSession, onNewSession, onNewPrivateSession,
+    onExportSession, onImportSession,
     onDeleteSession, onRenameSession,
     globalMemories, onGlobalMemoryDelete, onGlobalMemoryDeleteOne,
     sessionMemories, onSessionMemoryDelete, onPinSessionMemory,
@@ -163,6 +168,11 @@ export default function Sidebar({
                                         <span className="session-date">{s.updated_at}</span>
                                         <div className="session-actions">
                                             <button onClick={(e) => { e.stopPropagation(); startRename(s.id, s.title) }} title="Rename">&#x270E;</button>
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); onExportSession(s.id) }}
+                                                disabled={busy}
+                                                title={busy ? 'Cannot export while agent is busy' : 'Export session as .shellagent bundle'}
+                                            >&#x2B07;</button>
                                             <button onClick={(e) => { e.stopPropagation(); onDeleteSession(s.id) }} title="Delete">&#x2715;</button>
                                         </div>
                                     </div>
@@ -325,6 +335,15 @@ export default function Sidebar({
                     >
                         <span className="sidebar-nav-ic">🔒</span>
                         <span className="sidebar-nav-label">New Private Chat</span>
+                    </button>
+                    <button
+                        className="sidebar-nav-btn"
+                        onClick={onImportSession}
+                        disabled={busy}
+                        title="Import a .shellagent session bundle"
+                    >
+                        <span className="sidebar-nav-ic">&#x2B06;</span>
+                        <span className="sidebar-nav-label">Import Chat</span>
                     </button>
                     <div className="sidebar-nav-divider" />
                     <button className="sidebar-nav-btn" onClick={onOpenSettings} title="Settings">

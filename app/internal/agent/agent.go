@@ -1924,7 +1924,9 @@ func (a *Agent) handleHelpCommand() (string, error) {
 | /help | Show this help |
 | /model | Show current backend |
 | /model local | Switch to local LLM |
-| /model vertex | Switch to Vertex AI |`, nil
+| /model vertex | Switch to Vertex AI |
+| /export | Export the current session as a .shellagent bundle |
+| /import | Import a .shellagent bundle as a new session |`, nil
 }
 
 func (a *Agent) handleModelCommand(args []string) (string, error) {

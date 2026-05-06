@@ -392,6 +392,49 @@ function App() {
         }
     }, [state, bgTasks, refreshSessions])
 
+    // Export the named session via a native save dialog. No-op /
+    // returns empty path if the user cancels. Errors are surfaced
+    // via the same alert pattern as other failed binding calls so
+    // the user sees the message rather than a silent fail.
+    const handleExportSession = useCallback(async (sessionID: string) => {
+        if (!window.go || state !== 'idle' || bgTasks.length > 0) {
+            return
+        }
+        try {
+            await window.go.main.Bindings.ExportSession(sessionID)
+            // No success toast — the file dialog itself is the
+            // confirmation. Refresh in case the active session's
+            // state was touched (analysis engine close+reopen).
+            await refreshSessions()
+        } catch (e) {
+            alert('Export failed: ' + String(e))
+        }
+    }, [state, bgTasks, refreshSessions])
+
+    // Import a .shellagent bundle and auto-switch to the new
+    // session. The backend has already called LoadSession so we
+    // just need to mirror handleNewSession's UI plumbing
+    // (currentSessionId + restoredMessages).
+    const handleImportSession = useCallback(async () => {
+        if (!window.go || state !== 'idle' || bgTasks.length > 0) {
+            return
+        }
+        try {
+            const newID = await window.go.main.Bindings.ImportSession()
+            if (!newID) {
+                return // user cancelled
+            }
+            // Pull the freshly loaded session's messages for display.
+            const msgs = await window.go.main.Bindings.LoadSession(newID)
+            setCurrentSessionId(newID)
+            setMessages(restoredMessages(msgs))
+            setStreaming('')
+            await refreshSessions()
+        } catch (e) {
+            alert('Import failed: ' + String(e))
+        }
+    }, [state, bgTasks, refreshSessions])
+
     // restoredMessages converts the backend's MessageData[] into
     // the ChatMessage[] the chat pane consumes. The mapping is
     // mostly a 1:1 — the only field that needs care is `status`,
@@ -535,6 +578,22 @@ function App() {
     const handleSend = useCallback(async (text: string, images: string[]) => {
         if ((!text && images.length === 0) || isBusy || !currentSessionId) return
 
+        // Slash commands that need a native file dialog are routed
+        // through the bindings directly rather than agent.Send: the
+        // file dialog must originate from the binding context, and
+        // the agent's slash dispatcher has no way to surface a
+        // dialog. Intercept BEFORE the optimistic user-message
+        // append so the input doesn't echo the command into chat.
+        const trimmed = text.trim()
+        if (trimmed === '/export') {
+            await handleExportSession(currentSessionId)
+            return
+        }
+        if (trimmed === '/import') {
+            await handleImportSession()
+            return
+        }
+
         setMessages(prev => [...prev, {
             role: 'user', content: text, timestamp: nowTime(),
             imageUrls: images.length > 0 ? images : undefined,
@@ -574,7 +633,7 @@ function App() {
             // or written /work files — refresh the Data disclosure.
             setDataRefreshTick(t => t + 1)
         }
-    }, [isBusy, currentSessionId])
+    }, [isBusy, currentSessionId, handleExportSession, handleImportSession])
 
     function startResize(e: React.MouseEvent) {
         e.preventDefault()
@@ -623,6 +682,8 @@ function App() {
                 onLoadSession={handleLoadSession}
                 onNewSession={handleNewSession}
                 onNewPrivateSession={handleNewPrivateSession}
+                onExportSession={handleExportSession}
+                onImportSession={handleImportSession}
                 onDeleteSession={handleDeleteSession}
                 onRenameSession={async (id, title) => {
                     if (!window.go) return
