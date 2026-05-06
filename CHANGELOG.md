@@ -5,6 +5,61 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-05-06
+
+Privacy controls release. Two related features tighten what
+gets persisted on disk without an explicit user action.
+
+### Added
+
+- **Private sessions** — new `+ New Private Chat` entry point
+  in the sidebar creates a session marked `Private`. While
+  active:
+  - `extractMemories` drops `preference` / `decision` facts
+    instead of routing them to Global Memory; `fact` /
+    `context` still populate per-session Session Memory and
+    are deleted with the session.
+  - `Pin to Global Memory` is hidden in the UI (Sidebar Session
+    Memory section + chat-pane Findings panel) AND rejected
+    server-side — the binding is the source of truth.
+  - Sidebar session list shows a 🔒 indicator on private rows.
+  - Chat pane shows a 🔒 banner above DataDisclosure as a
+    persistent privacy reminder.
+  Privacy is fixed at session creation (no mid-session toggle)
+  so the boundary stays unambiguous. `Session.Private` is
+  persisted in `chat.json` with `omitempty`, so legacy sessions
+  load as non-private without migration. See
+  [docs/en/privacy-controls.md §2](docs/en/privacy-controls.md).
+- **Audit log entries** for session creation and load
+  (`session created: id=... private=true|false` and
+  `session loaded: ...`) so the user can verify privacy state
+  in `app.log`.
+
+### Changed
+
+- **`app.log` defaults to `info` level** — DEBUG output (which
+  contained user message snippets, LLM response heads, tool
+  arguments, vertex response heads) is now suppressed unless
+  the operator opts in. See
+  [docs/en/privacy-controls.md §3](docs/en/privacy-controls.md).
+- **Settings → Privacy → Log verbosity** select added (debug
+  / info / warn / error). Changes apply live without an app
+  restart.
+- **`extractMemories` content-leaking INFO calls demoted to
+  Debug** — `LLM reply (...)`, `dropped unparseable line`,
+  `dropped fact with invalid category`, `dropped self-
+  referential fact`, `globalMemory.Add returned false (dedup)`,
+  `sessionMemory.Add returned false (dedup)`. The aggregate
+  `added N facts to ...` lines stay at INFO (no content).
+
+### Documentation
+
+- **`docs/en/privacy-controls.md`** + Japanese mirror — full
+  design note covering the threat model, both features, the
+  resolved open questions, implementation phases, and
+  non-goals. The §1 threat model + §3.1 leak-source audit
+  table are useful even outside of this release.
+
 ## [0.2.5] - 2026-05-05
 
 ### Fixed
