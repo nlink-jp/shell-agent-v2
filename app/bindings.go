@@ -75,7 +75,8 @@ func (b *Bindings) startup(ctx context.Context) {
 	b.cfg = cfg
 
 	_ = logger.Init(config.DataDir())
-	logger.Info("shell-agent-v2 starting, config=%s", config.ConfigPath())
+	logger.SetLevel(parseLogLevel(cfg.LogLevelString()))
+	logger.Info("shell-agent-v2 starting, config=%s log_level=%s", config.ConfigPath(), cfg.LogLevelString())
 
 	if installed, err := bundled.Install(cfg.Tools.ScriptDir); err != nil {
 		logger.Error("bundled tool install: %v", err)
@@ -184,6 +185,23 @@ func (b *Bindings) shutdown(_ context.Context) {
 	}
 	logger.Info("shell-agent-v2 shutdown complete")
 	logger.Close()
+}
+
+// parseLogLevel maps the configured string ("debug" / "info" /
+// "warn" / "error") to the corresponding logger.Level. Empty or
+// unrecognised values fall back to LevelInfo, matching the
+// privacy default in cfg.LogLevelString().
+func parseLogLevel(s string) logger.Level {
+	switch s {
+	case "debug":
+		return logger.LevelDebug
+	case "warn":
+		return logger.LevelWarn
+	case "error":
+		return logger.LevelError
+	default:
+		return logger.LevelInfo
+	}
 }
 
 // --- Agent bindings ---
@@ -638,6 +656,7 @@ type SettingsData struct {
 	MITLOverrides  map[string]bool   `json:"mitl_overrides"`
 	Sandbox        SandboxData       `json:"sandbox"`
 	MaxToolRounds  int               `json:"max_tool_rounds"`
+	LogLevel       string            `json:"log_level"` // debug | info | warn | error; "" → info
 }
 
 // GetSettings returns current settings.
@@ -689,6 +708,7 @@ func (b *Bindings) GetSettings() SettingsData {
 			MemoryLimit:    b.cfg.Sandbox.MemoryLimit,
 			TimeoutSeconds: b.cfg.Sandbox.TimeoutSeconds,
 		},
+		LogLevel: b.cfg.LogLevelString(),
 	}
 }
 
@@ -748,8 +768,21 @@ func (b *Bindings) SaveSettings(s SettingsData) error {
 		TimeoutSeconds: s.Sandbox.TimeoutSeconds,
 	}
 
+	// Logger level — apply live so the user can flip from
+	// info → debug for diagnosis without an app restart, then
+	// flip back. Empty string normalises to "info" on read so
+	// invalid values don't strand the user at an unexpected
+	// level.
+	prevLogLevel := b.cfg.LogLevelString()
+	b.cfg.Logger.Level = s.LogLevel
+
 	if err := b.cfg.Save(); err != nil {
 		return err
+	}
+
+	if newLevel := b.cfg.LogLevelString(); newLevel != prevLogLevel {
+		logger.SetLevel(parseLogLevel(newLevel))
+		logger.Info("logger level changed: %s → %s", prevLogLevel, newLevel)
 	}
 
 	// If the sandbox config changed, tear down running containers

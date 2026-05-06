@@ -225,17 +225,44 @@ func (a AgentConfig) MaxToolRoundsResolved() int {
 	return DefaultMaxToolRounds
 }
 
+// LoggerConfig holds app.log verbosity settings.
+//
+// Level controls which log calls reach the file:
+//   - "debug": everything (incl. user message snippets, LLM
+//     response heads, tool arguments). Use for diagnosis.
+//   - "info" (default): events + lifecycle, no conversation
+//     content. Privacy default.
+//   - "warn" / "error": progressively quieter.
+//
+// Empty string maps to "info". See docs/en/privacy-controls.md §3.
+type LoggerConfig struct {
+	Level string `json:"level,omitempty"`
+}
+
 // Config is the root application configuration.
 type Config struct {
-	LLM            LLMConfig           `json:"llm"`
-	Memory         MemoryConfig        `json:"memory"`
-	ContextBudget  ContextBudgetConfig `json:"context_budget"`
-	Tools          ToolsConfig         `json:"tools"`
-	UI             UIConfig            `json:"ui"`
-	Sandbox        SandboxConfig       `json:"sandbox,omitzero"`
-	Agent          AgentConfig         `json:"agent,omitzero"`
-	Location       string              `json:"location,omitempty"`
-	LastSession    string              `json:"last_session,omitempty"`
+	LLM           LLMConfig           `json:"llm"`
+	Memory        MemoryConfig        `json:"memory"`
+	ContextBudget ContextBudgetConfig `json:"context_budget"`
+	Tools         ToolsConfig         `json:"tools"`
+	UI            UIConfig            `json:"ui"`
+	Sandbox       SandboxConfig       `json:"sandbox,omitzero"`
+	Agent         AgentConfig         `json:"agent,omitzero"`
+	Logger        LoggerConfig        `json:"logger,omitzero"`
+	Location      string              `json:"location,omitempty"`
+	LastSession   string              `json:"last_session,omitempty"`
+}
+
+// LogLevelString returns the configured logger level string with
+// "info" as the fallback for empty / unknown values. Used by both
+// the bindings layer and main.go to consult the same default.
+func (c *Config) LogLevelString() string {
+	switch c.Logger.Level {
+	case "debug", "info", "warn", "error":
+		return c.Logger.Level
+	default:
+		return "info"
+	}
 }
 
 // Default returns a Config with default values.

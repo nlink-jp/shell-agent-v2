@@ -213,6 +213,11 @@ export interface Settings {
     mitl_overrides: Record<string, boolean>;
     sandbox: SandboxSettings;
     max_tool_rounds: number;
+    /** app.log verbosity: "debug" | "info" | "warn" | "error".
+     *  Default "info" keeps user messages, LLM responses, and
+     *  tool arguments out of the log file. See
+     *  docs/en/privacy-controls.md §3. */
+    log_level: string;
 }
 
 export type SidebarPanel = 'sessions' | 'memory';

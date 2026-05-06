@@ -2221,7 +2221,10 @@ Already known:
 	if len(traceResp) > 400 {
 		traceResp = traceResp[:400] + "…"
 	}
-	logger.Info("extractMemories: LLM reply (%d chars): %q", len(text), traceResp)
+	// Debug-only: the reply embeds the verbatim memorable-fact
+	// candidate, which is conversation content. Privacy default
+	// keeps this out of app.log unless the operator opts in.
+	logger.Debug("extractMemories: LLM reply (%d chars): %q", len(text), traceResp)
 	if text == "" || strings.ToUpper(text) == "NONE" {
 		return nil
 	}
@@ -2235,7 +2238,7 @@ Already known:
 		}
 		category, turnTok, fact, native, ok := parseExtractionLine(line)
 		if !ok {
-			logger.Info("extractMemories: dropped unparseable line: %q", line)
+			logger.Debug("extractMemories: dropped unparseable line: %q", line)
 			continue
 		}
 
@@ -2243,12 +2246,12 @@ Already known:
 		// the documented 4-category set so an attacker cannot
 		// invent "system_rule" etc.
 		if !memory.ValidExtractionCategories[category] {
-			logger.Info("extractMemories: dropped fact with invalid category %q: %q", category, fact)
+			logger.Debug("extractMemories: dropped fact with invalid category %q: %q", category, fact)
 			continue
 		}
 		// B-2 — self-referential filter. THINK-incident class.
 		if memory.IsSelfReferential(fact) {
-			logger.Info("extractMemories: dropped self-referential fact: %q", fact)
+			logger.Debug("extractMemories: dropped self-referential fact: %q", fact)
 			continue
 		}
 
@@ -2294,7 +2297,7 @@ Already known:
 			}) {
 				addedToPinned++
 			} else {
-				logger.Info("extractMemories: globalMemory.Add returned false (dedup) for %q", fact)
+				logger.Debug("extractMemories: globalMemory.Add returned false (dedup) for %q", fact)
 			}
 			continue
 		}
@@ -2319,7 +2322,7 @@ Already known:
 		}) {
 			addedToSession++
 		} else {
-			logger.Info("extractMemories: sessionMemory.Add returned false (dedup) for %q", fact)
+			logger.Debug("extractMemories: sessionMemory.Add returned false (dedup) for %q", fact)
 		}
 	}
 

@@ -128,6 +128,19 @@ export default function SettingsDialog({settings, tools, mcpStatus, onUpdate, on
                             </label>
                             <p className="sidebar-hint">Hard cap on tool-call rounds for one user message. Default 10. Loop detection (v0.1.16) catches stuck same-error stretches early; raise this only when a long, legitimate analysis legitimately needs more rounds.</p>
                         </div>
+                        <div className="settings-section">
+                            <h3>Privacy</h3>
+                            <label>
+                                <span>Log verbosity</span>
+                                <select value={settings.log_level || 'info'} onChange={e => onUpdate({log_level: e.target.value})}>
+                                    <option value="debug">debug — everything (incl. messages, LLM responses, tool args)</option>
+                                    <option value="info">info — events + lifecycle, no conversation content (default)</option>
+                                    <option value="warn">warn — warnings and errors only</option>
+                                    <option value="error">error — errors only</option>
+                                </select>
+                            </label>
+                            <p className="sidebar-hint">Controls what reaches <code>app.log</code>. Default <strong>info</strong> keeps user messages, LLM responses, and tool arguments out of the log file. Switch to <strong>debug</strong> only when reproducing an issue, then switch back. See <code>docs/en/privacy-controls.md</code> §3.</p>
+                        </div>
                         {/* Sandbox section moved to dedicated tab in r3. */}
                         <div className="settings-section">
                             <h3>Local LLM</h3>
