@@ -57,9 +57,14 @@ interface Props {
     // Session list
     sessions: SessionInfo[];
     currentSessionId: string;
+    /** v0.3.0: when the active session is private, hide the
+     *  ★ Pin to Global Memory buttons (the binding rejects
+     *  promotion regardless, this just keeps the UI honest). */
+    currentSessionPrivate: boolean;
     busy: boolean;
     onLoadSession: (id: string) => void;
     onNewSession: () => void;
+    onNewPrivateSession: () => void;
     onDeleteSession: (id: string) => void;
     onRenameSession: (id: string, title: string) => void;
 
@@ -80,8 +85,9 @@ export default function Sidebar({
     sidebarPanel, setSidebarPanel,
     sidebarCollapsed, setSidebarCollapsed,
     sidebarWidth, onStartResize,
-    sessions, currentSessionId, busy,
-    onLoadSession, onNewSession, onDeleteSession, onRenameSession,
+    sessions, currentSessionId, currentSessionPrivate, busy,
+    onLoadSession, onNewSession, onNewPrivateSession,
+    onDeleteSession, onRenameSession,
     globalMemories, onGlobalMemoryDelete, onGlobalMemoryDeleteOne,
     sessionMemories, onSessionMemoryDelete, onPinSessionMemory,
     onOpenSettings,
@@ -148,7 +154,10 @@ export default function Sidebar({
                                             onClick={e => e.stopPropagation()}
                                         />
                                     ) : (
-                                        <div className="session-title" onDoubleClick={(e) => { e.stopPropagation(); startRename(s.id, s.title) }}>{s.title}</div>
+                                        <div className="session-title" onDoubleClick={(e) => { e.stopPropagation(); startRename(s.id, s.title) }}>
+                                            {s.private && <span className="session-private-icon" title="Private session — Global Memory promotion suppressed">🔒</span>}
+                                            {s.title}
+                                        </div>
                                     )}
                                     <div className="session-meta">
                                         <span className="session-date">{s.updated_at}</span>
@@ -283,13 +292,15 @@ export default function Sidebar({
                                                 <span className="pinned-date">learned {p.created_at.slice(0, 10)}</span>
                                             )}
                                         </div>
-                                        <button
-                                            className="pinned-pin"
-                                            title="Pin to Global Memory"
-                                            onClick={() => onPinSessionMemory(p.fact)}
-                                        >
-                                            &#x2605;
-                                        </button>
+                                        {!currentSessionPrivate && (
+                                            <button
+                                                className="pinned-pin"
+                                                title="Pin to Global Memory"
+                                                onClick={() => onPinSessionMemory(p.fact)}
+                                            >
+                                                &#x2605;
+                                            </button>
+                                        )}
                                     </div>
                                 ))}
                             </div>
@@ -305,6 +316,15 @@ export default function Sidebar({
                     <button className="sidebar-nav-btn" onClick={onNewSession} disabled={busy} title="New Chat">
                         <span className="sidebar-nav-ic">+</span>
                         <span className="sidebar-nav-label">New Chat</span>
+                    </button>
+                    <button
+                        className="sidebar-nav-btn"
+                        onClick={onNewPrivateSession}
+                        disabled={busy}
+                        title="New Private Chat — Global Memory promotion suppressed for this conversation"
+                    >
+                        <span className="sidebar-nav-ic">🔒</span>
+                        <span className="sidebar-nav-label">New Private Chat</span>
                     </button>
                     <div className="sidebar-nav-divider" />
                     <button className="sidebar-nav-btn" onClick={onOpenSettings} title="Settings">

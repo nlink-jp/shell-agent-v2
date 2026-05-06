@@ -784,6 +784,7 @@ func (a *Agent) LoadSession(session *memory.Session) error {
 	a.session = session
 	a.promptTokens = 0
 	a.outputTokens = 0
+	logger.Info("session loaded: id=%s private=%v", session.ID, session.Private)
 
 	// v0.2.0: Findings and Session Memory are per-session.
 	// Construct (or reload) both stores every time LoadSession
@@ -1189,6 +1190,11 @@ func (a *Agent) PromoteSessionMemoryToGlobal(fact, category string) error {
 	if a.sessionMemory == nil {
 		return fmt.Errorf("no session loaded")
 	}
+	// Privacy gate (v0.3.0): refuse to promote out of a private
+	// session even if the UI somehow surfaced the action.
+	if a.session != nil && a.session.Private {
+		return fmt.Errorf("cannot pin to global memory in a private session")
+	}
 	if !memory.ValidGlobalMemoryCategories[category] {
 		return fmt.Errorf("invalid global category %q", category)
 	}
@@ -1229,6 +1235,10 @@ func (a *Agent) PromoteSessionMemoryToGlobal(fact, category string) error {
 func (a *Agent) PromoteFindingToGlobal(id, category string) error {
 	if a.findings == nil {
 		return fmt.Errorf("no session loaded")
+	}
+	// Privacy gate (v0.3.0): see PromoteSessionMemoryToGlobal.
+	if a.session != nil && a.session.Private {
+		return fmt.Errorf("cannot pin to global memory in a private session")
 	}
 	if !memory.ValidGlobalMemoryCategories[category] {
 		return fmt.Errorf("invalid global category %q", category)
@@ -2278,6 +2288,15 @@ Already known:
 		// preference / decision → cross-session global pool.
 		// fact / context → per-session memory.
 		isGlobal := category == "preference" || category == "decision"
+		// v0.3.0 privacy gate: drop the global-route fact when the
+		// session is marked private. Session-route facts (fact /
+		// context) still persist to per-session SessionMemory and
+		// are deleted with the session — that's the privacy
+		// contract documented in docs/en/privacy-controls.md §2.
+		if isGlobal && a.session.Private {
+			logger.Debug("extractMemories: dropping global-route fact in private session: %q", fact)
+			continue
+		}
 		if isGlobal {
 			var src string
 			switch role {

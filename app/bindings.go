@@ -272,6 +272,17 @@ func (b *Bindings) GetBackend() string {
 
 // NewSession creates a new chat session and switches to it.
 func (b *Bindings) NewSession() (string, error) {
+	return b.newSession(false)
+}
+
+// NewPrivateSession creates a private chat session (Global
+// Memory promotion suppressed) and switches to it. See
+// docs/en/privacy-controls.md §2.
+func (b *Bindings) NewPrivateSession() (string, error) {
+	return b.newSession(true)
+}
+
+func (b *Bindings) newSession(private bool) (string, error) {
 	if b.IsBusy() {
 		return "", fmt.Errorf("agent is busy")
 	}
@@ -279,11 +290,13 @@ func (b *Bindings) NewSession() (string, error) {
 	session := &memory.Session{
 		ID:      fmt.Sprintf("sess-%d", nowUnixMilli()),
 		Title:   "New Session",
+		Private: private,
 		Records: []memory.Record{},
 	}
 	if err := session.Save(); err != nil {
 		return "", err
 	}
+	logger.Info("session created: id=%s private=%v", session.ID, session.Private)
 
 	b.switchAnalysis(session.ID)
 	if err := b.agent.LoadSession(session); err != nil {

@@ -10,10 +10,14 @@ import (
 )
 
 // SessionInfo is a lightweight session descriptor for listing.
+//
+// Private mirrors Session.Private so the sidebar can render the
+// 🔒 indicator without loading the full chat record stream.
 type SessionInfo struct {
 	ID        string `json:"id"`
 	Title     string `json:"title"`
 	UpdatedAt string `json:"updated_at"`
+	Private   bool   `json:"private,omitempty"`
 }
 
 // ListSessions returns all sessions sorted by most recent first.
@@ -51,6 +55,7 @@ func ListSessions() ([]SessionInfo, error) {
 			ID:        s.ID,
 			Title:     s.Title,
 			UpdatedAt: updatedAt,
+			Private:   s.Private,
 		})
 	}
 

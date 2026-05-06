@@ -80,6 +80,11 @@ function App() {
     const resizingRef = useRef(false)
     const [sessions, setSessions] = useState<SessionInfo[]>([])
     const [currentSessionId, setCurrentSessionId] = useState<string>('')
+    // Derived: is the active session private? Used by Sidebar to
+    // hide ★ Pin buttons and by the chat-pane to show a 🔒 banner.
+    // Reading from the sessions list keeps this in sync after a
+    // refresh without an extra binding round-trip.
+    const currentSessionPrivate = sessions.find(s => s.id === currentSessionId)?.private ?? false
     // Bumped to force the chat-pane Data disclosure to refetch.
     // Bumped on (a) session switch, (b) agent turn completion.
     const [dataRefreshTick, setDataRefreshTick] = useState(0)
@@ -374,6 +379,19 @@ function App() {
         }
     }, [state, bgTasks, refreshSessions])
 
+    // Private session: same flow as handleNewSession but routes
+    // through NewPrivateSession so the backend marks Session.Private
+    // and Global Memory promotion is suppressed for this conversation.
+    const handleNewPrivateSession = useCallback(async () => {
+        if (window.go && state === 'idle' && bgTasks.length === 0) {
+            const id = await window.go.main.Bindings.NewPrivateSession()
+            setCurrentSessionId(id)
+            setMessages([])
+            setStreaming('')
+            await refreshSessions()
+        }
+    }, [state, bgTasks, refreshSessions])
+
     // restoredMessages converts the backend's MessageData[] into
     // the ChatMessage[] the chat pane consumes. The mapping is
     // mostly a 1:1 — the only field that needs care is `status`,
@@ -600,9 +618,11 @@ function App() {
                 onStartResize={startResize}
                 sessions={sessions}
                 currentSessionId={currentSessionId}
+                currentSessionPrivate={currentSessionPrivate}
                 busy={isBusy}
                 onLoadSession={handleLoadSession}
                 onNewSession={handleNewSession}
+                onNewPrivateSession={handleNewPrivateSession}
                 onDeleteSession={handleDeleteSession}
                 onRenameSession={async (id, title) => {
                     if (!window.go) return
@@ -636,6 +656,12 @@ function App() {
                 onOpenSettings={openSettings}
             />
             <div className="main">
+                {currentSessionId && currentSessionPrivate && (
+                    <div className="private-session-banner" title="Global Memory promotion is suppressed for this session. Session Memory and Findings work normally and are deleted with the session.">
+                        <span className="private-session-icon">🔒</span>
+                        <span className="private-session-label">Private session — facts won't be promoted to Global Memory</span>
+                    </div>
+                )}
                 {currentSessionId && (
                     <DataDisclosure
                         sessionId={currentSessionId}
@@ -679,6 +705,7 @@ function App() {
                     <FindingsDisclosure
                         sessionId={currentSessionId}
                         refreshTick={dataRefreshTick}
+                        sessionPrivate={currentSessionPrivate}
                         onPinFinding={(f) => {
                             setPinDialog({kind: 'finding', id: f.id, preview: f.content})
                         }}

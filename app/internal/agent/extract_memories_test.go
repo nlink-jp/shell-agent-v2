@@ -223,6 +223,93 @@ func TestExtractMemories_RoutesByCategory(t *testing.T) {
 	}
 }
 
+// TestExtractMemories_PrivateSessionSkipsGlobal pins the v0.3.0
+// privacy gate: when Session.Private is true, preference and
+// decision facts must NOT land in GlobalMemory. fact / context
+// continue to populate SessionMemory because they're per-session
+// anyway and disappear with the session.
+func TestExtractMemories_PrivateSessionSkipsGlobal(t *testing.T) {
+	mock := llm.NewMockBackend(llm.MockResponse{
+		Content: "preference|turn-1|user prefers Go|ユーザーはGoを好む\n" +
+			"decision|turn-1|chose DuckDB|DuckDBを選択\n" +
+			"fact|turn-1|three datasets loaded|3つのデータセット\n" +
+			"context|turn-1|analysing Q1 sales|Q1売上を分析中",
+	})
+	a := newExtractAgent(t, mock,
+		memory.Record{Role: "user", Content: "I prefer Go and chose DuckDB; loaded three datasets to analyse Q1 sales"},
+		memory.Record{Role: "assistant", Content: "noted"},
+	)
+	a.session.Private = true // <-- the new gate
+	if err := a.extractMemories(context.Background()); err != nil {
+		t.Fatalf("extractMemories: %v", err)
+	}
+	if len(a.globalMemory.Entries) != 0 {
+		t.Errorf("Global Memory in private session: got %d, want 0 (preference / decision must be dropped)", len(a.globalMemory.Entries))
+	}
+	if len(a.sessionMemory.Entries) != 2 {
+		t.Errorf("Session Memory in private session: got %d, want 2 (fact + context still routed)", len(a.sessionMemory.Entries))
+	}
+}
+
+// TestPromoteSessionMemoryToGlobal_RejectedWhenPrivate pins the
+// server-side guard against the Pin to Global Memory action in a
+// private session — the UI hides the button but a stale UI or
+// direct binding call must not bypass.
+func TestPromoteSessionMemoryToGlobal_RejectedWhenPrivate(t *testing.T) {
+	a := New(config.Default())
+	a.session = &memory.Session{
+		ID:      "priv-test",
+		Private: true,
+		Records: []memory.Record{},
+	}
+	a.sessionMemory = &memory.SessionMemoryStore{
+		Entries: []memory.SessionMemoryEntry{
+			{Fact: "user prefers vim", NativeFact: "user prefers vim", Category: "fact"},
+		},
+	}
+	a.globalMemory = &memory.GlobalMemoryStore{}
+
+	err := a.PromoteSessionMemoryToGlobal("user prefers vim", "preference")
+	if err == nil {
+		t.Fatal("expected promote to be rejected in private session")
+	}
+	if !strings.Contains(err.Error(), "private") {
+		t.Errorf("error should mention private session; got %v", err)
+	}
+	if len(a.globalMemory.Entries) != 0 {
+		t.Errorf("Global Memory should be untouched; got %d entries", len(a.globalMemory.Entries))
+	}
+}
+
+// TestPromoteFindingToGlobal_RejectedWhenPrivate mirrors the
+// session-memory case for findings.
+func TestPromoteFindingToGlobal_RejectedWhenPrivate(t *testing.T) {
+	a := New(config.Default())
+	a.session = &memory.Session{
+		ID:      "priv-test",
+		Private: true,
+		Records: []memory.Record{},
+	}
+	a.findings = findings.NewStore("priv-test")
+	_ = a.findings.Add("Tokyo Widget sales hit 99999", []string{"high"}, findings.SourceLLMPromoted, true)
+	a.globalMemory = &memory.GlobalMemoryStore{}
+
+	all := a.findings.All()
+	if len(all) != 1 {
+		t.Fatalf("setup: findings = %d, want 1", len(all))
+	}
+	err := a.PromoteFindingToGlobal(all[0].ID, "decision")
+	if err == nil {
+		t.Fatal("expected promote to be rejected in private session")
+	}
+	if !strings.Contains(err.Error(), "private") {
+		t.Errorf("error should mention private session; got %v", err)
+	}
+	if len(a.globalMemory.Entries) != 0 {
+		t.Errorf("Global Memory should be untouched; got %d entries", len(a.globalMemory.Entries))
+	}
+}
+
 // TestExtractMemories_WindowSkipsToolRecords pins the v0.2.0
 // fix for the tool-flood regression: when the trailing records
 // are dominated by tool results (e.g. assistant did 2-3 tool

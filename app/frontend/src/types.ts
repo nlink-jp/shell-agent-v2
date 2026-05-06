@@ -36,6 +36,10 @@ export interface SessionInfo {
     id: string;
     title: string;
     updated_at: string;
+    /** v0.3.0: when true, the session opted out of Global Memory
+     *  promotion. Sidebar shows a 🔒 indicator; chat pane shows
+     *  a 🔒 banner; ★ Pin buttons are hidden. */
+    private?: boolean;
 }
 
 export interface MessageData {

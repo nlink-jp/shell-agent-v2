@@ -35,6 +35,7 @@ declare global {
                     GetBackend(): Promise<string>;
                     Version(): Promise<string>;
                     NewSession(): Promise<string>;
+                    NewPrivateSession(): Promise<string>;
                     LoadSession(id: string): Promise<MessageData[]>;
                     ListSessions(): Promise<SessionInfo[]>;
                     RenameSession(id: string, title: string): Promise<void>;

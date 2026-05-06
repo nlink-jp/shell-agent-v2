@@ -635,3 +635,59 @@ func TestBindings_PinFinding(t *testing.T) {
 		t.Error("expected error for unknown finding id")
 	}
 }
+
+// TestBindings_NewPrivateSession pins the v0.3.0 privacy entry
+// point: NewPrivateSession produces a session marked Private and
+// the Sessions list returns Private=true so the sidebar can
+// render the lock indicator. NewSession (the regular path) must
+// NOT mark sessions private.
+func TestBindings_NewPrivateSession(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	cfg := config.Default()
+	a := agent.New(cfg)
+	store := objstore.NewStoreAt(filepath.Join(home, "objects"))
+	a.SetObjects(store)
+	b := &Bindings{agent: a, cfg: cfg, objects: store}
+
+	publicID, err := b.NewSession()
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	privateID, err := b.NewPrivateSession()
+	if err != nil {
+		t.Fatalf("NewPrivateSession: %v", err)
+	}
+
+	publicSess, err := memory.LoadSession(publicID)
+	if err != nil {
+		t.Fatalf("LoadSession(public): %v", err)
+	}
+	if publicSess.Private {
+		t.Errorf("NewSession should not be Private; got %+v", publicSess)
+	}
+
+	privateSess, err := memory.LoadSession(privateID)
+	if err != nil {
+		t.Fatalf("LoadSession(private): %v", err)
+	}
+	if !privateSess.Private {
+		t.Errorf("NewPrivateSession should be Private; got %+v", privateSess)
+	}
+
+	infos, err := memory.ListSessions()
+	if err != nil {
+		t.Fatalf("ListSessions: %v", err)
+	}
+	gotPrivate := map[string]bool{}
+	for _, s := range infos {
+		gotPrivate[s.ID] = s.Private
+	}
+	if gotPrivate[publicID] {
+		t.Errorf("ListSessions: public session marked Private")
+	}
+	if !gotPrivate[privateID] {
+		t.Errorf("ListSessions: private session not marked Private")
+	}
+}

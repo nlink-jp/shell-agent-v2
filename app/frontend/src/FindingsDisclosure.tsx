@@ -18,6 +18,9 @@ interface Props {
     sessionId: string;
     refreshTick: number;
     onPinFinding: (finding: Finding) => void;
+    /** v0.3.0: hide the ★ Pin button when the active session is
+     *  private. The binding rejects promotion regardless. */
+    sessionPrivate?: boolean;
 }
 
 type SeverityFilter = 'all' | 'critical' | 'high' | 'medium' | 'low' | 'info'
@@ -31,7 +34,7 @@ function findingTrust(source?: string): {label: string; cls: string} {
     return {label: 'derived', cls: 'trust-derived'}
 }
 
-export default function FindingsDisclosure({sessionId, refreshTick, onPinFinding}: Props) {
+export default function FindingsDisclosure({sessionId, refreshTick, onPinFinding, sessionPrivate}: Props) {
     const [findings, setFindings] = useState<Finding[]>([])
     const [open, setOpen] = useState(false)
     const [severity, setSeverity] = useState<SeverityFilter>('all')
@@ -182,11 +185,13 @@ export default function FindingsDisclosure({sessionId, refreshTick, onPinFinding
                                     </div>
                                 </div>
                                 <div className="findings-actions">
-                                    <button
-                                        className="findings-pin"
-                                        title="Pin to Global Memory"
-                                        onClick={() => onPinFinding(f)}
-                                    >&#x2605;</button>
+                                    {!sessionPrivate && (
+                                        <button
+                                            className="findings-pin"
+                                            title="Pin to Global Memory"
+                                            onClick={() => onPinFinding(f)}
+                                        >&#x2605;</button>
+                                    )}
                                     {isConfirming ? (
                                         <>
                                             <button className="data-confirm-yes" onClick={async () => {

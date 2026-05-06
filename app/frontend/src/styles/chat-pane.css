@@ -47,3 +47,29 @@
     max-width: 100%;
 }
 
+/* Private session banner (v0.3.0): rendered above DataDisclosure
+ * when the active session is private. Persistent visual reminder
+ * so the user can't lose track of the privacy state — see
+ * docs/en/privacy-controls.md §2.1. */
+.private-session-banner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 6px 12px 4px;
+    padding: 6px 12px;
+    border: 1px solid var(--border-accent);
+    border-radius: 6px;
+    background: var(--bg-hover);
+    color: var(--text-accent);
+    font-size: 12px;
+    --wails-draggable: no-drag;
+}
+
+.private-session-icon {
+    font-size: 14px;
+}
+
+.private-session-label {
+    font-weight: 500;
+}
+

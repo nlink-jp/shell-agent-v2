@@ -71,9 +71,24 @@ type TimeRange struct {
 }
 
 // Session holds the conversation state for a single chat session.
+//
+// Private (v0.3.0) marks the session as opted out of cross-session
+// memory promotion. When true:
+//   - extractMemories drops preference / decision facts (would
+//     have routed to GlobalMemory) instead of saving them.
+//   - Pin to Global Memory handlers refuse promotion.
+//   - The frontend hides ★ Pin buttons and shows 🔒 indicators.
+//
+// Session Memory + Findings still work normally — they're per-
+// session and get deleted with the session. See
+// docs/en/privacy-controls.md §2 for the full design.
+//
+// `omitempty` on the JSON tag keeps legacy session files (where
+// the field doesn't exist) loading as Private=false.
 type Session struct {
 	ID      string   `json:"id"`
 	Title   string   `json:"title"`
+	Private bool     `json:"private,omitempty"`
 	Records []Record `json:"records"`
 }
 

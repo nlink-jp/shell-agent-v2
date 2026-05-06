@@ -426,3 +426,12 @@
     100% { opacity: 0; }
 }
 
+/* Private session lock indicator inside .session-title (v0.3.0).
+ * The 🔒 emoji renders large by default; tighten size + spacing
+ * so it doesn't dwarf the title text. */
+.session-private-icon {
+    margin-right: 4px;
+    font-size: 0.85em;
+    opacity: 0.85;
+}
+
