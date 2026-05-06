@@ -48,6 +48,7 @@ shell-agent-v2/
 │   │   ├── findings/        # Per-session data-analysis findings (v0.2.0)
 │   │   ├── contextbuild/    # Non-destructive context assembly + summary cache
 │   │   ├── objstore/        # Central object repository (image/blob/report)
+│   │   ├── sessionio/       # .shellagent bundle pack/unpack + reference rewriter (v0.4.0)
 │   │   ├── toolcall/        # Shell script registry, MITL categories
 │   │   ├── mcp/             # mcp-guardian stdio JSON-RPC 2.0
 │   │   ├── config/          # JSON config, path expansion

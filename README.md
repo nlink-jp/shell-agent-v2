@@ -25,6 +25,7 @@ and hybrid LLM backend (Local + Vertex AI).
 - **Multimodal** — image input via drag & drop, paste, or file picker
 - **Per-session Data panel** — collapsible disclosure at the top of the chat pane showing the current session's objects (images / reports / blobs as cards with thumbnails), DuckDB tables (click for a 20-row preview), and sandbox `/work` files. Click an image for the lightbox, a report for the markdown viewer, or a CSV / text blob for an in-app preview — CSV / TSV render as an HTML table, other text MIMEs (JSON, plain text, HTML, etc.) drop to a fixed-width pre. Bulk-select and delete with separate Yes / No confirmation.
 - **Bulk select / delete** — Findings, Global Memory, and Session Memory entries can be checked individually or all-at-once, with two-click confirm.
+- **Session import / export** — package a complete session (chat, session memory, findings, summaries, sandbox `work/`, analysis DuckDB, and every objstore object the session owns) into a single `.shellagent` ZIP bundle and re-import it on the same or a different machine. Per-row Export icon in the sidebar, Import Chat button in the bottom-nav, `/export` and `/import` slash commands. Privacy flag preserved across the round-trip; object IDs are always regenerated on import with bounded reference rewriting in `chat.json` and `summaries.json`. See [session-import-export.md](docs/en/session-import-export.md).
 - **Temporal context** — enriched date/time injection + `resolve-date` system tool
 
 ## Installation

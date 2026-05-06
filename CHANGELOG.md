@@ -5,6 +5,76 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] - 2026-05-07
+
+Session import / export release. A whole session — chat,
+session memory, findings, summaries, sandbox `work/`, the
+session-scoped DuckDB, and every objstore object the session
+owns — can now be packaged into a single `.shellagent` bundle
+and re-imported on the same or a different machine. The
+privacy flag is preserved so a private session that travels in
+a bundle stays private after import.
+
+### Added
+
+- **`.shellagent` bundle format** — internally a ZIP with a
+  manifest at the root + every per-session artifact + an
+  `objects/` subtree (index + raw blobs). Schema version 1
+  is gated strictly: any other version is rejected. See
+  [docs/en/session-import-export.md §3](docs/en/session-import-export.md).
+- **Sidebar `Export` icon** (⬇) on each session row's hover
+  actions, alongside Rename / Delete. Disabled while the agent
+  is busy with explanatory tooltip.
+- **Sidebar `Import Chat` button** (⬆) below `+ New Private
+  Chat` in the bottom-nav. Opens a native open dialog filtered
+  to `*.shellagent` and auto-switches to the imported session
+  on success.
+- **`/export` and `/import` slash commands** for keyboard-first
+  use. `/export` exports the current session; `/import` opens
+  the open dialog. `/help` lists both.
+- **Audit log entries** for export and import:
+  `session exported: id=... private=... bytes=N objects=K dest=...`
+  and `session imported: original_id=... new_id=... private=... bytes=N objects=K`.
+  Neither entry contains chat content or fact text. Both obey
+  the v0.3.0 log-level filter.
+
+### Behaviour notes
+
+- **Object IDs are always regenerated on import.** Bundled
+  objects are re-stored under fresh IDs in the local objstore,
+  and every reference — `Record.ObjectIDs[]`, markdown
+  `![alt](object:ID)` in `Record.Content`, and any
+  `SummaryEntry.Summary` text — is rewritten to point at the
+  new IDs. This makes re-importing the same bundle on the
+  machine that produced it (e.g. as a backup-restore drill)
+  trivially safe instead of a deterministic ID collision.
+  `session_memory.json` and `findings.json` are intentionally
+  not swept; the audit in
+  [§5.3](docs/en/session-import-export.md#53-object-id-strategy)
+  explains why their write paths cannot embed object refs.
+- **Active-session export** drains the post-task work group,
+  flushes per-session stores, and closes the analysis Engine
+  before the bundle copy so the on-disk DuckDB file is
+  consistent. The Engine is re-created via `switchAnalysis`
+  after the export returns; subsequent analysis tool calls
+  open it lazily.
+- **Title-collision suffixing** — if the imported session's
+  title matches an existing one, ` (imported)` is appended,
+  then ` (imported 2)`, `3`, …
+- **Default export filename** — `<safe-title>-<YYYYMMDD-HHMMSS>.shellagent`,
+  with FS-disallowed characters replaced by `_` and the title
+  truncated to 64 characters; user can override in the save
+  dialog.
+
+### Documentation
+
+- New design note: [docs/en/session-import-export.md](docs/en/session-import-export.md)
+  / [docs/ja/session-import-export.ja.md](docs/ja/session-import-export.ja.md)
+  (full parity, ~550 lines each). Covers bundle format, race
+  conditions catalogued by the Idle/Busy state machine, ID
+  regeneration rationale, edge cases, and the manual smoke
+  checklist that gated this release.
+
 ## [0.3.0] - 2026-05-06
 
 Privacy controls release. Two related features tighten what

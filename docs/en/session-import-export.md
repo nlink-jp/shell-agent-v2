@@ -116,10 +116,13 @@ Validation rules on import:
 2. `manifest.json` exists at the archive root and parses as JSON.
 3. `schema_version == 1` exactly. Any other value → reject with
    "unsupported bundle schema version: N".
-4. `chat.json`, `session_memory.json`, `findings.json` exist and
-   parse as JSON.
-5. Optional files (`summaries.json`, `analysis.duckdb`, `work/*`,
-   `objects/`) are accepted if absent.
+4. `chat.json` exists and parses as JSON. `session_memory.json`
+   and `findings.json` are optional in the bundle and treated as
+   empty stores when absent — this matches the on-disk semantics
+   of `Load()` for both stores.
+5. Optional files (`session_memory.json`, `findings.json`,
+   `summaries.json`, `analysis.duckdb`, `work/*`, `objects/`) are
+   accepted if absent.
 6. Any zip entry whose normalized path escapes the target dir
    → reject with "bundle contains unsafe path".
 7. If `objects/` is present, every entry referenced from
@@ -135,8 +138,11 @@ Validation rules on import:
 
 ### 4.1 Common flow (any session)
 
-1. Acquire **per-session export lock** (sync.Mutex keyed by
-   session ID inside `internal/sessionio`).
+1. Acquire the agent state-machine slot — set state to Busy. The
+   existing Idle/Busy machine already serialises every agent
+   operation, so a separate per-session export mutex is redundant
+   in the single-agent runtime; the state-machine alone prevents
+   the only concurrency cases that matter (R5 below).
 2. Determine which artifacts exist in `sessions/<id>/`.
 3. Enumerate objstore objects owned by this session via
    `objstore.Store.ListBySession(id)`. The returned slice is a
@@ -247,11 +253,13 @@ The user can override the proposed name in the save dialog.
    into the new directory. The `work/` subtree is extracted
    as-is.
 7. **Register objects** (if `objects/` is present in the bundle):
-   for each entry in `objects/index.json`, generate a fresh
-   object ID, register the blob via `objstore.Store(blob, type,
-   mime, origName, newSessionID, newObjectID)`, and accumulate
-   an `oldID → newID` map. Object IDs and references are always
-   regenerated (no preserve-or-collide path); see §5.3 below.
+   for each entry in `objects/index.json`, register the blob via
+   `objstore.Store(blob, type, mime, origName, newSessionID)` —
+   the live store generates a fresh ID under its own RNG and
+   returns it via `ObjectMeta.ID`. Capture that returned ID and
+   accumulate an `oldID → newID` map. Object IDs and references
+   are always regenerated (no preserve-or-collide path); see §5.3
+   below.
 8. **Rewrite chat.json**: set `id` field to `<newID>`; remap
    each `Record.ObjectIDs[]` via the map; sweep each
    `Record.Content` with the regex

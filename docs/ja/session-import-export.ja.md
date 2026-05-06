@@ -115,10 +115,13 @@ Import 時の検証ルール:
    parse できる。
 3. `schema_version == 1` であること。それ以外 → 「unsupported
    bundle schema version: N」で拒否。
-4. `chat.json`, `session_memory.json`, `findings.json` が存在
-   し JSON として parse できる。
-5. 任意ファイル (`summaries.json`, `analysis.duckdb`, `work/*`,
-   `objects/`) は欠けていてもよい。
+4. `chat.json` が存在し JSON として parse できる。
+   `session_memory.json` と `findings.json` は bundle 内で任意
+   扱いとし、欠けている場合は空ストアとして扱う — これは両ストア
+   の `Load()` のオンディスク semantics と一致。
+5. 任意ファイル (`session_memory.json`, `findings.json`,
+   `summaries.json`, `analysis.duckdb`, `work/*`, `objects/`) は
+   欠けていてもよい。
 6. zip エントリの正規化パスが target ディレクトリの外に出る
    もの → 「bundle contains unsafe path」で拒否。
 7. `objects/` がある場合、`objects/index.json` から参照される
@@ -133,9 +136,11 @@ Import 時の検証ルール:
 
 ### 4.1 共通フロー (任意のセッション)
 
-1. **per-session export ロック** を取得
-   (`internal/sessionio` 内の sessionID をキーとした
-   sync.Mutex)。
+1. agent state-machine スロットを取得 — state を Busy にする。
+   既存の Idle/Busy マシンが全 agent 操作を serialise している
+   ため、シングルエージェント実行系では別の per-session export
+   mutex は冗長; state-machine 単独で関連する並行性ケース (R5
+   下記) を防げる。
 2. `sessions/<id>/` に存在する成果物を確定。
 3. このセッションが所有する objstore object を
    `objstore.Store.ListBySession(id)` で列挙。返り値は
@@ -245,11 +250,13 @@ ASCII 制御コードを `_` に置換し、64 文字に切り詰めたもの。
 6. Bundle のエントリ (`objects/` を除く) を新ディレクトリへ
    **展開**。`work/` サブツリーは as-is で展開。
 7. **Object 登録** (`objects/` が bundle にあれば): 各
-   `objects/index.json` エントリに対し新 object ID を生成し、
-   blob を `objstore.Store(blob, type, mime, origName,
-   newSessionID, newObjectID)` で登録、`oldID → newID` map を
-   蓄積。Object ID と参照は **常に新規生成** (preserve-or-collide
-   パスは持たない); §5.3 を参照。
+   `objects/index.json` エントリに対し、blob を
+   `objstore.Store(blob, type, mime, origName, newSessionID)` で
+   登録する — live store が独自 RNG で新 ID を生成し、
+   `ObjectMeta.ID` で返す。返された ID を取得し、
+   `oldID → newID` map に蓄積する。Object ID と参照は **常に
+   新規生成** (preserve-or-collide パスは持たない); §5.3 を
+   参照。
 8. **chat.json の書き換え**: `id` フィールドを `<newID>` に;
    各 `Record.ObjectIDs[]` を map で remap; 各
    `Record.Content` に対し正規表現
