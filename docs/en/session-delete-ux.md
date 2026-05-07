@@ -140,13 +140,18 @@ const [deletingSession, setDeletingSession] = useState<string | null>(null)
 
 Click flow on the X:
 
-1. **Idle** → user clicks X → state goes to `confirmingDelete = id`.
-   The X icon swaps to ✓?, with `aria-label="Confirm delete"`.
-2. A 3-second timer arms; on expiry, `confirmingDelete = null`
-   (clears back to X). Clicking outside the row also clears.
-3. **Confirming** → user clicks ✓? again →
+1. **Idle** → user clicks ✕ → state goes to `confirmingDelete = id`.
+   The ✕ icon button swaps to the text **"Confirm"** with red
+   emphasis styling, matching the existing `BulkActions`
+   confirm state used by Findings / Global Memory / Session
+   Memory bulk-delete (so the user's mental model from those
+   contexts carries over).
+2. A 6-second timer arms (also matching `BulkActions`); on
+   expiry, `confirmingDelete = null` (clears back to ✕).
+   Clicking outside the row also clears.
+3. **Confirming** → user clicks "Confirm" →
    `deletingSession = id`, `confirmingDelete = null`. The row
-   becomes greyed; the X / ✎ buttons are disabled; the title
+   becomes greyed; the ✕ / ✎ buttons are disabled; the title
    is replaced (or accompanied) by "Deleting…".
 4. The handler awaits `Bindings.DeleteSession(id)`. On
    resolve, the parent (`App.tsx`) refreshes the session list
@@ -164,14 +169,18 @@ remaining sessions list is re-fetched defensively.
 
 ### 3.4 Visual treatment
 
-- **Confirm state** — X glyph swapped for ✓ with a small
-  question-mark superscript or a `?` suffix; same width so the
-  row doesn't reflow. Tooltip changes to "Click again to
-  confirm; or click elsewhere to cancel".
+- **Confirm state** — ✕ icon button is replaced by the text
+  "Confirm" with red foreground / red-tinted background and a
+  `--text-error` border, matching the `bulk-btn.confirming`
+  treatment in `BulkActions`. Tooltip becomes
+  `Click again to delete "<title>"`.
+  Slight row width shift (text wider than icon) is acceptable
+  — the action column is right-aligned and flexible.
 - **Deleting state** — row text colour drops to `--text-dim`;
   a small inline spinner (CSS `@keyframes spin` on a single
-  Unicode char like `↻`) prepends the title, replacing the
-  date. All buttons in the row use `disabled` + `pointer-events: none`.
+  Unicode char `↻`) prepends the title, the title text reads
+  "Deleting…", and the date column is blanked out. All buttons
+  in the row are `disabled`.
 
 ### 3.5 Activity event for global awareness
 
@@ -191,7 +200,7 @@ avoid showing it as a chat-pane bubble.
 
 | Case | Behaviour |
 |------|-----------|
-| Confirm timer expires (3 s) without second click | Row reverts to X, no action |
+| Confirm timer expires (6 s) without second click | Row reverts to ✕, no action |
 | User clicks elsewhere in the sidebar during confirm | Confirm clears (event listener on document for click-outside) |
 | Confirm on session A, then start confirming on B | A's confirm clears, B is now confirming (single-row invariant) |
 | Confirm + click rename | Rename takes priority; confirm clears |

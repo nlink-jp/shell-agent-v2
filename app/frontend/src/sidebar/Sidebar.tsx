@@ -16,7 +16,7 @@
 // here in Phase 7; Phase 8 moves them to a dedicated
 // FindingsDisclosure panel in the chat pane.
 
-import {useRef, useState} from 'react'
+import {useEffect, useRef, useState} from 'react'
 import BulkActions from '../components/BulkActions'
 import type {GlobalMemory, SessionInfo, SessionMemory, SidebarPanel} from '../types'
 
@@ -69,7 +69,9 @@ interface Props {
      *  Export is hidden while busy (the binding would error anyway). */
     onExportSession: (id: string) => void;
     onImportSession: () => void;
-    onDeleteSession: (id: string) => void;
+    /** v0.4.2 (#6): returns a promise so the Sidebar can show a
+     *  Deleting state on the row until the backend call settles. */
+    onDeleteSession: (id: string) => Promise<void>;
     onRenameSession: (id: string, title: string) => void;
 
     // Memory panel data. Findings moved to FindingsDisclosure
@@ -104,9 +106,78 @@ export default function Sidebar({
     // commit a half-typed Japanese title.
     const composingRef = useRef(false)
 
+    // Sidebar-local: 2-click confirm + delete-in-flight states
+    // (v0.4.2 #6). At most one row can be in confirm at a time;
+    // the second click on the same row's X actually invokes the
+    // delete binding, which the parent awaits. While in flight,
+    // the row is greyed and its action buttons disabled. See
+    // docs/en/session-delete-ux.md.
+    const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null)
+    const [deletingSession, setDeletingSession] = useState<string | null>(null)
+    const confirmTimerRef = useRef<number | null>(null)
+    const clearConfirmTimer = () => {
+        if (confirmTimerRef.current !== null) {
+            window.clearTimeout(confirmTimerRef.current)
+            confirmTimerRef.current = null
+        }
+    }
+    const armConfirm = (id: string) => {
+        clearConfirmTimer()
+        setConfirmingDelete(id)
+        // 6 s window — matches the BulkActions confirm timeout
+        // (Findings / Global Memory / Session Memory bulk-delete)
+        // so the user's expectation set by other delete UIs in the
+        // app carries over here.
+        confirmTimerRef.current = window.setTimeout(() => {
+            setConfirmingDelete(null)
+            confirmTimerRef.current = null
+        }, 6000)
+    }
+    const cancelConfirm = () => {
+        clearConfirmTimer()
+        setConfirmingDelete(null)
+    }
+    // Click-outside the confirming row clears the confirm. Listen
+    // on the document so any other interaction (rename click,
+    // sidebar nav button, etc.) cancels.
+    useEffect(() => {
+        if (confirmingDelete === null) return
+        const onDocClick = (ev: MouseEvent) => {
+            const target = ev.target as HTMLElement | null
+            if (!target) return
+            // Don't cancel if the click is on the confirm button itself
+            // — its own onClick handles the second-click commit.
+            if (target.closest(`[data-confirm-row="${confirmingDelete}"]`)) return
+            cancelConfirm()
+        }
+        document.addEventListener('click', onDocClick)
+        return () => document.removeEventListener('click', onDocClick)
+    }, [confirmingDelete])
+
     // Sidebar-local: bulk-select sets per list
     const [selectedGlobalFacts, setSelectedGlobalFacts] = useState<Set<string>>(new Set())
     const [selectedSessionFacts, setSelectedSessionFacts] = useState<Set<string>>(new Set())
+
+    const handleDeleteClick = async (id: string) => {
+        if (deletingSession !== null) return // already deleting something
+        if (confirmingDelete !== id) {
+            armConfirm(id)
+            return
+        }
+        // Second click on the same row's X — actually delete.
+        cancelConfirm()
+        setDeletingSession(id)
+        try {
+            await onDeleteSession(id)
+        } finally {
+            // Whether the delete succeeded or rejected (e.g.
+            // ErrBusy from a stray post-task), clear the in-flight
+            // marker. The parent App.tsx is responsible for
+            // refreshing the session list and switching session if
+            // the active one was deleted.
+            setDeletingSession(null)
+        }
+    }
 
     const startRename = (id: string, currentTitle: string) => {
         setEditingSession(id)
@@ -141,8 +212,23 @@ export default function Sidebar({
                         <div className="acc-content">
                             {sessions.length === 0 ? (
                                 <p className="sidebar-hint">No sessions yet</p>
-                            ) : sessions.map(s => (
-                                <div key={s.id} className={`session-item ${s.id === currentSessionId ? 'active' : ''}`} onClick={() => onLoadSession(s.id)}>
+                            ) : sessions.map(s => {
+                                const isConfirming = confirmingDelete === s.id
+                                const isDeleting = deletingSession === s.id
+                                const rowClass = `session-item${s.id === currentSessionId ? ' active' : ''}${isDeleting ? ' is-deleting' : ''}`
+                                const rowProps: React.HTMLAttributes<HTMLDivElement> & {[k: string]: any} = {
+                                    className: rowClass,
+                                    onClick: isDeleting ? undefined : () => onLoadSession(s.id),
+                                }
+                                // data-confirm-row lets the document-level
+                                // click-outside listener distinguish "clicked
+                                // inside the confirming row" (don't cancel)
+                                // from "clicked anywhere else" (cancel).
+                                if (isConfirming) {
+                                    rowProps['data-confirm-row'] = s.id
+                                }
+                                return (
+                                <div key={s.id} {...rowProps}>
                                     {editingSession === s.id ? (
                                         <input
                                             className="session-title-edit"
@@ -159,25 +245,32 @@ export default function Sidebar({
                                             onClick={e => e.stopPropagation()}
                                         />
                                     ) : (
-                                        <div className="session-title" onDoubleClick={(e) => { e.stopPropagation(); startRename(s.id, s.title) }}>
+                                        <div className="session-title" onDoubleClick={isDeleting ? undefined : (e) => { e.stopPropagation(); startRename(s.id, s.title) }}>
+                                            {isDeleting && <span className="session-deleting-spinner" aria-label="Deleting">↻</span>}
                                             {s.private && <span className="session-private-icon" title="Private session — Global Memory promotion suppressed">🔒</span>}
-                                            {s.title}
+                                            {isDeleting ? 'Deleting…' : s.title}
                                         </div>
                                     )}
                                     <div className="session-meta">
-                                        <span className="session-date">{s.updated_at}</span>
+                                        <span className="session-date">{isDeleting ? '' : s.updated_at}</span>
                                         <div className="session-actions">
-                                            <button onClick={(e) => { e.stopPropagation(); startRename(s.id, s.title) }} title="Rename">&#x270E;</button>
+                                            <button onClick={(e) => { e.stopPropagation(); startRename(s.id, s.title) }} disabled={isDeleting || isConfirming} title="Rename">&#x270E;</button>
                                             <button
                                                 onClick={(e) => { e.stopPropagation(); onExportSession(s.id) }}
-                                                disabled={busy}
+                                                disabled={busy || isDeleting || isConfirming}
                                                 title={busy ? 'Cannot export while agent is busy' : 'Export session as .shellagent bundle'}
                                             >&#x2B07;</button>
-                                            <button onClick={(e) => { e.stopPropagation(); onDeleteSession(s.id) }} title="Delete">&#x2715;</button>
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); handleDeleteClick(s.id) }}
+                                                disabled={isDeleting || (deletingSession !== null && !isConfirming)}
+                                                className={isConfirming ? 'session-delete-confirm' : undefined}
+                                                title={isConfirming ? `Click again to delete \"${s.title}\"` : 'Delete'}
+                                            >{isConfirming ? 'Confirm' : '✕'}</button>
                                         </div>
                                     </div>
                                 </div>
-                            ))}
+                                )
+                            })}
                         </div>
                         )}
                     </section>

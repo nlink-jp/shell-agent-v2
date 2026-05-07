@@ -362,6 +362,57 @@
     color: #aabbcc;
 }
 
+.session-actions button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.session-actions button:disabled:hover {
+    background: transparent;
+    color: var(--text-dim, #556677);
+}
+
+/* Delete-confirm: ✕ icon swapped for the text "Confirm" with
+ * the same red emphasis the BulkActions confirm state uses
+ * (Findings / Global Memory / Session Memory bulk-delete) so
+ * the user's expectation set elsewhere in the app carries
+ * over. Reverts after 6 s if not clicked again, or on any
+ * click outside the row. v0.4.2 / #6. */
+.session-actions button.session-delete-confirm {
+    color: var(--text-error);
+    background: var(--bg-msg-error);
+    border: 1px solid var(--text-error);
+    font-weight: 600;
+    padding: 1px 6px;
+}
+
+.session-actions button.session-delete-confirm:hover {
+    background: var(--bg-msg-error);
+    color: var(--text-error);
+}
+
+/* Delete-in-flight: row greyed, spinner replacing the date
+ * column. Pointer events left enabled on the row only so the
+ * click-outside listener still fires; the actions in the row
+ * use `disabled` to block interaction. */
+.session-item.is-deleting {
+    opacity: 0.55;
+    cursor: progress;
+}
+
+.session-deleting-spinner {
+    display: inline-block;
+    margin-right: 4px;
+    font-size: 0.85em;
+    animation: session-spin 1s linear infinite;
+    color: var(--text-secondary);
+}
+
+@keyframes session-spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+}
+
 /* sidebar-footer and settings-btn removed — settings is in sidebar nav */
 
 /* Backend badge */

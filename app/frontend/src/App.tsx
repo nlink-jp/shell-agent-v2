@@ -510,27 +510,37 @@ function App() {
     }, [state, bgTasks])
 
     const handleDeleteSession = useCallback(async (id: string) => {
-        if (window.go && state === 'idle' && bgTasks.length === 0) {
+        if (!window.go) return
+        // Backend (agent.DeleteSession, v0.4.2) drains post-tasks
+        // and gates on the Idle/Busy state machine — let it
+        // reject with ErrBusy rather than silently no-opping
+        // here. Surfacing the error keeps the Sidebar's
+        // Deleting indicator accurate (it clears in finally
+        // regardless of resolution).
+        try {
             await window.go.main.Bindings.DeleteSession(id)
-            const remaining = await window.go.main.Bindings.ListSessions()
-            if (!remaining || remaining.length === 0) {
-                // No sessions left — auto-create one
-                const newId = await window.go.main.Bindings.NewSession()
-                setCurrentSessionId(newId)
-                setMessages([])
-                const refreshed = await window.go.main.Bindings.ListSessions()
-                setSessions(refreshed || [])
-            } else {
-                setSessions(remaining)
-                if (id === currentSessionId) {
-                    // Switch to the first remaining session
-                    const msgs = await window.go.main.Bindings.LoadSession(remaining[0].id)
-                    setCurrentSessionId(remaining[0].id)
-                    setMessages(restoredMessages(msgs))
-                }
+        } catch (e) {
+            alert('Delete failed: ' + String(e))
+            return
+        }
+        const remaining = await window.go.main.Bindings.ListSessions()
+        if (!remaining || remaining.length === 0) {
+            // No sessions left — auto-create one
+            const newId = await window.go.main.Bindings.NewSession()
+            setCurrentSessionId(newId)
+            setMessages([])
+            const refreshed = await window.go.main.Bindings.ListSessions()
+            setSessions(refreshed || [])
+        } else {
+            setSessions(remaining)
+            if (id === currentSessionId) {
+                // Switch to the first remaining session
+                const msgs = await window.go.main.Bindings.LoadSession(remaining[0].id)
+                setCurrentSessionId(remaining[0].id)
+                setMessages(restoredMessages(msgs))
             }
         }
-    }, [state, bgTasks, currentSessionId])
+    }, [currentSessionId])
 
     // startRename / commitRename moved into Sidebar (rename is a
     // sidebar-local concern; the rename binding call is plumbed

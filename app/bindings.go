@@ -455,22 +455,18 @@ func (b *Bindings) RenameSession(sessionID, title string) error {
 }
 
 // DeleteSession removes a session and its associated objects.
+//
+// Thin pass-through to agent.DeleteSession (v0.4.2) — the
+// state-machine gate, postTasksWg drain, active-session
+// cleanup (Engine close + nil-clear of session/sessionMemory/
+// findings), objstore cleanup, sandbox teardown, and dir
+// removal all live there as one atomic-from-the-state-machine's-
+// perspective operation. See docs/en/session-delete-ux.md.
 func (b *Bindings) DeleteSession(sessionID string) error {
-	if b.IsBusy() {
-		return fmt.Errorf("agent is busy")
+	if b.agent == nil {
+		return fmt.Errorf("agent not initialised")
 	}
-	// Clean up objstore objects for this session
-	if b.objects != nil {
-		_ = b.objects.DeleteBySession(sessionID)
-	}
-	// v0.2.0: per-session findings live under sessions/<id>/
-	// and are removed by DeleteSessionDir below — no separate
-	// DeleteFindingsBySession call needed.
-	if b.agent != nil {
-		// Tear down the session's sandbox container, if any.
-		_ = b.agent.SandboxStop(b.ctx, sessionID)
-	}
-	return memory.DeleteSessionDir(sessionID)
+	return b.agent.DeleteSession(b.ctx, sessionID)
 }
 
 // ExportSession packages a session into a .shellagent bundle via

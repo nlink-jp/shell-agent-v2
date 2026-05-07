@@ -134,15 +134,19 @@ const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null)
 const [deletingSession, setDeletingSession] = useState<string | null>(null)
 ```
 
-X 上の click フロー:
+✕ 上の click フロー:
 
-1. **Idle** → user が X を click → state は `confirmingDelete = id`
-   に。X アイコンが ✓? に変わり、`aria-label="Confirm delete"`。
-2. 3 秒タイマー起動; 期限切れで `confirmingDelete = null`
-   (X に戻る)。行外の click も clear。
-3. **Confirming** → user が再度 ✓? を click →
+1. **Idle** → user が ✕ を click → state は `confirmingDelete = id`
+   に。✕ アイコンボタンが赤強調スタイルのテキスト
+   **"Confirm"** に切替 — Findings / Global Memory / Session
+   Memory bulk-delete で使われる既存 `BulkActions` の confirm
+   状態と一致する (それらの context で形成された user メンタル
+   モデルがそのまま転用できる)。
+2. 6 秒タイマー起動 (こちらも `BulkActions` と同じ); 期限切れで
+   `confirmingDelete = null` (✕ に戻る)。行外の click も clear。
+3. **Confirming** → user が再度 "Confirm" を click →
    `deletingSession = id`、`confirmingDelete = null`。行が
-   grey になる; X / ✎ ボタンは disabled; タイトルが
+   grey になる; ✕ / ✎ ボタンは disabled; タイトルが
    "Deleting…" に置換 (or 並記)。
 4. ハンドラが `Bindings.DeleteSession(id)` を await。resolve
    後、parent (`App.tsx`) がセッションリストを refresh、
@@ -158,14 +162,16 @@ post-tasks 実行中で `ErrBusy`)、行の `Deleting…` 状態は clear
 
 ### 3.4 視覚的扱い
 
-- **Confirm 状態** — X グリフを ✓ + 小さな疑問符 superscript
-  または `?` suffix で置換; 同幅で行が reflow しない。Tooltip
-  は "Click again to confirm; or click elsewhere to cancel"
-  に変更。
+- **Confirm 状態** — ✕ アイコンボタンをテキスト "Confirm"
+  (赤前景 / 赤色調背景 + `--text-error` ボーダー) に置換、
+  `BulkActions` の `bulk-btn.confirming` の扱いと一致。Tooltip
+  は `Click again to delete "<title>"` に変更。行幅がわずかに
+  広がる (テキストはアイコンより広い)
+  が許容 — アクションカラムは右寄せ + flexible。
 - **Deleting 状態** — 行のテキスト色を `--text-dim` に;
   小さな inline spinner (CSS `@keyframes spin` を `↻` のような
-  単一 Unicode char に) を date の代わりにタイトルに前置。
-  行内の全ボタンは `disabled` + `pointer-events: none`。
+  単一 Unicode char に) をタイトルに前置、タイトルテキストは
+  "Deleting…"、date カラムは空表示。行内の全ボタンは `disabled`。
 
 ### 3.5 グローバル認識用の activity event
 
@@ -185,7 +191,7 @@ frontend フィルタリングが必要になる。
 
 | ケース | 挙動 |
 |--------|------|
-| 確認タイマー切れ (3 秒) で 2 クリック目なし | 行が X に戻る、アクションなし |
+| 確認タイマー切れ (6 秒) で 2 クリック目なし | 行が ✕ に戻る、アクションなし |
 | Confirm 中に user がサイドバーの別場所を click | Confirm clear (document への click-outside listener) |
 | A を confirm 後、B の confirm を開始 | A の confirm clear、B が confirm 中になる (single-row 不変条件) |
 | Confirm + rename click | Rename 優先、confirm clear |
