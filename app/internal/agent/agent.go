@@ -139,6 +139,17 @@ type Agent struct {
 	// Token usage tracking (session-scoped, reset on session switch)
 	promptTokens int
 	outputTokens int
+
+	// activeToolCallID is the tool_call_id of the tool currently
+	// executing inside agentLoop. Set just before executeTool and
+	// cleared on return so long-running tools (e.g. analyze-data)
+	// can emit "tool_progress" ActivityEvents that target the
+	// running bubble in the UI without threading the call ID
+	// through every tool function's signature. The Idle/Busy
+	// state machine guarantees only one tool runs at a time per
+	// agent, so a scalar field suffices. See
+	// docs/en/tool-progress-events.md.
+	activeToolCallID string
 }
 
 // New creates a new Agent with the given configuration.
@@ -370,10 +381,17 @@ func (a *Agent) flushPendingReport() {
 }
 
 // ActivityEvent describes a transient agent activity surfaced
-// to the UI. Type is one of "tool_start" / "tool_end" /
-// "thinking"; Detail is the tool name (or thinking content);
-// Status is "" for tool_start / thinking and "success" /
-// "error" for tool_end.
+// to the UI. Type is one of:
+//   - "tool_start" / "tool_end"     — bubble lifecycle (Status
+//     populated only on tool_end as "success" / "error")
+//   - "tool_progress"               — in-place text update for
+//     the running bubble whose ToolCallID matches; introduced
+//     for analyze-data's per-window progress (#5). The frontend
+//     overwrites the bubble's Detail; Status is unchanged.
+//   - "thinking"                    — Detail is the thinking
+//     content (no bubble; footer indicator only).
+//   - "assistant_text"              — intermediate assistant
+//     prose preceding a tool call.
 type ActivityEvent struct {
 	Type   string
 	Detail string
@@ -381,7 +399,9 @@ type ActivityEvent struct {
 	// ToolCallID, when non-empty, lets the frontend correlate the
 	// transient bubble with the persisted tool record so the user
 	// can later click the bubble to inspect args + result via
-	// GetToolCallDetails. Populated for tool_start / tool_end.
+	// GetToolCallDetails. Populated for tool_start / tool_end and
+	// REQUIRED for tool_progress (the frontend uses it as the
+	// match key to find the running bubble to update).
 	ToolCallID string
 }
 
@@ -1499,7 +1519,16 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 			// Avoid logging full tool arguments at Info level (may contain credentials, paths, etc.)
 			logger.Info("agentLoop: tool_call name=%s args_len=%d", tc.Name, len(tc.Arguments))
 			logger.Debug("agentLoop: tool_call args=%s", logger.Truncate(tc.Arguments, 200))
+			// Publish the active call ID so progress-emitting tools
+			// (currently analyze-data) can target the matching UI
+			// bubble. Cleared regardless of executeTool's outcome.
+			a.mu.Lock()
+			a.activeToolCallID = tc.ID
+			a.mu.Unlock()
 			result, status := a.executeTool(ctx, tc)
+			a.mu.Lock()
+			a.activeToolCallID = ""
+			a.mu.Unlock()
 			logger.Debug("agentLoop: tool_result name=%s status=%s result=%s", tc.Name, status, logger.Truncate(result, 200))
 			a.session.AddToolResult(tc.ID, tc.Name, result, string(status))
 			a.emitActivity(ActivityEvent{Type: "tool_end", Detail: tc.Name, Status: status, ToolCallID: tc.ID})

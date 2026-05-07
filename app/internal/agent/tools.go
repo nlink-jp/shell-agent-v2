@@ -824,10 +824,20 @@ func (a *Agent) toolAnalyzeData(ctx context.Context, argsJSON string) (string, e
 	if a.session != nil {
 		summarizer.LanguageHint = detectUserLanguageHint(a.session.Records)
 	}
+	// Per-window progress is published as tool_progress events
+	// targeting the parent "analyze-data" bubble so the chat pane
+	// shows a single bubble whose text updates in place rather
+	// than a fresh "running" bubble per window (which previously
+	// stayed stuck because no matching tool_end ever fired). See
+	// docs/en/tool-progress-events.md and issue #5.
+	a.mu.Lock()
+	parentToolCallID := a.activeToolCallID
+	a.mu.Unlock()
 	result, err := summarizer.Analyze(ctx, args.Prompt, rows, func(idx, total int) {
 		a.emitActivity(ActivityEvent{
-			Type:   "tool_start",
-			Detail: fmt.Sprintf("analyze-data (window %d/%d)", idx+1, total),
+			Type:       "tool_progress",
+			Detail:     fmt.Sprintf("analyze-data — window %d/%d", idx+1, total),
+			ToolCallID: parentToolCallID,
 		})
 	})
 	if err != nil {

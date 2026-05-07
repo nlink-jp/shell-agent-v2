@@ -193,6 +193,32 @@ function App() {
                     setProgressTool(data.detail || '')
                     setRetryStatus('')
                     setMessages(prev => [...prev, {role: 'tool-event', content: data.detail || '', status: 'running', timestamp: nowTime(), toolCallId: data.tool_call_id || undefined}])
+                } else if (data.type === 'tool_progress') {
+                    // In-place update for the running tool-event whose
+                    // tool_call_id matches. Lets long-running tools
+                    // (e.g. analyze-data sliding-window summarisation)
+                    // surface per-window progress without spawning a
+                    // fresh "running" bubble per tick that would
+                    // otherwise stay stuck (#5). Match by id, not by
+                    // displayed text, so multiple parallel tools
+                    // (future capability) can't cross-contaminate.
+                    // See docs/en/tool-progress-events.md.
+                    if (!data.tool_call_id) return
+                    setProgressTool(data.detail || '')
+                    setMessages(prev => {
+                        let idx = -1
+                        for (let i = prev.length - 1; i >= 0; i--) {
+                            const m = prev[i]
+                            if (m.role === 'tool-event' && m.status === 'running' && m.toolCallId === data.tool_call_id) {
+                                idx = i
+                                break
+                            }
+                        }
+                        if (idx === -1) return prev
+                        const next = prev.slice()
+                        next[idx] = {...next[idx], content: data.detail || ''}
+                        return next
+                    })
                 } else if (data.type === 'thinking') {
                     setProgressTool(data.detail || '')
                 } else if (data.type === 'assistant_text') {
