@@ -56,18 +56,19 @@ tool_start    detail="analyze-data"                tool_call_id=tc-1
 tool_progress detail="analyze-data — window 1/3"   tool_call_id=tc-1
 tool_progress detail="analyze-data — window 2/3"   tool_call_id=tc-1
 tool_progress detail="analyze-data — window 3/3"   tool_call_id=tc-1
+tool_progress detail="analyze-data"                tool_call_id=tc-1   ← 復帰
 tool_end      detail="analyze-data"  status=success tool_call_id=tc-1
 ```
 
 バブルのライフサイクル: `running ("analyze-data")` → 現在の
-window を示すよう 3 回更新される → `success ("analyze-data —
-window 3/3")`。最終テキストは最後の `tool_progress` が設定した
-もの; `tool_end` はテキストを親名にロールバックしない。
+window を示すよう 3 回更新される → `"analyze-data"` に復帰 →
+`success ("analyze-data")` で確定。
 
-(完了後にバブルが単に `"analyze-data"` と表示される方を好む
-場合、agent は `tool_end` の前に `Detail: "analyze-data"` の
-`tool_progress` を 1 回 emit すればよい。本範囲外; 視覚的
-デフォルトは「最後に報告されたものを表示」。)
+末尾の復帰により、完了後のバブルは他のすべてのツール
+(常にツール名のみ表示) と視覚的に一貫する — window ごとの
+テキストは作業中の情報として有用だが、完了後は冗長。最終進捗
+テキストを完了後も保持したいツールは、単に復帰を省略すれば
+よい。
 
 ---
 
@@ -144,6 +145,37 @@ field-write のために保持しても問題なし。
 ---
 
 ## 4. Frontend 変更
+
+### 4.0 `tool_end` matcher — tool_call_id 優先に切替
+
+既存の `tool_end` ハンドラは `m.content === data.detail` で
+running バブルをマッチさせていた。バブルテキストが変わらない
+前提では機能するが、`tool_progress` でテキストを変える任意の
+ツールはバブルがマッチ漏れする — `tool_end` は親名を運ぶ、
+バブルは最後の progress テキストを保持、等値判定が失敗。
+
+matcher を `tool_call_id` 優先に切替 (これは複数リリースに
+わたり `tool_start`/`tool_end` 両方で常に運ばれている)、ID が
+無いイベント (純粋に legacy) のみ content 等値にフォール
+バック:
+
+```typescript
+const eventID = data.tool_call_id || ''
+let idx = -1
+for (let i = prev.length - 1; i >= 0; i--) {
+    const m = prev[i]
+    if (m.role !== 'tool-event' || m.status !== 'running') continue
+    if (eventID) {
+        if (m.toolCallId === eventID) { idx = i; break }
+    } else if (m.content === data.detail) {
+        idx = i; break
+    }
+}
+```
+
+これにより §3.2 の analyze-data 親名復帰は純粋に cosmetic に
+なり (マッチはバブルテキストに依存しない)、進捗テキストを
+完了後も保持したい将来のツールも unblock される。
 
 ### 4.1 `frontend/src/App.tsx` — activity event handler
 

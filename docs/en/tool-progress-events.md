@@ -53,22 +53,24 @@ Fields used:
 For an `analyze-data` invocation that runs three windows:
 
 ```
-tool_start   detail="analyze-data"                tool_call_id=tc-1
-tool_progress detail="analyze-data — window 1/3"  tool_call_id=tc-1
-tool_progress detail="analyze-data — window 2/3"  tool_call_id=tc-1
-tool_progress detail="analyze-data — window 3/3"  tool_call_id=tc-1
-tool_end     detail="analyze-data"  status=success  tool_call_id=tc-1
+tool_start    detail="analyze-data"                tool_call_id=tc-1
+tool_progress detail="analyze-data — window 1/3"   tool_call_id=tc-1
+tool_progress detail="analyze-data — window 2/3"   tool_call_id=tc-1
+tool_progress detail="analyze-data — window 3/3"   tool_call_id=tc-1
+tool_progress detail="analyze-data"                tool_call_id=tc-1   ← revert
+tool_end      detail="analyze-data"  status=success tool_call_id=tc-1
 ```
 
-The bubble lifecycle: `running ("analyze-data")` → updated three
-times to show the current window → `success ("analyze-data — window 3/3")`.
-Final text is whatever the last `tool_progress` set; the
-`tool_end` does not roll the text back to the parent name.
+The bubble lifecycle: `running ("analyze-data")` → updated
+three times to show the current window → reverted to
+`"analyze-data"` → finalised as `success ("analyze-data")`.
 
-(If the user prefers the bubble to read just `"analyze-data"`
-once finished, the agent can issue one final `tool_progress` with
-`Detail: "analyze-data"` before `tool_end`. Out of scope here;
-the visual default is "show what was last reported".)
+The trailing revert keeps the completed bubble visually
+consistent with every other tool (which only ever shows its
+name) — the per-window text is informational while the work is
+in flight, but adds noise once finished. Tools that want to
+preserve the last progress text post-completion can simply
+omit the revert.
 
 ---
 
@@ -146,6 +148,39 @@ machine. Holding it for a tiny field-write is fine.
 ---
 
 ## 4. Frontend changes
+
+### 4.0 `tool_end` matcher — switch to tool_call_id-primary
+
+The pre-existing `tool_end` handler matched the running bubble
+by `m.content === data.detail`. That worked when bubble text
+never changed, but now any tool that uses `tool_progress` to
+mutate text would leave its bubble unmatched — `tool_end`
+carries the parent name, the bubble carries whatever the last
+progress text was, equality fails.
+
+Switch the matcher to prefer `tool_call_id` (always carried on
+both `tool_start` and `tool_end` for over a release) and only
+fall back to content equality when the event has no ID
+(genuinely legacy):
+
+```typescript
+const eventID = data.tool_call_id || ''
+let idx = -1
+for (let i = prev.length - 1; i >= 0; i--) {
+    const m = prev[i]
+    if (m.role !== 'tool-event' || m.status !== 'running') continue
+    if (eventID) {
+        if (m.toolCallId === eventID) { idx = i; break }
+    } else if (m.content === data.detail) {
+        idx = i; break
+    }
+}
+```
+
+This also makes the analyze-data revert-to-parent-name in §3.2
+purely cosmetic (matching is independent of bubble text), and
+unblocks any future tool that wants to leave its progress text
+in place after completion.
 
 ### 4.1 `frontend/src/App.tsx` — activity event handler
 

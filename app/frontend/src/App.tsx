@@ -175,10 +175,23 @@ function App() {
                     // success so older runs still render.
                     const endStatus: 'success' | 'error' = data.status === 'error' ? 'error' : 'success'
                     setMessages(prev => {
+                        // Prefer matching by tool_call_id (more robust:
+                        // independent of any tool_progress text updates
+                        // the running bubble may have undergone, e.g.
+                        // analyze-data's per-window updates). Fall back
+                        // to content equality for legacy events that
+                        // arrive without a call ID. See
+                        // docs/en/tool-progress-events.md §4.1.
+                        const eventID = data.tool_call_id || ''
                         let idx = -1
                         for (let i = prev.length - 1; i >= 0; i--) {
                             const m = prev[i]
-                            if (m.role === 'tool-event' && m.status === 'running' && m.content === data.detail) { idx = i; break }
+                            if (m.role !== 'tool-event' || m.status !== 'running') continue
+                            if (eventID) {
+                                if (m.toolCallId === eventID) { idx = i; break }
+                            } else if (m.content === data.detail) {
+                                idx = i; break
+                            }
                         }
                         if (idx === -1) return prev
                         const next = prev.slice()

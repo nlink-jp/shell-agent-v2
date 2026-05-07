@@ -840,6 +840,21 @@ func (a *Agent) toolAnalyzeData(ctx context.Context, argsJSON string) (string, e
 			ToolCallID: parentToolCallID,
 		})
 	})
+	// Revert the bubble text to the parent tool name so the
+	// completed bubble reads "analyze-data" (matching the visual
+	// convention of every other tool) rather than freezing on the
+	// last window's progress text. Emitted regardless of err so
+	// the bubble that's about to be marked error/success looks
+	// the same as a single-window run. The frontend's tool_end
+	// matches by tool_call_id (App.tsx) so this revert is
+	// purely cosmetic.
+	if parentToolCallID != "" {
+		a.emitActivity(ActivityEvent{
+			Type:       "tool_progress",
+			Detail:     "analyze-data",
+			ToolCallID: parentToolCallID,
+		})
+	}
 	if err != nil {
 		return "", fmt.Errorf("analysis: %w", err)
 	}
