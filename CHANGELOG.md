@@ -5,6 +5,62 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.2] - 2026-05-07
+
+Session deletion UX & safety release ([#6](https://github.com/nlink-jp/shell-agent-v2/issues/6)),
+plus a cross-document audit pass that brings README,
+architecture, memory-model, data-analysis, and AGENTS docs
+back in sync with everything that shipped in v0.3.0–v0.4.1.
+
+### Added
+
+- **Session delete confirmation** — the row's ✕ button now
+  arms a "Confirm" state (red-emphasis text matching the
+  existing `BulkActions` confirm pattern from Findings /
+  Global Memory / Session Memory bulk-delete) before the
+  destructive call fires. 6-second auto-cancel; clicking
+  outside the row also cancels. Tooltip while armed:
+  `Click again to delete "<title>"`.
+- **In-flight deleting feedback** — while the binding
+  promise is in flight, the row greys with a `↻ Deleting…`
+  spinner and all action buttons disable. The user sees
+  that something is happening rather than wondering whether
+  the click was lost.
+
+### Fixed
+
+- **Session delete is now state-machine-gated** — the
+  pre-v0.4.2 `bindings.DeleteSession` only checked
+  `IsBusy()` at entry; concurrent `Send` / `LoadSession` /
+  `Export` / `Import` could race a half-deleted session
+  directory. The most striking failure: deleting the active
+  session while the user typed a new message would let the
+  trailing `a.session.Save()` recreate the directory as a
+  partial file. The fix moves orchestration into a new
+  `agent.DeleteSession` method that holds Busy for the
+  operation's duration (mirroring `ExportSession` /
+  `ImportSession`), nil-clears `a.session` /
+  `a.sessionMemory` / `a.findings` and `Close()`s the
+  analysis Engine before `RemoveAll` runs so a stray
+  Save / Engine call cannot resurrect the directory.
+
+### Documentation
+
+- New design note: [docs/en/session-delete-ux.md](docs/en/session-delete-ux.md)
+  / [docs/ja/session-delete-ux.ja.md](docs/ja/session-delete-ux.ja.md)
+  (full parity, ~280 lines each). Covers the four real
+  failure modes the looser pre-v0.4.2 path allowed (F1–F4),
+  the 2-click confirm + Deleting state visual treatment,
+  edge cases, and four rejected alternatives.
+- **Cross-document audit**: README + architecture + memory-
+  model + data-analysis + AGENTS.md were still framed
+  around v0.2.0 and silent on the cross-cutting features
+  shipped in v0.3.0–v0.4.1. They now cover Session.Private,
+  the expanded Busy-gate operation set, the
+  `internal/sessionio` package, the `tool_progress` event,
+  and cross-link to the per-feature design notes. EN/JA
+  brought to full parity throughout.
+
 ## [0.4.1] - 2026-05-07
 
 Bug-fix release for [#5](https://github.com/nlink-jp/shell-agent-v2/issues/5):
