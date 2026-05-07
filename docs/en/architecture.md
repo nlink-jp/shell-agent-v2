@@ -1,8 +1,21 @@
-# shell-agent-v2 Architecture (v0.2.0)
+# shell-agent-v2 Architecture
 
-This document describes how shell-agent-v2 is put together **as of
-v0.2.0**. For the evolution history of individual subsystems see
-[`history/`](history/).
+This document is the canonical wider-system reference. The bones
+were laid down at **v0.2.0** and remain accurate; subsequent
+releases (v0.3.0–v0.4.2) added cross-cutting features that this
+doc inlines below as version-tagged subsections rather than
+splitting into separate architecture revisions:
+
+- **v0.3.0** — private sessions + log-level privacy controls
+- **v0.4.0** — `.shellagent` session import / export
+- **v0.4.1** — `tool_progress` activity event for in-place
+  bubble updates
+- **v0.4.2** — session deletion under the agent state-machine
+
+For the evolution history of individual subsystems see
+[`history/`](history/). Each post-v0.2.0 feature also has its own
+design note linked from the README's "Recent design notes"
+section.
 
 Companion documents:
 
@@ -63,6 +76,23 @@ to the frontend via the `agent:state` Wails event plus the
 binding entry-points that would mutate session state during Busy
 return an error rather than queuing.
 
+**Operations gated by the Busy guard** (by introduction date):
+
+- v0.2.0: `Send` / `SendWithImages`, `LoadSession`
+- v0.4.0: `ExportSession`, `ImportSession`
+- v0.4.2: `DeleteSession` — previously bound directly in the
+  binding layer with only an entry-time `IsBusy()` check; now
+  routed through `agent.DeleteSession` which holds the slot for
+  the operation's full duration. See
+  [`session-delete-ux.md`](session-delete-ux.md) §2 for the
+  failure modes the looser pre-v0.4.2 path allowed (active-
+  session-deleted Send racing the dir RemoveAll, etc.).
+
+Active-session deletes additionally nil-clear `a.session`,
+`a.sessionMemory`, `a.findings` and `Close()` the analysis Engine
+before `RemoveAll` runs, so a stray Save / Engine call cannot
+resurrect the session directory.
+
 ### Agent loop
 
 `Agent.Send(ctx, message)` runs a synchronous tool-calling loop:
@@ -115,6 +145,7 @@ app/
 │   ├── findings/            # Per-session findings store + Jaccard dedup
 │   ├── contextbuild/        # Non-destructive context assembly + summary cache
 │   ├── objstore/            # Central object repository (image/blob/report; 32-hex IDs)
+│   ├── sessionio/           # .shellagent bundle pack/unpack + reference rewriter (v0.4.0)
 │   ├── toolcall/            # Shell script registry, header parsing, MITL categories
 │   ├── mcp/                 # mcp-guardian stdio JSON-RPC 2.0 client
 │   ├── sandbox/             # Per-session podman/docker container
@@ -139,6 +170,15 @@ Four facilities, three storage scopes, no v1 compaction:
 | Session Memory | fact / context | per-session | `sessions/<id>/session_memory.json` |
 | Findings | (data-analysis discoveries) | per-session | `sessions/<id>/findings.json` |
 | Global Memory | preference / decision | cross-session | `<dataDir>/global_memory.json` |
+
+**v0.3.0: privacy flag on `Session`.** A `Session.Private bool`
+(persisted in `chat.json` with `omitempty` for legacy compat)
+opts the session out of cross-session promotion: extraction
+drops `preference` / `decision` facts, the Pin handlers
+(`PromoteSessionMemoryToGlobal`, `PromoteFindingToGlobal`)
+reject server-side, and the frontend hides the ★ Pin UI plus
+shows a 🔒 indicator. Privacy is fixed at session creation.
+Full design: [`privacy-controls.md`](privacy-controls.md).
 
 Auto-extraction (`agent.extractMemories`) runs after each response,
 takes the last 4 user/assistant turns (skipping past tool records
@@ -235,10 +275,26 @@ All JSON files on this path go through
 `internal/atomicio.WriteFileAtomic` (tmp file → rename + parent-dir
 fsync) so a crash mid-save leaves the previous file intact.
 
-Session deletion (`DeleteSessionDir`) removes the entire
-`sessions/<id>/` directory atomically — one operation removes
-records, session memory, findings, summaries cache, and the
-DuckDB file. Global Memory and the objstore are unaffected.
+Session deletion removes the entire `sessions/<id>/` directory
+plus the session's owned objstore objects. As of v0.4.2 this is
+orchestrated by `agent.DeleteSession` (not the binding layer
+directly), running under the agent state-machine Busy slot —
+see §2 for why. Global Memory is unaffected.
+
+**v0.4.0: `.shellagent` bundle import / export.** A session can
+be packaged into a single ZIP bundle (`internal/sessionio`) that
+carries `chat.json`, `session_memory.json`, `findings.json`,
+`summaries.json`, `analysis.duckdb`, the recursive `work/`
+subtree, and an `objects/` subdirectory with the session's
+objstore blobs and metadata. The bundle is portable across
+machines (DuckDB's binary format is cross-platform). On import
+the new session gets a fresh sess-id and every objstore object
+is re-stored with a fresh ID; references in `chat.json`
+(`Record.ObjectIDs[]` and `object:ID` markdown in
+`Record.Content`) and `summaries.json` (`SummaryEntry.Summary`)
+are rewritten through the same `agent.Mu`-gated state-machine
+slot. Privacy flag is preserved verbatim. Full design:
+[`session-import-export.md`](session-import-export.md).
 
 ## 7. LLM backends
 
@@ -311,7 +367,7 @@ App.tsx
 | Event | Trigger |
 |-------|---------|
 | `agent:stream` | Token stream (Vertex AI) |
-| `agent:activity` | tool_start / tool_end / thinking |
+| `agent:activity` | tool_start / tool_end / tool_progress / thinking / assistant_text |
 | `agent:state` | Idle / Busy transitions |
 | `session:title` | Auto-generated session title |
 | `global_memory:updated` | Global Memory store changed |
@@ -320,6 +376,18 @@ App.tsx
 | `report:created` | New report bubble |
 | `mitl:request` | MITL approval needed |
 | `bg-task:start` / `bg-task:end` | Background task lifecycle |
+
+**v0.4.1: `tool_progress` event.** Long-running tools (currently
+`analyze-data`'s sliding-window summarizer) emit `tool_progress`
+ActivityEvents carrying the parent tool's `tool_call_id` plus an
+updated display string. The frontend matches by id (not by
+content text) and overwrites the running bubble's content
+in-place — one bubble that updates from "analyze-data" →
+"analyze-data — window 1/3" → … → reverts to "analyze-data" →
+status flips on `tool_end`. Replaces the pre-v0.4.1 behaviour
+where each window emitted its own `tool_start` with no matching
+`tool_end`, leaving N permanent "running" pills (issue #5).
+Full design: [`tool-progress-events.md`](tool-progress-events.md).
 
 ### Theming
 

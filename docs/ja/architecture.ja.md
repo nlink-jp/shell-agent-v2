@@ -1,21 +1,31 @@
-# shell-agent-v2 アーキテクチャ (v0.2.0)
+# shell-agent-v2 アーキテクチャ
 
-このドキュメントは shell-agent-v2 が **v0.2.0 時点で**
-どのように構成されているかを説明します。各サブシステムの
-進化過程は [`history/`](history/) に保存されています。
+本ドキュメントは正準のシステム全体リファレンス。骨格は
+**v0.2.0** で確立され今も有効、その後のリリース
+(v0.3.0–v0.4.2) で追加された横断的機能はこの本文中に
+バージョンタグ付きの subsection として inline に記述する
+(別アーキテクチャリビジョンとして分割しない):
+
+- **v0.3.0** — プライベートセッション + ログレベルプライバシー制御
+- **v0.4.0** — `.shellagent` セッション import / export
+- **v0.4.1** — in-place バブル更新用の `tool_progress` activity event
+- **v0.4.2** — agent state-machine 配下のセッション削除
+
+各サブシステムの進化過程は [`history/`](history/) に保存。
+post-v0.2.0 機能は README の「最近の設計メモ」セクションから
+独立した設計ノートにもリンクされている。
 
 姉妹ドキュメント:
 
-- [`memory-model.ja.md`](memory-model.ja.md) — v0.2.0 4-facility
+- [`memory-model.ja.md`](memory-model.ja.md) — 4-facility
   メモリモデル正準資料
 - [`data-analysis.ja.md`](data-analysis.ja.md) — per-session DuckDB
   エンジン、analyze-data の sliding-window summarizer、Findings
   ライフサイクル
 
-本文書は両者を適宜参照します。
-
-詳細な内容は英語版 [`docs/en/architecture.md`](../en/architecture.md)
-を参照してください。日本語版は要点のみ抜粋:
+本文書は両者を適宜参照します。詳細は英語版
+[`docs/en/architecture.md`](../en/architecture.md) も参照可能;
+本日本語版は post-v0.2.0 までの全主要セクションを反映しています。
 
 ## 1. 概要
 
@@ -54,6 +64,22 @@ agent は作業中、active session を排他的に占有する:
 state は `internal/agent.Agent` が所有、`agent:state` イベントで
 frontend に通知。Busy ガードは backend 側でも binding entry-point
 で enforce される。
+
+**Busy guard 配下の操作** (導入バージョン順):
+
+- v0.2.0: `Send` / `SendWithImages`、`LoadSession`
+- v0.4.0: `ExportSession`、`ImportSession`
+- v0.4.2: `DeleteSession` — 以前は binding 層で entry-time の
+  `IsBusy()` チェックのみだったが、現在は `agent.DeleteSession`
+  経由でルーティングされ操作の全期間スロットを保持する。
+  v0.4.2 以前のゆるい経路で許されていた失敗モード (アクティブ
+  セッション削除中の Send が dir RemoveAll と race 等) について
+  は [`session-delete-ux.ja.md`](session-delete-ux.ja.md) §2 参照。
+
+アクティブセッション削除では `RemoveAll` 実行前に `a.session`、
+`a.sessionMemory`、`a.findings` を nil クリアし、analysis Engine
+を `Close()` する。これにより stray な Save / Engine 呼出が
+セッションディレクトリを蘇らせない。
 
 ### Agent loop
 
@@ -99,6 +125,7 @@ app/
 │   ├── findings/            # per-session findings store + Jaccard dedup
 │   ├── contextbuild/        # 非破壊コンテキスト組立 + summary cache
 │   ├── objstore/            # 中央オブジェクトリポジトリ (image/blob/report; 32-hex IDs)
+│   ├── sessionio/           # .shellagent bundle pack/unpack + 参照書換器 (v0.4.0)
 │   ├── toolcall/            # シェルスクリプトレジストリ、ヘッダ解析、MITL カテゴリ
 │   ├── mcp/                 # mcp-guardian stdio JSON-RPC 2.0 クライアント
 │   ├── sandbox/             # per-session podman/docker コンテナ
@@ -122,6 +149,15 @@ app/
 | Session Memory | fact / context | per-session | `sessions/<id>/session_memory.json` |
 | Findings | (データ分析発見) | per-session | `sessions/<id>/findings.json` |
 | Global Memory | preference / decision | 跨セッション | `<dataDir>/global_memory.json` |
+
+**v0.3.0: `Session` のプライバシーフラグ**。`Session.Private bool`
+(`chat.json` に `omitempty` で persist、legacy 互換のため非 private
+default) はセッションを跨セッション promotion から opt-out する:
+extraction が `preference` / `decision` fact を drop、Pin handler
+(`PromoteSessionMemoryToGlobal`、`PromoteFindingToGlobal`) は
+サーバ側で reject、frontend は ★ Pin UI を hide + 🔒 indicator
+を表示。プライバシーはセッション作成時に固定。詳細設計:
+[`privacy-controls.ja.md`](privacy-controls.ja.md)。
 
 auto-extraction (`agent.extractMemories`) は応答後に実行。
 最後の 4 user/assistant turn (tool record はスキップして遡る) を
@@ -198,10 +234,25 @@ LLM に戻して revise 可能。
 parent-dir fsync) を経由するため、save 中のクラッシュでも
 前回ファイルは無事。
 
-session 削除 (`DeleteSessionDir`) は `sessions/<id>/` 全体を
-原子的に削除 — 1 操作で records / session memory / findings /
-summaries cache / DuckDB を削除する。Global Memory と objstore
-は影響を受けない。
+session 削除は `sessions/<id>/` ディレクトリ全体に加え、その
+セッションが所有する objstore object も削除する。v0.4.2 以降は
+`agent.DeleteSession` がオーケストレーションし (binding 層で直接
+ではなく)、agent state-machine Busy スロット配下で実行される —
+理由は §2 参照。Global Memory は影響を受けない。
+
+**v0.4.0: `.shellagent` bundle import / export**。セッションは
+1 つの ZIP bundle (`internal/sessionio`) にパッケージ可能で、
+`chat.json`、`session_memory.json`、`findings.json`、
+`summaries.json`、`analysis.duckdb`、`work/` 再帰サブツリー、
+そしてセッションの objstore blob とメタデータを含む `objects/`
+サブディレクトリを運ぶ。Bundle はマシン間ポータブル (DuckDB の
+バイナリ形式はクロスプラットフォーム)。Import 時に新セッション
+は fresh sess-id を取得、各 objstore object も新 ID で再格納
+される; `chat.json` 内の参照 (`Record.ObjectIDs[]` および
+`Record.Content` 内の `object:ID` markdown) と `summaries.json`
+(`SummaryEntry.Summary`) は同じ `agent.mu` gated state-machine
+スロットを通じて書き換えられる。プライバシーフラグは逐語保持。
+詳細設計: [`session-import-export.ja.md`](session-import-export.ja.md)。
 
 ## 7. LLM バックエンド
 
@@ -249,7 +300,7 @@ App.tsx
 | Event | 起動契機 |
 |-------|---------|
 | `agent:stream` | トークンストリーム (Vertex AI) |
-| `agent:activity` | tool_start / tool_end / thinking |
+| `agent:activity` | tool_start / tool_end / tool_progress / thinking / assistant_text |
 | `agent:state` | Idle / Busy 遷移 |
 | `session:title` | 自動生成セッションタイトル |
 | `global_memory:updated` | Global Memory ストア変更 |
@@ -258,6 +309,18 @@ App.tsx
 | `report:created` | 新レポートバブル |
 | `mitl:request` | MITL 承認要求 |
 | `bg-task:start` / `bg-task:end` | バックグラウンドタスクライフサイクル |
+
+**v0.4.1: `tool_progress` event**。長時間ツール (現在は
+`analyze-data` の sliding-window summarizer) は親ツールの
+`tool_call_id` + 更新表示文字列を運ぶ `tool_progress` ActivityEvent
+を emit する。Frontend は ID (content text ではなく) でマッチし、
+running バブルの content を in-place で上書き — 1 つのバブルが
+"analyze-data" → "analyze-data — window 1/3" → … →
+"analyze-data" に復帰 → `tool_end` で status flip、と更新される。
+v0.4.1 以前は各 window が自身の `tool_start` を emit するが対応
+する `tool_end` がなく N 個の永続的 "running" pill を残していた
+(issue #5)。詳細設計:
+[`tool-progress-events.ja.md`](tool-progress-events.ja.md)。
 
 ### テーマ
 

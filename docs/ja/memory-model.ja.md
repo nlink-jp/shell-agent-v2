@@ -74,6 +74,30 @@ range header 付き。
 **Tier フィールド**: v0.2.0 で削除。(v0.1.26 Memory v2 時点で
 既に vestigial だった。)
 
+**プライバシーフラグ (v0.3.0)**: `Session.Private bool` は
+`chat.json` に `omitempty` JSON タグ付きで永続化される — フィー
+ルドのない legacy セッションは `Private = false` として load
+される。`true` のとき、セッションは跨セッション promotion から
+opt-out される: `extractMemories` パイプラインは `preference` /
+`decision` fact を drop (Global Memory にルーティングされない)、
+`PromoteSessionMemoryToGlobal` と `PromoteFindingToGlobal`
+ハンドラはサーバ側で reject、frontend は ★ Pin ボタンを hide
+し、サイドバー行と chat-pane バナーに 🔒 indicator を表示する。
+プライバシーはセッション作成時に固定 (mid-session トグル不可)
+され境界が曖昧にならない。詳細設計:
+[privacy-controls.ja.md](privacy-controls.ja.md) §2。
+
+**Bundle ポータビリティ (v0.4.0)**: セッションはサイドバーの
+Export アイコンまたは `/export` スラッシュコマンドから 1 つの
+`.shellagent` ZIP にパッケージ可能。Bundle はこの `chat.json`
+に加えて session memory、findings、summaries、サンドボックス
+`work/`、analysis DuckDB、セッションが所有する全 objstore
+object を運ぶ。Re-import されたセッションは fresh sess-id と
+fresh object ID を取得 (in-record の全参照は
+`internal/sessionio` rewriter で書き換え)。プライバシーフラグ
+は逐語保持される。詳細設計:
+[session-import-export.ja.md](session-import-export.ja.md)。
+
 **詳細**: [memory-architecture-v2.ja.md](memory-architecture-v2.ja.md)。
 
 ---

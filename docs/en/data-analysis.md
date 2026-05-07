@@ -172,6 +172,22 @@ current findings list (truncated to the same 50-item cap), not
 the previous rows themselves. This is what bounds memory: window
 N's prompt size is independent of N.
 
+### 5.1.1 Progress events (v0.4.1)
+
+Each window invocation emits a `tool_progress` ActivityEvent
+carrying the parent tool call's `tool_call_id` and a Detail of
+`analyze-data — window N/M`. The frontend matches by id and
+overwrites the running tool-event bubble's text in place — one
+bubble that updates as windows advance, rather than a fresh
+"running" pill per window. After the final window the agent
+emits one trailing `tool_progress` with `Detail: "analyze-data"`
+so the bubble reverts to the parent name before `tool_end`
+finalises its status. The pre-v0.4.1 behaviour (a fresh
+`tool_start` per window with no matching `tool_end`) left every
+window's pill stuck "running" forever — issue #5.
+
+Full design: [tool-progress-events.md](tool-progress-events.md).
+
 ### 5.2 Configuration
 
 ```go

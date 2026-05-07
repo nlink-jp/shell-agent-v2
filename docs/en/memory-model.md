@@ -75,6 +75,30 @@ a range header.
 **Tier field**: removed in v0.2.0. (Was already vestigial under
 v0.1.26 Memory v2.)
 
+**Privacy flag (v0.3.0)**: `Session.Private bool` is persisted
+in `chat.json` with the `omitempty` JSON tag — legacy sessions
+without the field load as `Private = false`. When `true`, the
+session opts out of cross-session promotion: the
+`extractMemories` pipeline drops `preference` / `decision`
+facts (would otherwise route to Global Memory), the
+`PromoteSessionMemoryToGlobal` and `PromoteFindingToGlobal`
+handlers reject server-side, and the frontend hides the ★ Pin
+buttons plus shows a 🔒 indicator on the sidebar row and as a
+chat-pane banner. Privacy is fixed at session creation
+(no mid-session toggle) so the boundary stays unambiguous.
+Full design: [privacy-controls.md](privacy-controls.md) §2.
+
+**Bundle portability (v0.4.0)**: a session can be packaged as
+a single `.shellagent` ZIP via the sidebar Export icon or the
+`/export` slash command. The bundle carries this `chat.json`
+plus session memory, findings, summaries, sandbox `work/`,
+the analysis DuckDB, and every objstore object the session
+owns. Re-imported sessions get fresh sess-ids and fresh object
+IDs (with all in-record references rewritten through the
+`internal/sessionio` rewriter). Privacy flag is preserved
+verbatim. Full design:
+[session-import-export.md](session-import-export.md).
+
 **Deep dive**: [memory-architecture-v2.md](memory-architecture-v2.md).
 
 ---

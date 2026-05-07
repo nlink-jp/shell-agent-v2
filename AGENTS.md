@@ -184,7 +184,20 @@ shell-agent-v2/
 
 ## Design Documents
 
-All implementation must follow these design documents:
+All implementation must follow these design documents.
+
+**Current top-level (post-v0.2.0):**
+- **docs/en/architecture.md** — system-wide architecture, package layout, state machine (now gates Send/Load/Export/Import/Delete), events (now incl. tool_progress), storage (now incl. .shellagent bundle layout). The canonical reference.
+- **docs/en/memory-model.md** — 4-facility design + Session.Private flag (v0.3.0).
+- **docs/en/data-analysis.md** — DuckDB engine, sliding-window analyze-data, Findings lifecycle.
+
+**Recent design notes (v0.3.0+):**
+- **docs/en/privacy-controls.md** — private sessions, log-level filter, audit log entries
+- **docs/en/session-import-export.md** — `.shellagent` bundle format, ID regeneration on import, race-condition catalogue
+- **docs/en/tool-progress-events.md** — `tool_progress` activity event for in-place bubble updates
+- **docs/en/session-delete-ux.md** — 2-click confirm + per-row Deleting state + state-machine integration
+
+**History (audit trail behind v0.2.0):**
 - **agent-data-flow.md** — agent loop, context budget, MITL, events, tool confirmation
 - **memory-architecture-v2.md** — non-destructive contextbuild, summary cache, time markers across every channel
 - **object-storage.md** — content-addressed object store (physical layout), lifecycle, LLM tools. UI surface lives in the chat-pane Data disclosure since the information-display redesign.

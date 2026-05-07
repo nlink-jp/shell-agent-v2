@@ -25,7 +25,11 @@ and hybrid LLM backend (Local + Vertex AI).
 - **Multimodal** — image input via drag & drop, paste, or file picker
 - **Per-session Data panel** — collapsible disclosure at the top of the chat pane showing the current session's objects (images / reports / blobs as cards with thumbnails), DuckDB tables (click for a 20-row preview), and sandbox `/work` files. Click an image for the lightbox, a report for the markdown viewer, or a CSV / text blob for an in-app preview — CSV / TSV render as an HTML table, other text MIMEs (JSON, plain text, HTML, etc.) drop to a fixed-width pre. Bulk-select and delete with separate Yes / No confirmation.
 - **Bulk select / delete** — Findings, Global Memory, and Session Memory entries can be checked individually or all-at-once, with two-click confirm.
-- **Session import / export** — package a complete session (chat, session memory, findings, summaries, sandbox `work/`, analysis DuckDB, and every objstore object the session owns) into a single `.shellagent` ZIP bundle and re-import it on the same or a different machine. Per-row Export icon in the sidebar, Import Chat button in the bottom-nav, `/export` and `/import` slash commands. Privacy flag preserved across the round-trip; object IDs are always regenerated on import with bounded reference rewriting in `chat.json` and `summaries.json`. See [session-import-export.md](docs/en/session-import-export.md).
+- **Private sessions (v0.3.0)** — `+ New Private Chat` in the sidebar bottom-nav opts a session out of cross-session Global Memory promotion. `preference` / `decision` facts are dropped at the extraction layer; `Pin to Global Memory` is hidden in the UI and rejected server-side. A 🔒 indicator appears on the sidebar row and as a chat-pane banner. The privacy flag is fixed at session creation and persisted in `chat.json` (`omitempty` keeps legacy sessions loading as non-private). See [privacy-controls.md](docs/en/privacy-controls.md).
+- **Log privacy controls (v0.3.0)** — `app.log` defaults to `info` level so prompt / response / tool-argument bodies stop leaking to disk. Settings → Privacy → Log verbosity flips to `debug` for diagnosis. Audit log entries (`session created/loaded/exported/imported/deleted`) are content-free.
+- **Session import / export (v0.4.0)** — package a complete session (chat, session memory, findings, summaries, sandbox `work/`, analysis DuckDB, and every objstore object the session owns) into a single `.shellagent` ZIP bundle and re-import it on the same or a different machine. Per-row Export icon in the sidebar, Import Chat button in the bottom-nav, `/export` and `/import` slash commands. Privacy flag preserved across the round-trip; object IDs are always regenerated on import with bounded reference rewriting in `chat.json` and `summaries.json`. See [session-import-export.md](docs/en/session-import-export.md).
+- **In-place tool progress (v0.4.1)** — long-running tools (currently `analyze-data`) update a single chat-pane bubble in place via the `tool_progress` activity event, rather than spawning a fresh "running" pill per progress tick. The bubble matches by `tool_call_id`, so future parallel-tool work won't cross-contaminate. See [tool-progress-events.md](docs/en/tool-progress-events.md).
+- **Session delete safeguards (v0.4.2)** — the row's ✕ button arms a 6-second `Confirm` state (red-emphasis text matching the existing bulk-delete pattern) before the destructive call fires; while the delete is in flight the row greys with a `↻ Deleting…` spinner. The agent state machine holds Busy for the duration so concurrent Send / Load / Export / Import return `ErrBusy` instead of racing the half-deleted session directory. See [session-delete-ux.md](docs/en/session-delete-ux.md).
 - **Temporal context** — enriched date/time injection + `resolve-date` system tool
 
 ## Installation
@@ -142,9 +146,16 @@ make test       # Run tests
 
 Current state of the system:
 
-- [**Architecture overview (v0.2.0)**](docs/en/architecture.md) ⭐ start here
+- [**Architecture overview**](docs/en/architecture.md) ⭐ start here
 - [**Memory model**](docs/en/memory-model.md) — 4-facility design
 - [**Data analysis**](docs/en/data-analysis.md) — DuckDB engine, sliding-window analyze-data, Findings lifecycle
+
+Recent design notes (post-v0.2.0 features):
+
+- [**Privacy controls (v0.3.0)**](docs/en/privacy-controls.md) — private sessions, log-level filter, audit log
+- [**Session import / export (v0.4.0)**](docs/en/session-import-export.md) — `.shellagent` bundle format, ID regeneration, race-condition catalogue
+- [**Tool progress events (v0.4.1)**](docs/en/tool-progress-events.md) — `tool_progress` activity event for in-place bubble updates
+- [**Session delete UX (v0.4.2)**](docs/en/session-delete-ux.md) — 2-click confirm, deleting state, agent state-machine integration
 
 Past design notes are kept under [`docs/en/history/`](docs/en/history/)
 as the audit trail behind v0.2.0. Some no longer reflect current

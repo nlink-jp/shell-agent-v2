@@ -138,6 +138,22 @@ Findings のメモリ側 (per-session vs Global Memory): [`memory-model.ja.md`](
 見る。前ウィンドウの行は見ない。これがメモリ上限を保証する:
 ウィンドウ N のプロンプトサイズは N に依存しない。
 
+### 5.1.1 進捗イベント (v0.4.1)
+
+各 window 呼出は親ツール呼出の `tool_call_id` と
+`analyze-data — window N/M` の Detail を運ぶ `tool_progress`
+ActivityEvent を emit する。Frontend は ID でマッチし running
+tool-event バブルのテキストを in-place で上書き — window 進捗
+ごとに更新される 1 つのバブルとなり、window ごとに新しい
+"running" pill を spawn しない。最終 window 後、agent は
+`Detail: "analyze-data"` の `tool_progress` を 1 回 emit して
+バブルを親名に復帰させ、その後 `tool_end` が status を確定する。
+v0.4.1 以前の挙動 (window ごとに新しい `tool_start`、対応する
+`tool_end` なし) は各 window の pill を永遠に "running" のまま
+残していた — issue #5。
+
+詳細設計: [tool-progress-events.ja.md](tool-progress-events.ja.md)。
+
 ### 5.2 設定
 
 ```go
