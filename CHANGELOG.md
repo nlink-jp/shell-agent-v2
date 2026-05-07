@@ -5,6 +5,49 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.1] - 2026-05-07
+
+Bug-fix release for [#5](https://github.com/nlink-jp/shell-agent-v2/issues/5):
+`analyze-data`'s sliding-window progress bubbles stayed stuck
+in "running" state in the chat pane.
+
+### Fixed
+
+- **`analyze-data` progress bubbles** now update one bubble in
+  place ("analyze-data — window N/M") rather than spawning a
+  fresh "running" pill per window that never transitioned to
+  success. The completed bubble reverts to plain "analyze-data"
+  to match the visual convention of every other tool.
+- **`tool_end` matcher in the chat pane** switched to
+  tool_call_id-primary (with content-equality fallback for
+  genuinely legacy events). The old content-equality matcher
+  would silently miss any bubble whose text had been mutated
+  by a progress update.
+
+### Added
+
+- **`ActivityEvent.Type == "tool_progress"`** — new event type
+  that lets long-running tools update a single chat bubble in
+  place. The frontend matches by `tool_call_id` (carried on
+  the event) and overwrites the bubble's displayed text.
+  Backwards compatible at the wire level: missing
+  `tool_call_id` or no matching running bubble is a no-op.
+- **`Agent.activeToolCallID`** — internal field set by
+  `agentLoop` before each `executeTool` call so progress-
+  emitting tools can target the matching UI bubble without
+  threading a new arg through ~30 tool functions. The
+  Idle/Busy state machine guarantees only one tool runs at a
+  time per agent, so a scalar field is sufficient.
+
+### Documentation
+
+- New design note: [docs/en/tool-progress-events.md](docs/en/tool-progress-events.md)
+  / [docs/ja/tool-progress-events.ja.md](docs/ja/tool-progress-events.ja.md)
+  (full parity, ~280 lines each). Covers wire format, the
+  active-tool-call-ID propagation choice (struct field vs
+  threaded arg), the matcher change, and three rejected
+  alternatives.
+
 ## [0.4.0] - 2026-05-07
 
 Session import / export release. A whole session — chat,
