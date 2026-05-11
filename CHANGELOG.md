@@ -5,6 +5,84 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.4] - 2026-05-11
+
+`analyze-data` row-cap fix — addresses a user report that
+`analyze-data` failed up front with `query result exceeds
+10000 rows` on a 27,000-row table, which made the
+sliding-window summarizer unreachable in exactly the regime
+where the feature is interesting.
+
+### Fixed
+
+- **`analyze-data` no longer trips the interactive 10k row
+  cap.** `Engine.QuerySQL` is hard-capped at `MaxQueryRows =
+  10000` to protect the chat from unbounded `SELECT` output —
+  correct for the three callers whose results land in the
+  LLM tool result (`query-sql`, `query-preview`,
+  `quick-summary`). Pre-fix, `analyze-data` shared that path
+  and inherited the cap, even though its rows never enter the
+  chat (they are chunked into per-window LLM calls). The fix
+  adds a dedicated `Engine.QuerySQLForAnalyze` method backed
+  by a separate `MaxAnalyzeRows = 1_000_000` constant and
+  switches the single `toolAnalyzeData` call site to it. The
+  three interactive callers are unchanged.
+
+### Added
+
+- **`MaxAnalyzeRows` constant** (default 1,000,000) — a pure
+  memory-safety backstop, not a query-shape suggestion.
+  Hitting it returns an explicit error suggesting
+  pre-aggregation via `query-sql` (NOT `LIMIT` — adding
+  `LIMIT` to `analyze-data` would defeat the sliding window's
+  whole purpose by silently truncating the analysis to the
+  first N rows).
+- **`Engine.QuerySQLForAnalyze(query) ([]map[string]any,
+  error)`** — public read-only-enforced helper, parallel to
+  `QuerySQL`. Internally both share a `querySQLBounded`
+  helper so the read-only check, statement preparation,
+  scanning loop, and value coercion stay in one place.
+- **Test seam `setMaxAnalyzeRowsForTesting(t, n)`** — lets
+  the cap-overflow test verify backstop behaviour without
+  materialising a million rows in CI.
+- **Engine tests:**
+  - `TestQuerySQLForAnalyze_AllowsBeyond10k` — pins the
+    regression: 12k-row table now returns 12,000 rows.
+  - `TestQuerySQL_StillCapsAt10k` — symmetric guard that the
+    interactive cap is unchanged and still suggests `LIMIT`.
+  - `TestQuerySQLForAnalyze_RespectsMaxAnalyzeRows` — uses
+    the test seam to verify the analyze cap fires with the
+    correct error wording (suggests pre-aggregation, **does
+    not** suggest `LIMIT`).
+  - `TestQuerySQLForAnalyze_RejectsWrite` — read-only gate
+    still applies on the new path.
+
+### Documentation
+
+- New design note: [docs/en/analyze-data-row-cap.md](docs/en/analyze-data-row-cap.md)
+  / [docs/ja/analyze-data-row-cap.ja.md](docs/ja/analyze-data-row-cap.ja.md)
+  with symptom, root-cause analysis, the per-row memory math
+  table that justifies the 1 M ceiling, the LLM-call latency
+  table that explains why the practical ceiling is much lower
+  anyway, the explicit "why a dedicated method, not a
+  parameter" reasoning, and the explicit out-of-scope list
+  (config knob, streaming, auto-sampling). README + README.ja
+  and AGENTS.md "Recent design notes" sections updated.
+
+### Compatibility
+
+- **Public API:** purely additive — adds one new method
+  (`QuerySQLForAnalyze`) and one new exported constant
+  (`MaxAnalyzeRows`). Nothing removed or changed in
+  signature; existing callers compile unchanged.
+- **On-disk format:** unchanged.
+- **Settings UI:** no new knobs. If field reports prove the
+  fixed `MaxAnalyzeRows = 1_000_000` value insufficient, a
+  `Settings → Tools → analyze-data max rows` knob is the
+  obvious follow-up; the Engine method's signature is
+  already shaped to accept a per-call max if we later want
+  to plumb config through.
+
 ## [0.4.3] - 2026-05-11
 
 Sandbox UID-mapping fix — addresses a user report that
