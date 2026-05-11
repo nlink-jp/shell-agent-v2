@@ -143,3 +143,16 @@ func wrapErrHandler(fn func(ctx context.Context, args string) (string, error)) f
 		return result, ActivityStatusSuccess
 	}
 }
+
+// wrapStringHandler adapts a toolXxx-style handler that
+// returns just `string` (no error) to ToolDescriptor.Handle.
+// Used for the no-error builtin handlers (toolListObjects,
+// toolGetObject) that surface their own error text in the
+// returned string and never need a status flip. Always
+// reports ActivityStatusSuccess — error reporting is the
+// caller's responsibility via the returned message body.
+func wrapStringHandler(fn func(ctx context.Context, args string) string) func(ctx context.Context, args string) (string, ActivityEventStatus) {
+	return func(ctx context.Context, args string) (string, ActivityEventStatus) {
+		return fn(ctx, args), ActivityStatusSuccess
+	}
+}
