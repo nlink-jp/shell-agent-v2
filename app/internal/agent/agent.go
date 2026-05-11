@@ -1740,7 +1740,7 @@ func (a *Agent) executeTool(ctx context.Context, tc llm.ToolCall) (string, Activ
 			}
 		}
 		return a.toolRegisterObject(tc.Arguments)
-	case "load-data", "describe-data", "query-sql", "query-preview", "suggest-analysis", "quick-summary", "list-tables", "reset-analysis", "create-report", "promote-finding", "analyze-data":
+	case "load-data", "describe-data", "query-sql", "query-preview", "suggest-analysis", "quick-summary", "list-tables", "reset-analysis", "create-report", "promote-finding", "analyze-data", "analyze-text", "grep-text", "get-text":
 		if a.analysis == nil {
 			return "Error: no analysis engine available", ActivityStatusError
 		}
