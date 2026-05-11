@@ -291,8 +291,22 @@ func (e *Engine) Schema() string {
 
 // QuerySQL executes a read-only SQL query and returns results.
 // MaxQueryRows caps QuerySQL results to prevent memory exhaustion
-// from unbounded SELECT queries.
+// from unbounded SELECT queries that land in the LLM's tool result
+// (the chat-output path: query-sql, query-preview, quick-summary).
 const MaxQueryRows = 10000
+
+// MaxAnalyzeRows caps QuerySQLForAnalyze results — the path
+// analyze-data uses to feed rows to its sliding-window summarizer.
+// Two orders of magnitude larger than MaxQueryRows because the
+// rows never enter the chat: they are chunked into per-window
+// LLM calls instead. The cap exists strictly as a memory backstop
+// against pointing analyze-data at a billion-row table; the
+// practical ceiling is set by LLM call latency long before this
+// constant is hit. See docs/en/analyze-data-row-cap.md §3.3.
+//
+// Implementation seam: tests call setMaxAnalyzeRowsForTesting to
+// shrink this without making the test materialise a million rows.
+var MaxAnalyzeRows = 1_000_000
 
 // QuerySQLToCSV runs a SELECT query and writes the result rows as CSV
 // to w. Returns the column order, row count written, and any error.
@@ -451,7 +465,43 @@ func (e *Engine) PreviewTable(tableName string, limit int) (*TablePreview, error
 	}, nil
 }
 
+// QuerySQL runs a read-only SELECT and materialises results into
+// a slice of column-keyed maps, capped at MaxQueryRows. Use this
+// for any path where the rows land in the LLM's tool result —
+// the cap protects the chat from unbounded SELECT output. For
+// the analyze-data sliding-window path, use QuerySQLForAnalyze
+// instead (the rows never enter the chat, so the cap can be much
+// higher).
 func (e *Engine) QuerySQL(query string) ([]map[string]any, error) {
+	return e.querySQLBounded(query, MaxQueryRows, queryRefineHint)
+}
+
+// QuerySQLForAnalyze runs a read-only SELECT and materialises
+// results into a slice of column-keyed maps, capped at
+// MaxAnalyzeRows. Used by analyze-data to feed its sliding-window
+// summarizer; rows never enter the chat directly so the cap is a
+// pure memory backstop. Hitting it returns analyzeRefineHint —
+// which deliberately *does not* suggest LIMIT, because limiting
+// the input would defeat the sliding window's whole purpose.
+func (e *Engine) QuerySQLForAnalyze(query string) ([]map[string]any, error) {
+	return e.querySQLBounded(query, MaxAnalyzeRows, analyzeRefineHint)
+}
+
+// queryRefineHint is the suffix appended to the row-cap error
+// for the chat-output path. Suggesting LIMIT is correct here —
+// the caller's results land in the LLM tool result and adding
+// LIMIT genuinely solves the unbounded-output problem.
+const queryRefineHint = "refine query (e.g. add LIMIT or WHERE)"
+
+// analyzeRefineHint is the suffix appended to the row-cap error
+// for the sliding-window analyze path. Pre-aggregation via
+// query-sql produces a smaller derived table that analyze-data
+// can then walk over with its full window logic; LIMIT would
+// silently truncate the analysis to the first N rows and is
+// therefore *not* suggested.
+const analyzeRefineHint = "pre-aggregate via query-sql first (GROUP BY, sample, or date-range filter) before re-running analyze-data"
+
+func (e *Engine) querySQLBounded(query string, maxRows int, hint string) ([]map[string]any, error) {
 	if err := e.Open(); err != nil {
 		return nil, err
 	}
@@ -477,8 +527,8 @@ func (e *Engine) QuerySQL(query string) ([]map[string]any, error) {
 	var results []map[string]any
 	rowCount := 0
 	for rows.Next() {
-		if rowCount >= MaxQueryRows {
-			return nil, fmt.Errorf("query result exceeds %d rows; refine query (e.g. add LIMIT or WHERE)", MaxQueryRows)
+		if rowCount >= maxRows {
+			return nil, fmt.Errorf("query result exceeds %d rows; %s", maxRows, hint)
 		}
 		rowCount++
 		values := make([]any, len(columns))

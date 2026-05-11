@@ -803,9 +803,14 @@ func (a *Agent) toolAnalyzeData(ctx context.Context, argsJSON string) (string, e
 		tableName = tables[0].Name
 	}
 
-	// Fetch all rows
+	// Fetch all rows via the analyze-specific path. The interactive
+	// QuerySQL cap (MaxQueryRows=10k) is correct for chat-output
+	// tools but defeats the sliding window's whole purpose here —
+	// the rows never enter the chat directly, they get chunked
+	// into per-window LLM calls. analyze-data uses the much higher
+	// MaxAnalyzeRows backstop instead. See docs/en/analyze-data-row-cap.md.
 	query := fmt.Sprintf("SELECT * FROM \"%s\"", tableName)
-	results, err := a.analysis.QuerySQL(query)
+	results, err := a.analysis.QuerySQLForAnalyze(query)
 	if err != nil {
 		return "", fmt.Errorf("query table: %w", err)
 	}
