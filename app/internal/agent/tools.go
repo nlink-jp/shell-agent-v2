@@ -69,44 +69,33 @@ func analysisToolMITLCategory(name string) string {
 // tool_descriptor.go and tool_descriptors_analysis.go.
 
 // executeAnalysisTool handles analysis tool calls.
+//
+// Phase 2e: switch deleted, dispatch goes through the
+// descriptor's Handle closure. The 14-case switch this used
+// to be was the v0.5 drift surface where each new tool
+// needed an entry remembered alongside five other parallel
+// lists. Closures capture the same toolXxx methods as the
+// pre-refactor switch, so handler behaviour is bit-identical.
+//
+// The wrapper signature stays (string, error) for one more
+// commit because executeTool() — the outer dispatcher — is
+// migrated separately in Phase 2f. The caller wraps any
+// error in "Error: %v" again, so we strip the "Error: "
+// prefix that wrapErrHandler prepended (status carries the
+// failure-vs-success distinction independent of the prefix).
 func (a *Agent) executeAnalysisTool(ctx context.Context, name string, argsJSON string) (string, error) {
-	switch name {
-	case "load-data":
-		return a.toolLoadData(argsJSON)
-	case "describe-data":
-		return a.toolDescribeData(argsJSON)
-	case "query-sql":
-		// MITL is now gated by the dispatcher via IsToolMITLRequired
-		// so the Settings → Tools toggle takes effect. See
-		// security-hardening-2.md H1+H2 / agent.go:1231.
-		return a.toolQuerySQL(argsJSON)
-	case "list-tables":
-		return a.toolListTables()
-	case "query-preview":
-		return a.toolQueryPreview(ctx, argsJSON)
-	case "suggest-analysis":
-		return a.toolSuggestAnalysis(ctx)
-	case "quick-summary":
-		return a.toolQuickSummary(ctx, argsJSON)
-	case "reset-analysis":
-		return a.toolResetAnalysis()
-	case "create-report":
-		return a.toolCreateReport(argsJSON)
-	case "promote-finding":
-		return a.toolPromoteFinding(argsJSON)
-	case "analyze-data":
-		// MITL is now gated by the dispatcher via IsToolMITLRequired
-		// (security-hardening-2.md H1+H2 / agent.go:1231).
-		return a.toolAnalyzeData(ctx, argsJSON)
-	case "analyze-text":
-		return a.toolAnalyzeText(ctx, argsJSON)
-	case "grep-text":
-		return a.toolGrepText(argsJSON)
-	case "get-text":
-		return a.toolGetText(argsJSON)
-	default:
+	d, ok := a.toolDescriptorByName(name)
+	if !ok {
 		return "", fmt.Errorf("unknown analysis tool: %s", name)
 	}
+	if d.Handle == nil {
+		return "", fmt.Errorf("analysis tool %q has no handler", name)
+	}
+	result, status := d.Handle(ctx, argsJSON)
+	if status == ActivityStatusError {
+		return "", fmt.Errorf("%s", strings.TrimPrefix(result, "Error: "))
+	}
+	return result, nil
 }
 
 func (a *Agent) toolLoadData(argsJSON string) (string, error) {
