@@ -175,22 +175,36 @@
     justify-content: center;
 }
 
-/* v0.5: pending text/markdown attachments. The .pending-image
-   container still controls the slot size; we override the
-   visual to show a labelled card instead of an image. */
-.pending-attachment-doc {
+/* v0.5: pending text/markdown attachments. The base
+   .pending-image container is a 60x60 square sized for image
+   thumbnails — for documents we widen to fit a real filename
+   with ellipsis truncation past a sensible max-width, and use
+   a larger font so the label is actually legible (the 10px
+   centred-in-60x60 layout that earlier versions had truncated
+   names mid-character, which users could mistake for a 32-hex
+   object ID). */
+.pending-image.pending-attachment-doc {
+    width: auto;
+    min-width: 90px;
+    max-width: 220px;
+    height: 60px;
     background: #2a3a4a;
     border: 1px solid #3a4a5a;
     border-radius: 6px;
     display: flex;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start;
+    padding: 0 12px;
+    box-sizing: border-box;
 }
 
 .pending-attachment-label {
-    font-size: 10px;
+    font-size: 12px;
     color: #cccccc;
-    text-align: center;
-    padding: 0 4px;
+    text-align: left;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
 }
 
