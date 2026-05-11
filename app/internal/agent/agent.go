@@ -586,11 +586,33 @@ func (a *Agent) CurrentSession() *memory.Session {
 
 // Send processes a user message. Returns ErrBusy if the agent is not idle.
 func (a *Agent) Send(ctx context.Context, message string) (string, error) {
-	return a.SendWithImages(ctx, message, nil, nil)
+	return a.SendWithAttachments(ctx, message, nil, nil, nil)
 }
 
-// SendWithImages processes a user message with optional images.
-// objectIDs are stored in session records; dataURLs are used for LLM context.
+// SendWithImages is the v0.4-and-earlier entrypoint kept as a
+// thin wrapper around SendWithAttachments so existing tests
+// continue to compile. New code should call SendWithAttachments
+// directly so the markdown-attachment slice has a home.
+func (a *Agent) SendWithImages(ctx context.Context, message string, objectIDs, dataURLs []string) (string, error) {
+	return a.SendWithAttachments(ctx, message, objectIDs, dataURLs, nil)
+}
+
+// SendWithAttachments processes a user message with optional
+// images AND document attachments. The two attachment kinds are
+// separate parameters because they reach the LLM through
+// different paths:
+//
+//   - imageObjectIDs / imageDataURLs travel together as
+//     multimodal Message.ImageURLs + Message.ObjectIDs (parallel
+//     slices) so the backend's image-anchor convention
+//     ("Image (object ID: ...):") binds each ID to its bytes.
+//   - documentObjectIDs are markdown / report attachments — the
+//     LLM doesn't get their content inline; it gets a single
+//     anchor line per document at the top of the user message
+//     (prepended by contextbuild.renderRecordContent) and reads
+//     the content via list-objects → analyze-text / grep-text /
+//     get-text. This keeps system-prompt determinism intact
+//     (case X in docs/en/markdown-attachments.md §2).
 //
 // Concurrency model: the agent's state stays Busy from the moment
 // this method takes the lock until the post-response background
@@ -604,7 +626,9 @@ func (a *Agent) Send(ctx context.Context, message string) (string, error) {
 // To bail out of a stuck post-task (e.g. 429 retry), use Abort —
 // it fires both cancel funcs and lets the trailing goroutine in
 // postResponseTasks return state to Idle.
-func (a *Agent) SendWithImages(ctx context.Context, message string, objectIDs, dataURLs []string) (string, error) {
+func (a *Agent) SendWithAttachments(ctx context.Context, message string, imageObjectIDs, imageDataURLs, documentObjectIDs []string) (string, error) {
+	objectIDs := imageObjectIDs
+	dataURLs := imageDataURLs
 	a.mu.Lock()
 	if a.state != StateIdle {
 		a.mu.Unlock()
@@ -639,7 +663,7 @@ func (a *Agent) SendWithImages(ctx context.Context, message string, objectIDs, d
 	// agentLoop fires postResponseTasks via defer on every return
 	// path; that goroutine is responsible for dropping state back
 	// to Idle once all three background tasks complete.
-	return a.agentLoop(ctx, message, objectIDs, dataURLs)
+	return a.agentLoop(ctx, message, objectIDs, dataURLs, documentObjectIDs)
 }
 
 // Abort cancels the current task and any in-flight post-response
@@ -1356,7 +1380,7 @@ func (a *Agent) LLMStatus() struct {
 
 // agentLoop implements the core agent execution loop.
 // Design: docs/en/agent-data-flow.md Section 2.2
-func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, dataURLs []string) (string, error) {
+func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, dataURLs, documentObjectIDs []string) (string, error) {
 	if a.session == nil {
 		a.session = &memory.Session{ID: "default", Records: []memory.Record{}}
 	}
@@ -1371,19 +1395,26 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 	defer a.postResponseTasks(ctx)
 
 	// Avoid logging full user message at Info level (may contain sensitive data).
-	logger.Info("agentLoop: session=%s message_len=%d objects=%d", a.session.ID, len(userMessage), len(objectIDs))
+	logger.Info("agentLoop: session=%s message_len=%d images=%d documents=%d", a.session.ID, len(userMessage), len(objectIDs), len(documentObjectIDs))
 	logger.Debug("agentLoop: message=%s", logger.Truncate(userMessage, 100))
 	if len(objectIDs) > 0 {
-		logger.Debug("agentLoop: attached objectIDs (in order)=%v dataURL_count=%d", objectIDs, len(dataURLs))
+		logger.Debug("agentLoop: attached image objectIDs (in order)=%v dataURL_count=%d", objectIDs, len(dataURLs))
+	}
+	if len(documentObjectIDs) > 0 {
+		logger.Debug("agentLoop: attached document objectIDs (in order)=%v", documentObjectIDs)
 	}
 
 	// Step 1: Add user message to session
-	// ObjectIDs stored in record for persistence; dataURLs used for LLM context
+	// ObjectIDs stored in record for persistence; dataURLs used for LLM context.
+	// DocumentIDs (v0.5) are markdown / report references — the LLM sees them
+	// via anchor lines prepended in contextbuild.renderRecordContent, not
+	// as inline multimodal parts.
 	a.session.AddUserMessage(userMessage)
-	if len(objectIDs) > 0 || len(dataURLs) > 0 {
+	if len(objectIDs) > 0 || len(dataURLs) > 0 || len(documentObjectIDs) > 0 {
 		last := &a.session.Records[len(a.session.Records)-1]
 		last.ObjectIDs = objectIDs
 		last.ImageURLs = dataURLs // kept for LLM context (BuildMessages)
+		last.DocumentIDs = documentObjectIDs
 	}
 	_ = a.session.Save() // auto-save after user message
 

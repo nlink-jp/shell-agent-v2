@@ -223,12 +223,20 @@ func (b *Bindings) Send(message string) (string, error) {
 	return b.agent.Send(b.ctx, message)
 }
 
-// SendWithImages sends a user message with images to the agent.
-// Images are saved to objstore first; ObjectIDs are passed to the agent.
+// SendWithImages sends a user message with attachments to the agent.
+//
+// As of v0.5 the parameter is named imageDataURLs for backward
+// compatibility with the Wails-generated frontend binding, but the
+// slice may contain a mix of image and text/markdown data URLs.
+// Per-attachment routing happens inside via SaveDataURL → Type
+// inspection: images stay on the multimodal path (ImageURLs +
+// ObjectIDs), markdown / plain-text attachments flow into the
+// new DocumentIDs slice and surface to the LLM via anchor lines
+// prepended in the contextbuild render path.
 func (b *Bindings) SendWithImages(message string, imageDataURLs []string) (string, error) {
-	// Save images to objstore, collect IDs and data URLs for LLM
-	var objectIDs []string
-	var dataURLs []string
+	var imageObjectIDs []string
+	var imageOnlyDataURLs []string
+	var documentObjectIDs []string
 	sessionID := ""
 	if s := b.agent.CurrentSession(); s != nil {
 		sessionID = s.ID
@@ -239,10 +247,21 @@ func (b *Bindings) SendWithImages(message string, imageDataURLs []string) (strin
 			logger.Error("SaveDataURL: %v", err)
 			continue
 		}
-		objectIDs = append(objectIDs, meta.ID)
-		dataURLs = append(dataURLs, du) // keep data URL for LLM context
+		switch meta.Type {
+		case objstore.TypeImage:
+			imageObjectIDs = append(imageObjectIDs, meta.ID)
+			imageOnlyDataURLs = append(imageOnlyDataURLs, du)
+		case objstore.TypeMarkdown:
+			documentObjectIDs = append(documentObjectIDs, meta.ID)
+		default:
+			// SaveDataURL only emits TypeImage / TypeMarkdown /
+			// TypeBlob today; an unexpected TypeBlob from the
+			// chat input is a frontend misroute — log and skip
+			// rather than dumping random bytes into the LLM.
+			logger.Error("SendWithImages: attachment with unexpected type %q (mime=%s); skipping", meta.Type, meta.MimeType)
+		}
 	}
-	return b.agent.SendWithImages(b.ctx, message, objectIDs, dataURLs)
+	return b.agent.SendWithAttachments(b.ctx, message, imageObjectIDs, imageOnlyDataURLs, documentObjectIDs)
 }
 
 // Abort cancels the current agent task.

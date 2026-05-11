@@ -289,6 +289,45 @@ func TestListObjects_LinesTokensColumns(t *testing.T) {
 	}
 }
 
+// TestAgent_SendWithAttachments_PopulatesDocumentIDs pins the
+// v0.5 plumbing: a SendWithAttachments call carrying a non-empty
+// documentObjectIDs slice writes those IDs to Record.DocumentIDs
+// on the new user record. The agent's contextbuild ObjectLookup
+// then resolves them into anchor lines on every subsequent turn;
+// this test only covers the population step (anchor injection is
+// covered by the contextbuild render tests).
+func TestAgent_SendWithAttachments_PopulatesDocumentIDs(t *testing.T) {
+	// Reuse the same fixture used by the analyze-text tests.
+	a, mdMeta, _ := newTextToolsTestAgent(t, objstore.TypeMarkdown, "text/markdown", "hi\n")
+
+	// Stub doesn't actually need to honour the message — it returns
+	// the constant JSON response from the fixture for every Chat
+	// call. We just need SendWithAttachments to run far enough to
+	// append the user record. Use a very short context so the
+	// LLM loop terminates promptly.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	_, _ = a.SendWithAttachments(ctx, "summarise this", nil, nil, []string{mdMeta.ID})
+
+	if a.session == nil {
+		t.Fatal("session unexpectedly nil after SendWithAttachments")
+	}
+	// Find the user record we just added; it must carry DocumentIDs.
+	var userRec *memory.Record
+	for i := range a.session.Records {
+		if a.session.Records[i].Role == "user" && a.session.Records[i].Content == "summarise this" {
+			userRec = &a.session.Records[i]
+			break
+		}
+	}
+	if userRec == nil {
+		t.Fatal("user record not found in session")
+	}
+	if len(userRec.DocumentIDs) != 1 || userRec.DocumentIDs[0] != mdMeta.ID {
+		t.Errorf("Record.DocumentIDs = %v, want [%s]", userRec.DocumentIDs, mdMeta.ID)
+	}
+}
+
 // TestParseLineRange — table-driven coverage of the range
 // parser, including clamps and inverted-range error.
 func TestParseLineRange(t *testing.T) {
