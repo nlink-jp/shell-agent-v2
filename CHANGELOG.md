@@ -5,6 +5,107 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.1] - 2026-05-12
+
+Manual-smoke follow-up to v0.5.0. Four parallel-list / wiring
+bugs the v0.5.0 design note had blockers for but the v0.5.0
+implementation missed, plus filename-passthrough plumbing that
+the design assumed but didn't spell out.
+
+### Fixed
+
+- **`analyze-text` / `grep-text` / `get-text` were returning
+  `Error: unknown tool "analyze-text"`.** The three tools had
+  inner-dispatcher cases, MITL defaults, and ToolDef
+  registrations, but the outer `agent.executeTool` switch's
+  case label that forwards analysis tools to
+  `executeAnalysisTool` was not updated for v0.5. Tools fell
+  through to the `default` branch and returned the
+  "unknown tool" error from agent.go:1834. Fix is a one-line
+  case-label addition.
+- **Chat bubble for an attached markdown showed the
+  broken-image "?" placeholder.** `MessageItem.tsx` rendered
+  every URL in `msg.imageUrls` via `<img src=...>` — fine for
+  image MIMEs, but `data:text/markdown;base64,...` URLs can't
+  be decoded as bitmaps, so the browser falls back to the
+  broken-image glyph. New branch in MessageItem emits a
+  labelled document card for non-image data URLs (later
+  superseded by the dedicated `msg.documents` field added in
+  the filename-passthrough fix below).
+- **Settings → Tools tab did not list `analyze-text` /
+  `grep-text` / `get-text`.** `agent.ListTools()` is a
+  hand-written parallel list to `analysisTools()` and the
+  MITL toggle UI is populated from it; the three new tools
+  weren't added in v0.5.0. The pattern is a known source of
+  drift (the same parallel-list trap also caused the outer
+  dispatcher bug above), to be addressed by a refactor in a
+  later release. For now, the three names are added by hand.
+- **Data panel and chat bubble showed the 32-hex object ID
+  instead of the original filename for v0.5 markdown
+  attachments.** `objstore.SaveDataURL` didn't accept an
+  `origName` parameter, so every SaveDataURL-produced object
+  landed in objstore with `orig_name=""`, and the UI's
+  "orig_name || id" fallback surfaced the bare ID.
+- **Chat bubble had no click-to-preview for markdown
+  attachments, and the label was a generic "markdown"
+  regardless of which file was attached.** New `msg.documents`
+  field carries `{id?, name, dataURL?}` triples; MessageItem
+  renders each as a `<button>` card with `📝 <filename>` and a
+  click handler that opens the existing ReportViewer (decoding
+  the data URL locally for live messages, fetching via
+  `GetObjectText` for restored messages).
+- **Session restore lost markdown attachments entirely.**
+  `bindings.LoadSession`'s user-record case copied
+  `Record.ObjectIDs` into `MessageData.ObjectIDs` but ignored
+  `Record.DocumentIDs` (the v0.5 field added in C2). New
+  `MessageData.Documents []AttachedDocument` field; the
+  loader resolves each ID to its OrigName via `objstore.Get`
+  so the bubble can render the filename immediately, no
+  ListObjects round-trip per restored bubble.
+- **Pending-attachment card in the chat input truncated
+  long filenames mid-character.** The doc card inherited the
+  60×60 square box from the image-thumbnail pattern with a
+  10px centred font, which clipped a name like
+  `audit_log_2026-05-12.md` into "audit_lo…" — visually
+  ambiguous enough that the truncated form could be mistaken
+  for a 32-hex object ID. Doc cards now widen to `auto`
+  (90-220px), 12px left-aligned, with `text-overflow:
+  ellipsis` and a `title` attribute carrying the full name.
+
+### Added
+
+- **`objstore.SaveDataURL(dataURL, origName, sessionID)`** —
+  origName parameter is the user-visible filename, threaded
+  into `Store()`'s OrigName field. SaveImage (programmatic
+  paths with no filename) passes `""` and continues to fall
+  back to ID display in the data panel.
+- **`bindings.SendWithImages(message, dataURLs, names)`** —
+  parallel `names` slice with per-attachment filenames.
+  Wails-generated frontend binding regenerated on `make
+  build`; the hand-written `src/bindings.ts` mirror is
+  updated to match.
+- **`ChatInput.PendingAttachment { dataURL, name }`** —
+  exported type replacing the previous plain
+  `pendingImages: string[]`. `addImages` populates `name`
+  from `File.name` (empty for clipboard-paste images, which
+  was the v0.4.x behaviour).
+- **`ChatMessage.documents` / `MessageData.Documents`** —
+  Mirrored on both sides of the binding so live and restored
+  messages share a rendering path.
+
+### Compatibility
+
+- **Public API**: `objstore.SaveDataURL` and
+  `bindings.SendWithImages` signatures changed. `SaveImage`
+  signature is unchanged (still takes only a data URL).
+  External tooling that called `SaveDataURL` directly will
+  need a "" passed for the new origName slot.
+- **On-disk format**: backward compatible. Old chat.json
+  records with no `document_ids` field load normally; their
+  user bubbles show no document attachments (matching
+  pre-v0.5 behaviour). Old objstore entries with empty
+  `orig_name` continue to surface the object ID in the UI.
+
 ## [0.5.0] - 2026-05-12
 
 Markdown attachment subsystem — `.md` / `.txt` files can be
