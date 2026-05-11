@@ -248,6 +248,47 @@ func TestTextTools_ResolveObjectPrefix(t *testing.T) {
 	}
 }
 
+// TestListObjects_LinesTokensColumns — when a session contains
+// text-bearing objects (markdown / report), the list-objects
+// output includes Lines and Tokens columns. Image / blob entries
+// still omit those columns so the format stays compact.
+func TestListObjects_LinesTokensColumns(t *testing.T) {
+	// Trailing newline → bytes.Count('\n')+1 yields 4 (last element
+	// of strings.Split is an empty trailing line). This matches the
+	// internal get-text semantics (strings.Split based) so the line
+	// count surfaced to the LLM addresses the same lines get-text
+	// can return.
+	body := "line one\nline two\nline three\n"
+	a, mdMeta, _ := newTextToolsTestAgent(t, objstore.TypeMarkdown, "text/markdown", body)
+
+	// Also store a non-text object so we can confirm columns omit.
+	imgMeta, err := a.objects.Store(strings.NewReader("\x89PNG\r\n\x1a\nfake"), objstore.TypeImage, "image/png", "i.png", "sess-text")
+	if err != nil {
+		t.Fatalf("Store image: %v", err)
+	}
+
+	out := a.toolListObjects("{}")
+
+	// Markdown row carries Lines/Tokens.
+	if !strings.Contains(out, "Lines: 4") {
+		t.Errorf("expected 'Lines: 4' in markdown row; out=%q", out)
+	}
+	if !strings.Contains(out, mdMeta.ID) {
+		t.Errorf("expected markdown ID %s in output", mdMeta.ID)
+	}
+
+	// Image row does NOT carry Lines/Tokens. The simplest assertion
+	// is that the substring "Lines:" appears exactly once (in the
+	// markdown row) — if it appeared twice the image would have
+	// erroneously got the columns too.
+	if strings.Count(out, "Lines:") != 1 {
+		t.Errorf("Lines should appear exactly once (markdown only); out=%q", out)
+	}
+	if !strings.Contains(out, imgMeta.ID) {
+		t.Errorf("expected image ID %s in output", imgMeta.ID)
+	}
+}
+
 // TestParseLineRange — table-driven coverage of the range
 // parser, including clamps and inverted-range error.
 func TestParseLineRange(t *testing.T) {

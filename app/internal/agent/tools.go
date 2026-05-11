@@ -126,13 +126,13 @@ func analysisTools(hasData, hideUntilDataLoaded bool) []llm.ToolDef {
 		},
 		{
 			Name:        "list-objects",
-			Description: "List all objects (images, files, reports) in the current session. Returns ID, type, filename, and creation time.",
+			Description: "List all objects (images, files, reports, markdown attachments) in the current session. Returns ID, type, filename, size, and creation time. For text-bearing types (markdown / report) the output also includes Lines and Tokens so you can plan whether to read the whole document via get-text or summarise via analyze-text without first having to count lines yourself.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"type_filter": map[string]any{
 						"type":        "string",
-						"enum":        []string{"image", "blob", "report", "all"},
+						"enum":        []string{"image", "blob", "report", "markdown", "all"},
 						"description": "Filter by object type (default: all)",
 					},
 				},
@@ -684,8 +684,18 @@ func (a *Agent) toolListObjects(argsJSON string) string {
 		if name == "" {
 			name = o.ID
 		}
-		sb.WriteString(fmt.Sprintf("- ID: %s | Type: %s | Name: %s | Size: %d bytes | Created: %s\n",
-			o.ID, o.Type, name, o.Size, o.CreatedAt.Format("2006-01-02 15:04:05")))
+		sb.WriteString(fmt.Sprintf("- ID: %s | Type: %s | Name: %s | Size: %d bytes",
+			o.ID, o.Type, name, o.Size))
+		// v0.5: surface Lines/Tokens for text-bearing types so the
+		// LLM can plan get-text ranges and analyze-text invocations
+		// without copying the file into the sandbox just to wc -l.
+		// We gate on Lines > 0 (rather than Type) so legacy reports
+		// from pre-v0.5 (Lines unset) simply omit the columns; the
+		// Load() backfill fills them on first launch with v0.5.
+		if o.Lines > 0 {
+			sb.WriteString(fmt.Sprintf(" | Lines: %d | Tokens: %d", o.Lines, o.Tokens))
+		}
+		sb.WriteString(fmt.Sprintf(" | Created: %s\n", o.CreatedAt.Format("2006-01-02 15:04:05")))
 	}
 	return sb.String()
 }

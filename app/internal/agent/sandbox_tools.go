@@ -57,7 +57,7 @@ func sandboxToolDefs() []llm.ToolDef {
 		},
 		{
 			Name:        "sandbox-copy-object",
-			Description: "Copy a stored object (image / blob / report) from the session object store into /work/<path> inside this session's sandbox. Use to bring user-uploaded images or earlier reports into the sandbox for analysis. Use list-objects to find a valid object_id.",
+			Description: "Copy a stored object (image / blob / report / markdown) from the session object store into /work/<path> inside this session's sandbox. Use to bring user-uploaded images, markdown attachments, or earlier reports into the sandbox for analysis (e.g. running ripgrep or pandoc against an attached document). Use list-objects to find a valid object_id.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -74,7 +74,7 @@ func sandboxToolDefs() []llm.ToolDef {
 				"type": "object",
 				"properties": map[string]any{
 					"path": map[string]any{"type": "string", "description": "Source path under /work."},
-					"type": map[string]any{"type": "string", "description": "image | blob | report. Defaults to inference from MIME."},
+					"type": map[string]any{"type": "string", "description": "image | blob | report | markdown. Defaults to inference from MIME (image/* → image, text/markdown → report, otherwise blob). Pass \"markdown\" explicitly when staging user-supplied source material rather than agent-generated content."},
 					"name": map[string]any{"type": "string", "description": "Friendly name (orig_name); defaults to filename."},
 				},
 				"required": []string{"path"},
