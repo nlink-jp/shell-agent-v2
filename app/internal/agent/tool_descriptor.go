@@ -206,6 +206,14 @@ func (a *Agent) dispatchDescriptor(ctx context.Context, tc llm.ToolCall) (string
 	if d.Source == "analysis" && a.analysis == nil {
 		return "Error: no analysis engine available", ActivityStatusError, true
 	}
+	// Sandbox-source tools require a live engine. Match the
+	// existing sandboxHandle nil-check wording so an LLM that
+	// keyed on "sandbox is not enabled" continues to see the
+	// same string. The deeper sandboxHandle check stays in
+	// place as defense in depth.
+	if d.Source == "sandbox" && a.sandbox == nil {
+		return "Error: sandbox is not enabled", ActivityStatusError, true
+	}
 	// MITL gate.
 	if a.IsToolMITLRequired(tc.Name) {
 		category := a.toolMITLCategory(tc.Name)
@@ -237,6 +245,16 @@ func (a *Agent) descriptorToolDefs(hasData, legacyMode bool) []llm.ToolDef {
 		// so calling analyse-data with no engine never even
 		// surfaced as an LLM-visible option. Preserve that.
 		if d.Source == "analysis" && a.analysis == nil {
+			continue
+		}
+		// Sandbox-source tools depend on a.sandbox being
+		// non-nil. Pre-refactor: buildToolDefs guarded the
+		// sandboxToolDefs() call with `if a.sandbox != nil`.
+		// Sandbox lifecycle is dynamic (RestartSandbox can
+		// flip a.sandbox at runtime), so this check happens
+		// at view-function time rather than at descriptor
+		// registration time.
+		if d.Source == "sandbox" && a.sandbox == nil {
 			continue
 		}
 		// Data gating: legacy hide-until-data-loaded mode

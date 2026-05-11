@@ -198,10 +198,19 @@ func New(cfg *config.Config) *Agent {
 	// tools first (resolve-date / list-objects / get-object /
 	// register-object) so the Settings UI lists them in a
 	// stable order; then analysis tools (load-data, ...,
-	// analyze-data + the 3 v0.5 text tools). Sandbox tools
-	// will join in Phase 3 via a.sandboxDescriptors().
+	// analyze-data + the 3 v0.5 text tools); finally sandbox
+	// tools.
+	//
+	// Sandbox descriptors register unconditionally — the
+	// engine's lifecycle is dynamic (RestartSandbox can flip
+	// a.sandbox at any time when the user toggles sandbox
+	// state in Settings), so we keep the registry stable and
+	// gate visibility at the view functions instead. The
+	// pattern mirrors how analysis tools handle their
+	// `a.analysis == nil` window.
 	a.toolDescriptors = append(a.toolDescriptors, a.builtinDescriptors()...)
 	a.toolDescriptors = append(a.toolDescriptors, a.analysisDescriptors()...)
+	a.toolDescriptors = append(a.toolDescriptors, a.sandboxDescriptors()...)
 	a.rebuildToolDescriptorIndex()
 	return a
 }
@@ -1004,6 +1013,14 @@ func (a *Agent) ListTools() []ToolInfoItem {
 	hasData := a.analysis != nil && a.analysis.HasData()
 	hideUntilDataLoaded := a.cfg.Tools.HideAnalysisToolsUntilDataLoaded
 	for _, d := range a.toolDescriptors {
+		// Hide sandbox descriptors when the engine isn't up,
+		// matching the v0.5 ListTools gate that wrapped the
+		// hardcoded sandboxToolDefs() iteration in
+		// `if a.sandbox != nil`. Same dynamic check the
+		// descriptorToolDefs view applies.
+		if d.Source == "sandbox" && a.sandbox == nil {
+			continue
+		}
 		if d.HideUntilDataLoaded && hideUntilDataLoaded && !hasData {
 			continue
 		}
@@ -1020,12 +1037,13 @@ func (a *Agent) ListTools() []ToolInfoItem {
 		add(ToolInfoItem{Name: t.Name, Description: t.Description, Category: string(t.Category), Source: "shell"})
 	}
 
-	// Sandbox tools (all treated as "execute")
-	if a.sandbox != nil {
-		for _, td := range sandboxToolDefs() {
-			add(ToolInfoItem{Name: td.Name, Description: td.Description, Category: "execute", Source: "sandbox"})
-		}
-	}
+	// Sandbox tools are no longer iterated here — Phase 3b
+	// folded them into a.toolDescriptors, which the
+	// descriptor loop above already enumerates. The
+	// conditional registration in New() preserves the
+	// "sandbox-* entries only show when a.sandbox != nil"
+	// invariant (which v0.5 enforced via the `if a.sandbox != nil`
+	// gate at this call site).
 
 	// MCP guardian tools (all treated as "execute" — external service operations)
 	a.guardiansMu.RLock()
@@ -1743,19 +1761,13 @@ func (a *Agent) executeTool(ctx context.Context, tc llm.ToolCall) (string, Activ
 	}
 
 	// Below: tool sources that aren't in the descriptor
-	// registry — sandbox (prefix-routed), MCP guardians
-	// (dynamic per-server), and shell scripts (toolcall
-	// Registry). Order preserved from v0.5.
+	// registry — MCP guardians (dynamic per-server) and
+	// shell scripts (toolcall Registry). Order preserved
+	// from v0.5. Sandbox tools used to live here too via a
+	// strings.HasPrefix("sandbox-") branch; Phase 3b moved
+	// them into the descriptor registry, so dispatchDescriptor
+	// above already routes them.
 	{
-		// Sandbox tools (prefixed with "sandbox-")
-		if strings.HasPrefix(tc.Name, "sandbox-") {
-			if a.IsToolMITLRequired(tc.Name) {
-				if rejection := a.requestMITL(tc.Name, tc.Arguments, "execute"); rejection != "" {
-					return rejection, ActivityStatusError
-				}
-			}
-			return a.executeSandboxTool(ctx, tc.Name, tc.Arguments)
-		}
 		// Check MCP guardian tools (prefixed with "mcp__")
 		if strings.HasPrefix(tc.Name, "mcp__") {
 			// MITL for MCP: default on, can be overridden per tool
@@ -1842,10 +1854,13 @@ func (a *Agent) buildToolDefs() []llm.ToolDef {
 		})
 	}
 
-	// Add sandbox tools when the engine is running
-	if a.sandbox != nil {
-		tools = append(tools, sandboxToolDefs()...)
-	}
+	// Sandbox tools are no longer appended here — Phase 3b
+	// folded them into a.toolDescriptors, which
+	// descriptorToolDefs() already iterated above. The
+	// conditional registration in New() preserves the
+	// "sandbox tools only appear when a.sandbox != nil"
+	// invariant (which v0.5 enforced via the
+	// `if a.sandbox != nil` gate at this call site).
 
 	// Add MCP guardian tools
 	a.guardiansMu.RLock()
