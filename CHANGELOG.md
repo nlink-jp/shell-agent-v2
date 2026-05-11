@@ -5,6 +5,71 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.3] - 2026-05-11
+
+Sandbox UID-mapping fix — addresses a user report that
+`podman` container start fails on corporate-managed macOS
+accounts whose UID is mapped from Active Directory / LDAP
+to a value outside the rootless subuid range
+(e.g., `crun: setresuid to 202594884: Invalid argument`).
+Image build was already succeeding; only the container
+`run` step was affected.
+
+### Fixed
+
+- **`podman` engine path now uses keep-id userns remap.**
+  `internal/sandbox/cli.go::buildRunArgs` previously emitted
+  `--user $(id -u)` regardless of host UID magnitude. Large
+  host UIDs from LDAP/AD-mapped corporate macOS accounts fall
+  outside the rootless subuid range and `crun` fails its
+  `setresuid()` syscall with `EINVAL`. The fix splits the
+  flag emission per engine via a new `usePodmanUserns(binary)`
+  helper (parallel to the existing `useSELinuxRelabel`):
+  podman gets `--userns=keep-id:uid=1000,gid=1000` plus
+  `--user 1000:1000` (small in-namespace UID, host UID still
+  mapped through `keep-id` so `/work` file ownership is
+  preserved both directions); docker keeps the historical
+  `--user $(id -u)` behaviour. The defence-in-depth posture
+  from the v0.2.0 sandbox design (non-root container) is
+  preserved — the container process still runs as a non-root
+  user, just at UID 1000 inside its namespace instead of the
+  host UID directly.
+
+### Added
+
+- **Test coverage for both engine paths.** New unit tests in
+  `internal/sandbox/cli_test.go`:
+  - `TestBuildRunArgs_PodmanRemapsHostUID` asserts the
+    podman path emits both userns + user-1000 flags **and
+    never** passes the host UID through. Guards against a
+    silent regression to the old form.
+  - `TestBuildRunArgs_NonPodmanPassesHostUID` asserts the
+    docker path keeps the historical `--user $(id -u)`
+    behaviour and never emits `--userns`.
+  - `TestUsePodmanUserns` — basename-match table for the
+    engine detection helper (case-insensitive, full path
+    tolerant).
+
+### Documentation
+
+- New design note: [docs/en/sandbox-uid-mapping.md](docs/en/sandbox-uid-mapping.md)
+  / [docs/ja/sandbox-uid-mapping.ja.md](docs/ja/sandbox-uid-mapping.ja.md)
+  documenting the symptom, root cause, fix, podman version
+  requirement (4.3+, Nov 2022), and what is explicitly out of
+  scope. README + README.ja and AGENTS.md "Recent design notes"
+  sections updated.
+
+### Compatibility
+
+- **Podman ≥ 4.3** (Nov 2022) is now required for the
+  sandbox feature. Older Podman releases reject
+  `--userns=keep-id:uid=N,gid=N` and the agent surfaces the
+  podman error verbatim through the existing `sandbox: start
+  container:` wrap.
+- File ownership in `/work` is observably unchanged thanks
+  to `keep-id`'s symmetric mapping.
+- Docker users see no behaviour change at all.
+
 ## [0.4.2] - 2026-05-07
 
 Session deletion UX & safety release ([#6](https://github.com/nlink-jp/shell-agent-v2/issues/6)),
