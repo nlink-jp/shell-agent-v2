@@ -5,6 +5,76 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.5] - 2026-05-11
+
+Session-rename persistence fix — addresses a user report that
+renaming a session (active or freshly-created) appeared to
+work in the UI but reverted to the original title on the next
+launch.
+
+### Fixed
+
+- **Renaming the active session now persists.** Pre-fix,
+  `bindings.RenameSession` called `memory.RenameSession`
+  directly, which read `chat.json` from disk, mutated the
+  `Title` field, and wrote it back. The agent's in-memory
+  `a.session.Title` was never updated. Any subsequent
+  `a.session.Save()` (after a Send at `agent.go:1367`,
+  inside the agent loop at `:1470`, after a tool at `:1538`,
+  or from `generateTitleIfNeeded` at `:2065`) silently
+  overwrote the disk copy with the stale in-memory title,
+  and on next launch the user saw the original name.
+  (**Mode A**)
+- **Renaming a fresh "New Session" before the first message
+  no longer gets clobbered by auto-title generation.**
+  `generateTitleIfNeeded`'s `if a.session.Title != "New
+  Session"` guard reads the in-memory title, so a fresh
+  session that the user renamed before sending a message
+  still passed the guard with the stale `"New Session"`
+  value. The LLM-generated auto-title then overwrote the
+  user's choice. The fix updates `a.session.Title` in-memory
+  before the disk save, so the guard observes the new value
+  and skips. (**Mode B**)
+
+### Added
+
+- **`agent.RenameSession(sessionID, title) error`** — agent-
+  level wrapper that updates `a.session.Title` in-memory under
+  `a.mu` when `sessionID` names the active session, then calls
+  `a.session.Save()`. For non-active sessions (no in-memory
+  copy held) it delegates to `memory.RenameSession` as before.
+  No Busy gate — rename should work even during a long
+  `analyze-data` run, and `a.mu`'s brief hold is enough
+  because the agent loop never holds it across LLM calls.
+- **`bindings.RenameSession`** is now a thin pass-through to
+  `agent.RenameSession`, mirroring the v0.4.0+ pattern where
+  any operation that touches per-session state routes through
+  the agent layer (parallels `Export` / `Import` / `Delete`).
+- **Tests:**
+  - `TestRenameActiveSession_SurvivesSubsequentSave` —
+    Mode A regression: rename, append a record, call
+    `a.session.Save()`, reload from disk, assert renamed.
+  - `TestRenameActiveSession_GuardsAutoTitleGen` — Mode B
+    regression: rename a "New Session", call
+    `generateTitleIfNeeded`, assert it returns nil
+    (guard fires) and the on-disk title is the user's choice.
+  - `TestRenameNonActiveSession_StillWorks` — no-regression:
+    rename a session the agent has not loaded, assert disk
+    holds the new title and the active session's in-memory
+    title is undisturbed.
+
+### Compatibility
+
+- Public API: purely additive (one new method). No removals
+  or signature changes. The frontend binding signature is
+  unchanged.
+- On-disk format: unchanged.
+- Concurrency: rename now holds `a.mu` briefly; this matches
+  the existing discipline in `agent.DeleteSession` (v0.4.2)
+  and `agent.ExportSession` (v0.4.0). Long-running tools
+  like `analyze-data` are not affected because the agent
+  loop releases `a.mu` for every LLM call.
+
 ## [0.4.4] - 2026-05-11
 
 `analyze-data` row-cap fix — addresses a user report that
