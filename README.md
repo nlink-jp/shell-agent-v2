@@ -30,6 +30,7 @@ and hybrid LLM backend (Local + Vertex AI).
 - **Session import / export (v0.4.0)** — package a complete session (chat, session memory, findings, summaries, sandbox `work/`, analysis DuckDB, and every objstore object the session owns) into a single `.shellagent` ZIP bundle and re-import it on the same or a different machine. Per-row Export icon in the sidebar, Import Chat button in the bottom-nav, `/export` and `/import` slash commands. Privacy flag preserved across the round-trip; object IDs are always regenerated on import with bounded reference rewriting in `chat.json` and `summaries.json`. See [session-import-export.md](docs/en/session-import-export.md).
 - **In-place tool progress (v0.4.1)** — long-running tools (currently `analyze-data`) update a single chat-pane bubble in place via the `tool_progress` activity event, rather than spawning a fresh "running" pill per progress tick. The bubble matches by `tool_call_id`, so future parallel-tool work won't cross-contaminate. See [tool-progress-events.md](docs/en/tool-progress-events.md).
 - **Session delete safeguards (v0.4.2)** — the row's ✕ button arms a 6-second `Confirm` state (red-emphasis text matching the existing bulk-delete pattern) before the destructive call fires; while the delete is in flight the row greys with a `↻ Deleting…` spinner. The agent state machine holds Busy for the duration so concurrent Send / Load / Export / Import return `ErrBusy` instead of racing the half-deleted session directory. See [session-delete-ux.md](docs/en/session-delete-ux.md).
+- **Sandbox UID mapping fix (v0.4.3)** — on `podman` the container is now started with `--userns=keep-id:uid=1000,gid=1000` + `--user 1000:1000` instead of `--user $(id -u)`. Large host UIDs (e.g., the 200M+ values produced by Active-Directory / LDAP-mapped corporate macOS accounts) used to fall outside the rootless subuid range and crash `crun` with `setresuid: Invalid argument` at container start; the keep-id remap pulls them into a small in-namespace UID while preserving `/work` file ownership. Docker path is unchanged. See [sandbox-uid-mapping.md](docs/en/sandbox-uid-mapping.md).
 - **Temporal context** — enriched date/time injection + `resolve-date` system tool
 
 ## Installation
@@ -156,6 +157,7 @@ Recent design notes (post-v0.2.0 features):
 - [**Session import / export (v0.4.0)**](docs/en/session-import-export.md) — `.shellagent` bundle format, ID regeneration, race-condition catalogue
 - [**Tool progress events (v0.4.1)**](docs/en/tool-progress-events.md) — `tool_progress` activity event for in-place bubble updates
 - [**Session delete UX (v0.4.2)**](docs/en/session-delete-ux.md) — 2-click confirm, deleting state, agent state-machine integration
+- [**Sandbox UID mapping (v0.4.3)**](docs/en/sandbox-uid-mapping.md) — keep-id remap so corp/LDAP-mapped large host UIDs no longer break `podman run`
 
 Past design notes are kept under [`docs/en/history/`](docs/en/history/)
 as the audit trail behind v0.2.0. Some no longer reflect current

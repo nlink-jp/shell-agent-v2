@@ -126,7 +126,7 @@ func (e *cliEngine) EnsureContainer(ctx context.Context, sessionID string) error
 		return err
 	}
 
-	args := buildRunArgs(e.cfg, name, e.WorkDir(sessionID), useSELinuxRelabel(bin))
+	args := buildRunArgs(e.cfg, name, e.WorkDir(sessionID), useSELinuxRelabel(bin), usePodmanUserns(bin))
 	if err := runCommand(ctx, bin, args...); err != nil {
 		return fmt.Errorf("sandbox: start container: %w", err)
 	}
@@ -424,9 +424,18 @@ func useSELinuxRelabel(binary string) bool {
 	return strings.EqualFold(filepath.Base(binary), "podman")
 }
 
+// usePodmanUserns reports whether to remap the host UID into the
+// container's user namespace via `--userns=keep-id:uid=1000,gid=1000`
+// (instead of passing the host UID directly to `--user`). Only
+// applies to podman; docker uses a different rootless model and
+// keeps the existing `--user $(id -u)` behaviour.
+func usePodmanUserns(binary string) bool {
+	return strings.EqualFold(filepath.Base(binary), "podman")
+}
+
 // buildRunArgs builds the `podman run` / `docker run` argv (without
 // the binary prefix). Exposed for unit testing.
-func buildRunArgs(cfg Config, name, workDir string, selinuxRelabel bool) []string {
+func buildRunArgs(cfg Config, name, workDir string, selinuxRelabel, podmanUserns bool) []string {
 	mountSpec := workDir + ":/work:rw"
 	if selinuxRelabel {
 		mountSpec = workDir + ":/work:Z"
@@ -437,7 +446,17 @@ func buildRunArgs(cfg Config, name, workDir string, selinuxRelabel bool) []strin
 		"--label", containerLabel,
 		"--workdir", "/work",
 		"--volume", mountSpec,
-		"--user", strconv.Itoa(os.Getuid()),
+	}
+	if podmanUserns {
+		// Remap the host UID to UID 1000 inside the container.
+		// Without this, large host UIDs (e.g., 200M+ from
+		// LDAP/AD-mapped corporate macOS accounts) fall outside
+		// the rootless subuid range and crun fails with
+		// `setresuid: Invalid argument`. keep-id preserves /work
+		// file ownership in both directions.
+		args = append(args, "--userns", "keep-id:uid=1000,gid=1000", "--user", "1000:1000")
+	} else {
+		args = append(args, "--user", strconv.Itoa(os.Getuid()))
 	}
 	if !cfg.Network {
 		args = append(args, "--network", "none")

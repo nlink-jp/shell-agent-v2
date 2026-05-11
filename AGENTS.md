@@ -196,6 +196,7 @@ All implementation must follow these design documents.
 - **docs/en/session-import-export.md** — `.shellagent` bundle format, ID regeneration on import, race-condition catalogue
 - **docs/en/tool-progress-events.md** — `tool_progress` activity event for in-place bubble updates
 - **docs/en/session-delete-ux.md** — 2-click confirm + per-row Deleting state + state-machine integration
+- **docs/en/sandbox-uid-mapping.md** — keep-id userns remap so corp/LDAP-mapped large host UIDs no longer break `podman run`
 
 **History (audit trail behind v0.2.0):**
 - **agent-data-flow.md** — agent loop, context budget, MITL, events, tool confirmation

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -17,7 +18,7 @@ func TestBuildRunArgs_Defaults(t *testing.T) {
 		MemoryLimit:    "1g",
 		TimeoutSeconds: 60,
 	}
-	got := buildRunArgs(cfg, "shell-agent-v2-test", "/tmp/work", true)
+	got := buildRunArgs(cfg, "shell-agent-v2-test", "/tmp/work", true, true)
 
 	mustHaveSeq := [][]string{
 		{"run", "-d"},
@@ -25,6 +26,8 @@ func TestBuildRunArgs_Defaults(t *testing.T) {
 		{"--label", containerLabel},
 		{"--workdir", "/work"},
 		{"--volume", "/tmp/work:/work:Z"},
+		{"--userns", "keep-id:uid=1000,gid=1000"},
+		{"--user", "1000:1000"},
 		{"--network", "none"},
 		{"--cpus", "2"},
 		{"--memory", "1g"},
@@ -45,7 +48,7 @@ func TestBuildRunArgs_Defaults(t *testing.T) {
 
 func TestBuildRunArgs_NetworkOnOmitsNoneFlag(t *testing.T) {
 	cfg := Config{Engine: "podman", Image: "i", Network: true, CPULimit: "1", MemoryLimit: "256m", TimeoutSeconds: 30}
-	got := buildRunArgs(cfg, "n", "/w", true)
+	got := buildRunArgs(cfg, "n", "/w", true, true)
 	if slices.Contains(got, "none") {
 		t.Errorf("network=true must not append --network none: %v", got)
 	}
@@ -53,7 +56,7 @@ func TestBuildRunArgs_NetworkOnOmitsNoneFlag(t *testing.T) {
 
 func TestBuildRunArgs_OmitsEmptyLimits(t *testing.T) {
 	cfg := Config{Engine: "podman", Image: "i", Network: false, TimeoutSeconds: 30}
-	got := buildRunArgs(cfg, "n", "/w", true)
+	got := buildRunArgs(cfg, "n", "/w", true, true)
 	if slices.Contains(got, "--cpus") {
 		t.Errorf("empty CPULimit should omit flag; got %v", got)
 	}
@@ -70,8 +73,8 @@ func TestBuildRunArgs_OmitsEmptyLimits(t *testing.T) {
 // labels on shared parents.
 func TestBuildRunArgs_VolumeFlagHonoursSelinuxRelabel(t *testing.T) {
 	cfg := Config{Engine: "podman", Image: "i", Network: false, TimeoutSeconds: 30}
-	withZ := buildRunArgs(cfg, "n", "/w", true)
-	withoutZ := buildRunArgs(cfg, "n", "/w", false)
+	withZ := buildRunArgs(cfg, "n", "/w", true, true)
+	withoutZ := buildRunArgs(cfg, "n", "/w", false, true)
 
 	if !slices.Contains(withZ, "/w:/work:Z") {
 		t.Errorf("selinuxRelabel=true should use :Z; got %v", withZ)
@@ -81,6 +84,65 @@ func TestBuildRunArgs_VolumeFlagHonoursSelinuxRelabel(t *testing.T) {
 	}
 	if slices.Contains(withoutZ, "/w:/work:Z") {
 		t.Errorf("selinuxRelabel=false must NOT include :Z; got %v", withoutZ)
+	}
+}
+
+// TestBuildRunArgs_PodmanRemapsHostUID asserts that, on podman,
+// we route through `--userns=keep-id:uid=1000,gid=1000` and run
+// the container as UID 1000 — never passing the host UID through
+// to `--user`. This keeps large host UIDs (e.g., LDAP-mapped
+// corporate macOS accounts where Getuid()=200M+) inside the
+// rootless subuid range and avoids `crun: setresuid: Invalid
+// argument` at container start.
+func TestBuildRunArgs_PodmanRemapsHostUID(t *testing.T) {
+	cfg := Config{Engine: "podman", Image: "i", Network: false, TimeoutSeconds: 30}
+	got := buildRunArgs(cfg, "n", "/w", false, true)
+	if !containsSeq(got, []string{"--userns", "keep-id:uid=1000,gid=1000"}) {
+		t.Errorf("podman path must request keep-id userns remap; got %v", got)
+	}
+	if !containsSeq(got, []string{"--user", "1000:1000"}) {
+		t.Errorf("podman path must run container as UID 1000; got %v", got)
+	}
+	hostUID := strconv.Itoa(os.Getuid())
+	if slices.Contains(got, hostUID) {
+		t.Errorf("podman path must not pass host UID %s through to --user; got %v", hostUID, got)
+	}
+}
+
+// TestBuildRunArgs_NonPodmanPassesHostUID asserts that the docker
+// path keeps the existing `--user $(id -u)` behaviour. Docker's
+// rootless model differs from podman's; the keep-id syntax is
+// podman-specific and would be rejected by docker.
+func TestBuildRunArgs_NonPodmanPassesHostUID(t *testing.T) {
+	cfg := Config{Engine: "docker", Image: "i", Network: false, TimeoutSeconds: 30}
+	got := buildRunArgs(cfg, "n", "/w", false, false)
+	if slices.Contains(got, "--userns") {
+		t.Errorf("docker path must not emit --userns; got %v", got)
+	}
+	hostUID := strconv.Itoa(os.Getuid())
+	if !containsSeq(got, []string{"--user", hostUID}) {
+		t.Errorf("docker path must pass host UID %s to --user; got %v", hostUID, got)
+	}
+}
+
+// TestUsePodmanUserns asserts the binary basename detection
+// matches podman (case-insensitively) and rejects docker /
+// arbitrary other binaries.
+func TestUsePodmanUserns(t *testing.T) {
+	cases := map[string]bool{
+		"podman":            true,
+		"/usr/bin/podman":   true,
+		"/opt/homebrew/bin/podman": true,
+		"Podman":            true, // case-insensitive
+		"docker":            false,
+		"/usr/local/bin/docker": false,
+		"nerdctl":           false,
+		"":                  false,
+	}
+	for in, want := range cases {
+		if got := usePodmanUserns(in); got != want {
+			t.Errorf("usePodmanUserns(%q) = %v, want %v", in, got, want)
+		}
 	}
 }
 
