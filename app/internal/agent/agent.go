@@ -995,34 +995,24 @@ func (a *Agent) ListTools() []ToolInfoItem {
 		items = append(items, item)
 	}
 
-	// Builtin tools
-	add(ToolInfoItem{Name: "resolve-date", Description: "Resolve relative date expressions", Category: "read", Source: "builtin"})
-
-	// Analysis tools. Mirrors the dispatcher's analysisTools() —
-	// default exposes all 11 every round so the LLM can plan multi-
-	// step workflows; legacy filter behaviour is preserved behind
-	// cfg.Tools.HideAnalysisToolsUntilDataLoaded for users on
-	// weaker local backends. See docs/en/agent-tool-visibility.md.
+	// v0.6: builtin + analysis tools all come from the
+	// descriptor registry. Pre-refactor this section
+	// hand-listed each tool's description / category /
+	// source — every new tool needed an edit here too,
+	// causing the v0.5.1 "Settings tab missing tool" drift
+	// bug. Now the registry is the single source.
 	hasData := a.analysis != nil && a.analysis.HasData()
 	hideUntilDataLoaded := a.cfg.Tools.HideAnalysisToolsUntilDataLoaded
-	add(ToolInfoItem{Name: "load-data", Description: "Load a CSV/JSON/JSONL file from a host path into the analysis database as a table", Category: "read", Source: "analysis"})
-	add(ToolInfoItem{Name: "reset-analysis", Description: "Drop every table in the current session's analysis database (destructive)", Category: "write", Source: "analysis"})
-	add(ToolInfoItem{Name: "create-report", Description: "Render a markdown report and save it to the session's object store", Category: "read", Source: "analysis"})
-	add(ToolInfoItem{Name: "list-objects", Description: "List every object (image / blob / report / markdown) stored in the current session, with type, MIME, name, size, and creation time. Markdown / report types also surface Lines / Tokens.", Category: "read", Source: "analysis"})
-	add(ToolInfoItem{Name: "get-object", Description: "Retrieve an object's content by ID (32-hex; legacy 12-hex IDs still work). Images come back as a marker the chat resolves; text/data returns inline", Category: "read", Source: "analysis"})
-	add(ToolInfoItem{Name: "register-object", Description: "Move a file from the session work directory ($SHELL_AGENT_WORK_DIR / sandbox /work) into the central object store and return an object:<ID> the chat can render. No-sandbox equivalent of sandbox-register-object.", Category: "write", Source: "analysis"})
-	add(ToolInfoItem{Name: "analyze-text", Description: "Sliding-window summarisation + finding extraction over a markdown / report objstore object. Reuses the analyze-data summarizer with a text chunker upstream (v0.5).", Category: "read", Source: "analysis"})
-	add(ToolInfoItem{Name: "grep-text", Description: "RE2 regex search across a markdown / report object's content. Returns line-numbered hits with configurable context (v0.5).", Category: "read", Source: "analysis"})
-	add(ToolInfoItem{Name: "get-text", Description: "Read a specific line range from a markdown / report object verbatim, with line numbers prefixed for unambiguous citation (v0.5).", Category: "read", Source: "analysis"})
-	if hasData || !hideUntilDataLoaded {
-		add(ToolInfoItem{Name: "describe-data", Description: "Show columns, row count, and saved description for a table; optionally set a description", Category: "read", Source: "analysis"})
-		add(ToolInfoItem{Name: "query-sql", Description: "Run a SELECT you write yourself and return raw rows — fastest, no LLM round-trip", Category: "read", Source: "analysis"})
-		add(ToolInfoItem{Name: "query-preview", Description: "Natural-language question → LLM-generated SQL → executed → returns SQL + rows", Category: "read", Source: "analysis"})
-		add(ToolInfoItem{Name: "suggest-analysis", Description: "Brainstorm 3-5 analysis angles with sample SQL (does NOT execute)", Category: "read", Source: "analysis"})
-		add(ToolInfoItem{Name: "quick-summary", Description: "SQL → execute → LLM-generated narrative summary of patterns/outliers", Category: "read", Source: "analysis"})
-		add(ToolInfoItem{Name: "list-tables", Description: "List every loaded table with its row count and column list", Category: "read", Source: "analysis"})
-		add(ToolInfoItem{Name: "promote-finding", Description: "Save an insight to the cross-session global Findings store", Category: "write", Source: "analysis"})
-		add(ToolInfoItem{Name: "analyze-data", Description: "Sliding-window deep analysis: chunks the table, asks the LLM per chunk, accumulates findings, returns a markdown report. Heaviest analysis tool (multiple LLM calls).", Category: "read", Source: "analysis"})
+	for _, d := range a.toolDescriptors {
+		if d.HideUntilDataLoaded && hideUntilDataLoaded && !hasData {
+			continue
+		}
+		add(ToolInfoItem{
+			Name:        d.Name,
+			Description: d.Description,
+			Category:    d.Category,
+			Source:      d.Source,
+		})
 	}
 
 	// Shell script tools
