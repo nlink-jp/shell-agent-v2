@@ -349,7 +349,25 @@ func (s *Store) DeleteBySession(sessionID string) error {
 	return nil
 }
 
+// MaxAttachmentBytes caps a single SaveDataURL ingest. Larger
+// payloads are rejected before the base64 decode result is handed
+// to Store(). 50 MB is generous for markdown / images and well
+// below the size at which the data-URL round-trip through Wails
+// becomes painful. Larger content should go via sandbox-register
+// -object after the user manually drops the file into /work.
+const MaxAttachmentBytes = 50 * 1024 * 1024
+
 // SaveDataURL parses a data URL and stores the binary data.
+//
+// Type inference from MIME:
+//   - image/*                         → TypeImage
+//   - text/markdown, text/plain       → TypeMarkdown   (v0.5)
+//   - anything else                   → TypeBlob
+//
+// application/json deliberately stays as TypeBlob: tabular JSON
+// has its own DuckDB path via load-data; non-tabular JSON as a
+// document is deferred to a later release (user can wrap in a
+// .md code fence today).
 func (s *Store) SaveDataURL(dataURL, sessionID string) (*ObjectMeta, error) {
 	parts := strings.SplitN(dataURL, ",", 2)
 	if len(parts) != 2 {
@@ -366,11 +384,17 @@ func (s *Store) SaveDataURL(dataURL, sessionID string) (*ObjectMeta, error) {
 	if err != nil {
 		return nil, fmt.Errorf("decode base64: %w", err)
 	}
+	if len(decoded) > MaxAttachmentBytes {
+		return nil, fmt.Errorf("attachment too large: %d bytes (max %d)", len(decoded), MaxAttachmentBytes)
+	}
 
-	// Determine type from MIME
+	// Determine type from MIME.
 	objType := TypeBlob
-	if strings.HasPrefix(mimeType, "image/") {
+	switch {
+	case strings.HasPrefix(mimeType, "image/"):
 		objType = TypeImage
+	case mimeType == "text/markdown" || mimeType == "text/plain":
+		objType = TypeMarkdown
 	}
 
 	return s.Store(strings.NewReader(string(decoded)), objType, mimeType, "", sessionID)

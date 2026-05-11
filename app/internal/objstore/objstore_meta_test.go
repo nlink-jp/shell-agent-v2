@@ -1,6 +1,7 @@
 package objstore
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -9,6 +10,12 @@ import (
 
 	"github.com/nlink-jp/shell-agent-v2/internal/memory"
 )
+
+// base64Std is a tiny convenience wrapper so test fixtures don't
+// have to spell out base64.StdEncoding.EncodeToString repeatedly.
+func base64Std(s string) string {
+	return base64.StdEncoding.EncodeToString([]byte(s))
+}
 
 // TestObjectMeta_Migration_LegacyIndexLoadsWithoutLinesTokens
 // pins backward compat for index.json files written by v0.4.x.
@@ -247,6 +254,81 @@ func TestStore_TypeReportGetsLinesAndTokens(t *testing.T) {
 	}
 	if meta.Tokens == 0 {
 		t.Errorf("TypeReport with text/markdown MIME should auto-fill Tokens (got 0)")
+	}
+}
+
+// TestSaveDataURL_Markdown_PopulatesLinesAndTokens verifies the
+// end-to-end attach path (data URL → MIME inference → Store →
+// auto-fill) for v0.5 markdown attachments.
+func TestSaveDataURL_Markdown_PopulatesLinesAndTokens(t *testing.T) {
+	s := NewStoreAt(t.TempDir())
+	body := "# Doc\n\nLine 1.\nLine 2.\n"
+	dataURL := "data:text/markdown;base64," + base64Std(body)
+	meta, err := s.SaveDataURL(dataURL, "sess-1")
+	if err != nil {
+		t.Fatalf("SaveDataURL: %v", err)
+	}
+	if meta.Type != TypeMarkdown {
+		t.Errorf("Type = %v, want TypeMarkdown", meta.Type)
+	}
+	wantLines := strings.Count(body, "\n") + 1
+	if meta.Lines != wantLines {
+		t.Errorf("Lines = %d, want %d", meta.Lines, wantLines)
+	}
+	wantTokens := memory.EstimateTokens(body)
+	if meta.Tokens != wantTokens {
+		t.Errorf("Tokens = %d, want %d", meta.Tokens, wantTokens)
+	}
+}
+
+// TestSaveDataURL_TextPlain_TreatedAsMarkdown — text/plain
+// shares the markdown pipeline (renders fine through markdown,
+// no semantic loss for plain prose, and avoids splitting the
+// attach taxonomy by MIME flavor for v0.5).
+func TestSaveDataURL_TextPlain_TreatedAsMarkdown(t *testing.T) {
+	s := NewStoreAt(t.TempDir())
+	dataURL := "data:text/plain;base64," + base64Std("hello world\n")
+	meta, err := s.SaveDataURL(dataURL, "sess-1")
+	if err != nil {
+		t.Fatalf("SaveDataURL: %v", err)
+	}
+	if meta.Type != TypeMarkdown {
+		t.Errorf("Type = %v, want TypeMarkdown (text/plain → TypeMarkdown)", meta.Type)
+	}
+}
+
+// TestSaveDataURL_OversizedRefused — 50 MB cap is enforced
+// before the bytes reach Store. The error mentions both the
+// actual size and the limit so frontend can surface a useful
+// message.
+func TestSaveDataURL_OversizedRefused(t *testing.T) {
+	s := NewStoreAt(t.TempDir())
+	// 51 MB of bytes.
+	body := strings.Repeat("x", MaxAttachmentBytes+1024)
+	dataURL := "data:text/plain;base64," + base64Std(body)
+	_, err := s.SaveDataURL(dataURL, "sess-1")
+	if err == nil {
+		t.Fatal("expected oversize error, got nil")
+	}
+	if !strings.Contains(err.Error(), "too large") {
+		t.Errorf("error wording = %q, want contains 'too large'", err.Error())
+	}
+}
+
+// TestSaveDataURL_Image_StillRoutesToImage — sanity check that
+// the image path is unchanged by the v0.5 inference extension.
+func TestSaveDataURL_Image_StillRoutesToImage(t *testing.T) {
+	s := NewStoreAt(t.TempDir())
+	dataURL := "data:image/png;base64," + base64Std("\x89PNG\r\n\x1a\nfake")
+	meta, err := s.SaveDataURL(dataURL, "")
+	if err != nil {
+		t.Fatalf("SaveDataURL: %v", err)
+	}
+	if meta.Type != TypeImage {
+		t.Errorf("Type = %v, want TypeImage", meta.Type)
+	}
+	if meta.Lines != 0 {
+		t.Errorf("image must not auto-fill Lines, got %d", meta.Lines)
 	}
 }
 
