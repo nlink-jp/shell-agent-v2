@@ -42,6 +42,7 @@ const DedupJaccardThreshold = 0.5
 const (
 	SourceLLMPromoted = "llm_promoted" // promoted by the promote-finding tool
 	SourceAnalyzeData = "analyze_data" // emitted by analyze-data sliding-window
+	SourceAnalyzeText = "analyze_text" // emitted by analyze-text sliding-window (v0.5)
 )
 
 // Finding is a session-scoped data-analysis discovery.
