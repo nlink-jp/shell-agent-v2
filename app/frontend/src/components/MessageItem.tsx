@@ -120,6 +120,25 @@ const MessageItem = memo(function MessageItem({msg, onLightbox, onExpandReport, 
                         if (url.startsWith('object:')) {
                             return <ObjectImage key={j} id={url.slice(7)} onClick={onLightbox} />
                         }
+                        // v0.5: chat input's imageUrls slice may carry
+                        // text/markdown / text/plain data URLs too
+                        // (the binding layer routes them to TypeMarkdown
+                        // server-side, but the live message used for
+                        // optimistic rendering passes the raw URLs
+                        // through). Rendering a non-image data URL via
+                        // <img> shows the browser's broken-image "?"
+                        // placeholder — branch on the MIME prefix and
+                        // emit a labelled document card instead.
+                        if (url.startsWith('data:') && !url.startsWith('data:image/')) {
+                            const label = url.startsWith('data:text/markdown') ? 'markdown'
+                                : url.startsWith('data:text/plain') ? 'text'
+                                : 'document'
+                            return (
+                                <span key={j} className="message-attachment-doc" title={label}>
+                                    📝 {label}
+                                </span>
+                            )
+                        }
                         return <img key={j} src={url} alt="" className="message-image" onClick={() => onLightbox(url)} />
                     })}
                 </div>

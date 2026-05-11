@@ -987,9 +987,12 @@ func (a *Agent) ListTools() []ToolInfoItem {
 	add(ToolInfoItem{Name: "load-data", Description: "Load a CSV/JSON/JSONL file from a host path into the analysis database as a table", Category: "read", Source: "analysis"})
 	add(ToolInfoItem{Name: "reset-analysis", Description: "Drop every table in the current session's analysis database (destructive)", Category: "write", Source: "analysis"})
 	add(ToolInfoItem{Name: "create-report", Description: "Render a markdown report and save it to the session's object store", Category: "read", Source: "analysis"})
-	add(ToolInfoItem{Name: "list-objects", Description: "List every object (image / blob / report) stored in the current session, with type, MIME, name, and creation time", Category: "read", Source: "analysis"})
+	add(ToolInfoItem{Name: "list-objects", Description: "List every object (image / blob / report / markdown) stored in the current session, with type, MIME, name, size, and creation time. Markdown / report types also surface Lines / Tokens.", Category: "read", Source: "analysis"})
 	add(ToolInfoItem{Name: "get-object", Description: "Retrieve an object's content by ID (32-hex; legacy 12-hex IDs still work). Images come back as a marker the chat resolves; text/data returns inline", Category: "read", Source: "analysis"})
 	add(ToolInfoItem{Name: "register-object", Description: "Move a file from the session work directory ($SHELL_AGENT_WORK_DIR / sandbox /work) into the central object store and return an object:<ID> the chat can render. No-sandbox equivalent of sandbox-register-object.", Category: "write", Source: "analysis"})
+	add(ToolInfoItem{Name: "analyze-text", Description: "Sliding-window summarisation + finding extraction over a markdown / report objstore object. Reuses the analyze-data summarizer with a text chunker upstream (v0.5).", Category: "read", Source: "analysis"})
+	add(ToolInfoItem{Name: "grep-text", Description: "RE2 regex search across a markdown / report object's content. Returns line-numbered hits with configurable context (v0.5).", Category: "read", Source: "analysis"})
+	add(ToolInfoItem{Name: "get-text", Description: "Read a specific line range from a markdown / report object verbatim, with line numbers prefixed for unambiguous citation (v0.5).", Category: "read", Source: "analysis"})
 	if hasData || !hideUntilDataLoaded {
 		add(ToolInfoItem{Name: "describe-data", Description: "Show columns, row count, and saved description for a table; optionally set a description", Category: "read", Source: "analysis"})
 		add(ToolInfoItem{Name: "query-sql", Description: "Run a SELECT you write yourself and return raw rows — fastest, no LLM round-trip", Category: "read", Source: "analysis"})
