@@ -5,6 +5,140 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] - 2026-05-12
+
+Markdown attachment subsystem — `.md` / `.txt` files can be
+attached to the chat input alongside images, and three new
+text-analysis tools (`analyze-text`, `grep-text`, `get-text`)
+operate on them as first-class objects. The same tools work on
+agent-generated `create-report` outputs (TypeReport), enabling
+"report on report" follow-up analysis chains. PDF / DOCX /
+other binary formats are deferred to v0.6 — the external
+converter contract is a separate design problem.
+
+Full design: [`docs/en/markdown-attachments.md`](docs/en/markdown-attachments.md).
+
+### Added
+
+- **`ObjectType` constant `TypeMarkdown`** for user-attached
+  markdown / plain text. Sits alongside the existing
+  `TypeImage` / `TypeBlob` / `TypeReport` types in objstore.
+- **`ObjectMeta.Lines` and `ObjectMeta.Tokens`** (both
+  `omitempty`) populated automatically by `objstore.Store()`
+  for any object with a `text/*` MIME — covering both new
+  user-attached markdown and the markdown that `create-report`
+  has been writing since v0.2.0. The Tokens estimate uses the
+  same CJK-aware `memory.EstimateTokens` heuristic the rest of
+  the context-budget code uses, so the LLM sees consistent
+  numbers across `list-objects` and prompt assembly.
+- **Lazy backfill in `objstore.Load()`**: pre-v0.5 reports
+  (Lines unset) get their metadata computed from the on-disk
+  data file on first launch with v0.5, then the updated index
+  is persisted so the cost is paid exactly once per upgrade.
+  No migration UI, no user action, no permanent metadata
+  asymmetry between legacy reports and new markdown
+  attachments.
+- **`analyze-text(object, perspective, lines?)`** runs the
+  existing sliding-window summarizer over a markdown / report
+  object's content. Findings are auto-promoted with the new
+  `findings.SourceAnalyzeText` constant so the Findings panel
+  can filter by origin. Tool-progress events use the v0.4.1
+  in-place bubble pattern.
+- **`grep-text(object, pattern, lines?, max_matches=200,
+  context_lines=2)`** runs RE2 regex search across the
+  content, returns line-numbered hits with configurable
+  before/after context. Exceeding `max_matches` returns a
+  structured error suggesting the LLM narrow the pattern or
+  restrict via `lines`.
+- **`get-text(object, lines)`** reads a specific line range
+  verbatim, prefixed with line numbers for unambiguous
+  citation. Hard cap of 1000 lines per call — larger ranges
+  return an error suggesting `analyze-text` or chunked
+  `get-text` calls.
+- **`internal/analysis/textchunker.go`** —
+  `ChunkText(content, cfg)` produces token-budget chunks
+  (~2000 tokens, 10% overlap, line-atomic, heading-aware) for
+  the analyze-text path. Standalone package-level function so
+  the summarizer reuse is symmetric with analyze-data's
+  row-stringified path.
+- **`Record.DocumentIDs []string`** (omitempty) on the
+  on-disk chat record. The agent populates this from the
+  bindings layer's per-attachment routing; `contextbuild`
+  resolves IDs at message-build time so attachment renames /
+  estimator updates flow through automatically.
+- **Document anchor in user messages**:
+  `Document (object ID: <id>, name: <name>, <K>k tokens):`
+  prepended at the start of every user message that carries
+  attached markdown. Symmetric with the existing
+  `Image (object ID: <id>):` pattern for multimodal images,
+  but text-only (the LLM reads document content via
+  list-objects → analyze-text / grep-text / get-text rather
+  than seeing it inlined).
+- **System prompt** gains a two-paragraph block teaching the
+  LLM about TypeReport vs TypeMarkdown provenance and which
+  text tool maps to which intent. Documented behaviour:
+  agent treats its own prior reports as "prior conclusions"
+  and user-attached docs as "source material" so citations
+  in follow-up reports calibrate appropriately.
+- **Chat input MIME filter widened** to accept `.md` /
+  `.markdown` / `.txt` (drag-drop, paste, file picker). 50 MB
+  hard cap with a friendly alert before the data-URL
+  round-trip. Pending-attachment preview gains a 📝-prefixed
+  card for non-image attachments.
+- **Data panel** dispatches `TypeMarkdown` cards to the
+  existing `ReportViewer` (markdown renderer reused
+  unchanged). Distinct glyph: 📄 for agent-generated reports,
+  📝 for user-attached markdown — provenance at a glance.
+- **`ObjectInfo` binding** gains `Lines` / `Tokens` int
+  fields so the frontend can surface document metadata
+  without an extra round-trip. The Data panel doesn't display
+  them yet; this is plumbing for v0.5.x or later UX work.
+
+### Changed
+
+- **`list-objects` output** appends `Lines: N | Tokens: M`
+  columns for any object with `Lines > 0` (markdown / report
+  / any future text-bearing type). Other rows (image / blob)
+  stay compact. `type_filter` enum gains `"markdown"`.
+- **`register-object` / `sandbox-register-object`** type
+  arguments accept `"markdown"` so the LLM can stage
+  user-supplied source material into `/work` and register it
+  with the correct provenance type. The default-inference
+  rule (`text/markdown` → `report`) is preserved for backward
+  compat — only the explicit override changes.
+- **`objstore.Store()` API**: the `io.Reader` argument is
+  now buffered into memory before the file write (so
+  Lines/Tokens can be computed in the same pass). Every
+  existing caller already passes in-memory data
+  (strings.NewReader, sandbox byte buffers, base64-decoded
+  bytes from SaveDataURL), so the contract narrowing is
+  benign — but a future caller that wanted to stream a 100+
+  MB file would need a different entry point. SaveDataURL's
+  50 MB cap (also new) caps the practical buffer size.
+
+### Compatibility
+
+- **Public API**: purely additive — three new tools, two new
+  object-meta fields, one new agent method
+  (`SendWithAttachments`; `SendWithImages` preserved as a
+  thin wrapper for v0.4.x test fixtures), one new Findings
+  source constant. The frontend's Wails binding signature
+  (`SendWithImages(message, imageDataURLs[])`) is unchanged;
+  per-attachment routing happens inside the binding.
+- **On-disk format**: backward compatible. Old `index.json`
+  entries load with `Lines=0` / `Tokens=0` then get
+  backfilled on the first v0.5 launch. Old `chat.json`
+  records load with empty `DocumentIDs`. No migration UI.
+- **`.shellagent` bundles from v0.4.x**: load fine. They
+  simply have no markdown attachments and no document
+  anchors.
+- **`text/plain` files**: treated as `TypeMarkdown` for the
+  purposes of analyze-text / grep-text / get-text. Rendering
+  through the ReportViewer is graceful even when the file has
+  no markdown structure — design §13 acknowledges the
+  cosmetic risk of an accidental emphasis on a plain-text
+  `*` character; in practice this is invisible to most users.
+
 ## [0.4.5] - 2026-05-11
 
 Session-rename persistence fix — addresses a user report that
