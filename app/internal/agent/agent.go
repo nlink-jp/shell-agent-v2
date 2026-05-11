@@ -194,7 +194,15 @@ func New(cfg *config.Config) *Agent {
 	a.maybeStartSandbox()
 	a.setBackend(cfg.LLM.DefaultBackend)
 	_ = a.globalMemory.Load()
-	a.rebuildToolDescriptorIndex() // safe with empty slice; non-nil index map post-call
+	// v0.6: populate the tool-descriptor registry. Builtin
+	// tools first (resolve-date / list-objects / get-object /
+	// register-object) so the Settings UI lists them in a
+	// stable order; then analysis tools (load-data, ...,
+	// analyze-data + the 3 v0.5 text tools). Sandbox tools
+	// will join in Phase 3 via a.sandboxDescriptors().
+	a.toolDescriptors = append(a.toolDescriptors, a.builtinDescriptors()...)
+	a.toolDescriptors = append(a.toolDescriptors, a.analysisDescriptors()...)
+	a.rebuildToolDescriptorIndex()
 	return a
 }
 
