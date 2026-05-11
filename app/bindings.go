@@ -450,8 +450,18 @@ func (b *Bindings) ListSessions() ([]memory.SessionInfo, error) {
 }
 
 // RenameSession updates a session title.
+//
+// Thin pass-through to agent.RenameSession (v0.4.5) — the
+// pre-v0.4.5 path called memory.RenameSession directly, which
+// only touched chat.json on disk and left the agent's
+// in-memory a.session.Title untouched. Any subsequent
+// a.session.Save() (after a Send / tool call / auto-title
+// generation) overwrote the rename with the stale in-memory
+// title, so the user-visible "rename worked" became "rename
+// reverted on next launch". Routing through the agent layer
+// keeps the in-memory copy and disk in sync.
 func (b *Bindings) RenameSession(sessionID, title string) error {
-	return memory.RenameSession(sessionID, title)
+	return b.agent.RenameSession(sessionID, title)
 }
 
 // DeleteSession removes a session and its associated objects.
