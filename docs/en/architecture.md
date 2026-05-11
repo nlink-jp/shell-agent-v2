@@ -11,6 +11,13 @@ splitting into separate architecture revisions:
 - **v0.4.1** — `tool_progress` activity event for in-place
   bubble updates
 - **v0.4.2** — session deletion under the agent state-machine
+- **v0.5.0** — Markdown attachments (text-bearing object type +
+  three text tools)
+- **v0.6.0** — tool registry refactor: `ToolDescriptor` is the
+  single source of truth that backs the LLM tool list, the
+  Settings → Tools UI, the MITL default, and the dispatcher
+  (replaces five hand-maintained parallel lists). See
+  [`tool-registry-refactor.md`](tool-registry-refactor.md).
 
 For the evolution history of individual subsystems see
 [`history/`](history/). Each post-v0.2.0 feature also has its own
@@ -214,38 +221,87 @@ Full design + threat model: [`memory-model.md`](memory-model.md).
 ## 5. Tool system
 
 All tools — analysis built-ins, shell scripts, sandbox
-counterparts, MCP — flow through one dispatcher (`agent.dispatchTool`)
-and one MITL gate (`agent.IsToolMITLRequired`).
+counterparts, MCP — flow through one dispatcher
+(`agent.executeTool`) and one MITL gate
+(`agent.IsToolMITLRequired`). Since v0.6 the analysis +
+builtin + sandbox sources additionally share a single
+metadata source: `ToolDescriptor` (per-Agent
+`a.toolDescriptors` slice, indexed by name in
+`a.toolDescriptorIndex`).
 
 ### Sources
 
-- **Built-in analysis tools** (`internal/agent/tools.go`):
-  `load-data`, `query-sql`, `query-preview`, `quick-summary`,
-  `analyze-data`, `promote-finding`, `create-report`,
-  `register-object`, `describe-data`, `list-tables`,
-  `suggest-analysis`, `reset-analysis`, `get-object`.
-- **Shell scripts** (`internal/toolcall/`): user-registered scripts
-  with header-driven metadata. Bundled scripts (`file-info`,
-  `preview-file`, `list-files`, `weather`, `get-location`,
-  `write-note`) are scaffolded on first launch via `go:embed`.
-- **Sandbox tools** (`internal/agent/sandbox_tools.go`): eight
-  `sandbox-*` tools that execute in a per-session container with
-  `/work` mounted from the session data dir.
+- **Builtin tools** (`internal/agent/tool_descriptors_builtin.go`):
+  `resolve-date`, `list-objects`, `get-object`, `register-object`.
+  Don't depend on the analysis engine.
+- **Analysis tools** (`internal/agent/tool_descriptors_analysis.go`):
+  `load-data`, `describe-data`, `query-sql`, `query-preview`,
+  `quick-summary`, `analyze-data`, `promote-finding`,
+  `create-report`, `list-tables`, `suggest-analysis`,
+  `reset-analysis`, `analyze-text`, `grep-text`, `get-text`.
+  Filtered out of the LLM tool list when `a.analysis == nil`;
+  data-gated subset hidden when legacy mode is on and no table
+  is loaded.
+- **Sandbox tools** (`internal/agent/tool_descriptors_sandbox.go`):
+  eight `sandbox-*` tools that execute in a per-session
+  container with `/work` mounted from the session data dir.
+  Filtered out of the LLM tool list and Settings UI when
+  `a.sandbox == nil` (the engine's lifecycle is dynamic via
+  `RestartSandbox`).
+- **Shell scripts** (`internal/toolcall/`): user-registered
+  scripts with header-driven metadata. Bundled scripts
+  (`file-info`, `preview-file`, `list-files`, `weather`,
+  `get-location`, `write-note`) are scaffolded on first launch
+  via `go:embed`. Not in the descriptor registry — registered
+  separately from the toolcall.Registry and joined into the LLM
+  tool list at `buildToolDefs` time.
 - **MCP tools** — discovered at startup from the configured
-  guardian profiles and namespaced as `<guardian>__<tool>`.
+  guardian profiles and namespaced as `<guardian>__<tool>`. Not
+  in the descriptor registry — joined dynamically at
+  `buildToolDefs` time.
+
+### Descriptor registry
+
+Each `ToolDescriptor` carries Name, Description, Parameters
+(JSON Schema), Category (`read`/`write`/`execute`), Source
+(`analysis`/`builtin`/`sandbox`), MITLDefault,
+MITLCategoryOverride (for the specialised SQL-preview /
+analysis-plan dialogs), HideUntilDataLoaded (legacy hide-
+until-table-loaded gate), and Handle (the closure that
+captures `*Agent` and dispatches to the underlying tool
+method). The same descriptor backs the LLM tool def
+(`descriptorToolDefs`), the Settings → Tools entry
+(`ListTools`), the MITL default (`IsToolMITLRequired` /
+`toolMITLDefault`), and the dispatch
+(`dispatchDescriptor`) — adding a new analysis / builtin /
+sandbox tool requires editing exactly one file.
+
+The pre-v0.6 design maintained those four surfaces as
+parallel lists; the v0.5.0 → v0.5.1 manual smoke caught two
+drift bugs (Settings tab missing a tool, stale MITL map
+entry). Structural tests in `tool_descriptor_structural_test.go`
+now enforce the invariants mechanically. Full design rationale
+is in [`tool-registry-refactor.md`](tool-registry-refactor.md).
 
 ### MITL (Man-In-The-Loop) gate
 
 Each tool has a default — read = auto-allow, write/execute =
 require approval. Per-tool override via `MITLOverrides` in
-config. The default is computed by `analysisToolMITLDefault` /
-`Tool.NeedsMITL()` (shell), and the Settings → Tools UI reflects
-the same dispatcher truth.
+config. For descriptor-registered tools the default comes
+straight from `descriptor.MITLDefault`; for shell scripts it
+comes from `Tool.NeedsMITL()`; the prefix branches in
+`IsToolMITLRequired` (mcp__ / sandbox-) act as defense in
+depth so a missing descriptor cannot accidentally grant a
+zero-friction sandbox call. The Settings → Tools UI reads
+from the same registry the dispatcher does, so the toggle
+state and the actual gate cannot drift.
 
-Special MITL flows:
+Special MITL flows surfaced via `descriptor.MITLCategoryOverride`:
 
-- `query-sql` → SQL preview dialog before execution.
-- `analyze-data` → analysis-plan confirmation dialog.
+- `query-sql` → SQL preview dialog before execution
+  (`MITLCategoryOverride = "sql_preview"`).
+- `analyze-data` → analysis-plan confirmation dialog
+  (`MITLCategoryOverride = "analysis_plan"`).
 
 A reject can include free-text feedback that's piped back to the
 LLM as a tool result so it can revise the call.

@@ -10,6 +10,13 @@
 - **v0.4.0** — `.shellagent` セッション import / export
 - **v0.4.1** — in-place バブル更新用の `tool_progress` activity event
 - **v0.4.2** — agent state-machine 配下のセッション削除
+- **v0.5.0** — Markdown 添付 (テキスト系オブジェクト型 +
+  3 つのテキストツール)
+- **v0.6.0** — ツールレジストリリファクタ: `ToolDescriptor`
+  が LLM ツールリスト・Settings → Tools UI・MITL デフォルト・
+  ディスパッチャの単一 source of truth (5 つの手作業並列
+  リストを置換)。詳細は
+  [`tool-registry-refactor.ja.md`](tool-registry-refactor.ja.md)。
 
 各サブシステムの進化過程は [`history/`](history/) に保存。
 post-v0.2.0 機能は README の「最近の設計メモ」セクションから
@@ -189,24 +196,84 @@ records は完全忠実度を保持、古い部分は content-keyed cache で
 ## 5. ツールシステム
 
 すべてのツール (analysis 内蔵、shell スクリプト、sandbox、MCP) は
-1 つのディスパッチャ (`agent.dispatchTool`) と 1 つの MITL ゲート
-(`agent.IsToolMITLRequired`) を経由する。
+1 つのディスパッチャ (`agent.executeTool`) と 1 つの MITL ゲート
+(`agent.IsToolMITLRequired`) を経由する。v0.6 以降、
+analysis + builtin + sandbox の 3 ソースは加えて単一の
+メタデータ source — `ToolDescriptor` (Agent ごとの
+`a.toolDescriptors` slice、name で `a.toolDescriptorIndex`
+にインデックス) — を共有する。
 
 ### ソース
 
-- **内蔵 analysis ツール** — `load-data`, `query-sql`, ...
-- **シェルスクリプト** — ユーザー登録 + bundled 6 個
-- **Sandbox ツール** — 8 個の `sandbox-*`
+- **Builtin ツール** (`internal/agent/tool_descriptors_builtin.go`):
+  `resolve-date`, `list-objects`, `get-object`, `register-object`。
+  analysis エンジンに依存しない。
+- **Analysis ツール** (`internal/agent/tool_descriptors_analysis.go`):
+  `load-data`, `describe-data`, `query-sql`, `query-preview`,
+  `quick-summary`, `analyze-data`, `promote-finding`,
+  `create-report`, `list-tables`, `suggest-analysis`,
+  `reset-analysis`, `analyze-text`, `grep-text`, `get-text`。
+  `a.analysis == nil` のとき LLM ツールリストから除外、
+  legacy モードかつテーブル未ロードのとき data-gated サブセットを
+  非表示。
+- **Sandbox ツール** (`internal/agent/tool_descriptors_sandbox.go`):
+  per-session container で実行される 8 個の `sandbox-*` ツール
+  (セッション data dir から `/work` をマウント)。
+  `a.sandbox == nil` のとき LLM ツールリスト + Settings UI
+  両方から除外 (エンジンは `RestartSandbox` で動的に
+  ライフサイクルが変わるため)。
+- **シェルスクリプト** (`internal/toolcall/`): ユーザー登録
+  スクリプト + bundled 6 個 (`go:embed` で初回起動時に
+  scaffold)。ディスクリプタレジストリには入らず、
+  toolcall.Registry から別に登録され `buildToolDefs` で
+  LLM ツールリストに合流。
 - **MCP ツール** — guardian profile から起動時 discovery、
-  `<guardian>__<tool>` で namespacing
+  `<guardian>__<tool>` で namespacing。ディスクリプタレジストリ
+  には入らず、`buildToolDefs` で動的に合流。
+
+### ディスクリプタレジストリ
+
+各 `ToolDescriptor` は Name, Description, Parameters
+(JSON Schema), Category (`read`/`write`/`execute`), Source
+(`analysis`/`builtin`/`sandbox`), MITLDefault,
+MITLCategoryOverride (SQL preview / analysis plan 専用ダイアログ用),
+HideUntilDataLoaded (legacy hide-until-table-loaded ゲート),
+Handle (`*Agent` を capture して下層ツールメソッドに dispatch する
+クロージャ) を保持する。同じディスクリプタが LLM ツール def
+(`descriptorToolDefs`)、Settings → Tools エントリ
+(`ListTools`)、MITL デフォルト (`IsToolMITLRequired` /
+`toolMITLDefault`)、ディスパッチ (`dispatchDescriptor`) すべての
+裏付けとなる — analysis / builtin / sandbox ツールの追加は
+1 ファイル編集だけで済む。
+
+v0.6 以前の設計はこれら 4 つの surface を並列リストとして
+手で維持していた。v0.5.0 → v0.5.1 マニュアル smoke で 2 件の
+drift バグ (Settings タブにツールが欠落、stale な MITL マップ
+エントリ) を catch しており、v0.6 では `tool_descriptor_structural_test.go`
+の構造テストで invariant を機械的に enforce する。
+詳細な設計理由は [`tool-registry-refactor.ja.md`](tool-registry-refactor.ja.md)。
 
 ### MITL ゲート
 
 各ツールにデフォルトあり (read = 自動許可、write/execute =
 承認必要)。`MITLOverrides` でツール毎に上書き可。
-特殊フロー: `query-sql` は SQL preview、`analyze-data` は
-analysis-plan 確認。reject 時は free-text feedback を
-LLM に戻して revise 可能。
+ディスクリプタ登録ツールではデフォルトは
+`descriptor.MITLDefault` から直接、シェルスクリプトでは
+`Tool.NeedsMITL()` から取得。`IsToolMITLRequired` の prefix
+分岐 (mcp__ / sandbox-) は defense in depth として残し、
+ディスクリプタが欠落した場合でも sandbox 呼び出しが摩擦
+ゼロで通過しないようにしている。Settings → Tools UI は
+ディスパッチャと同じレジストリから読むので、トグル状態と
+実際のゲートが drift し得ない。
+
+`descriptor.MITLCategoryOverride` で表面化される特殊フロー:
+
+- `query-sql` → 実行前 SQL preview ダイアログ
+  (`MITLCategoryOverride = "sql_preview"`)
+- `analyze-data` → analysis-plan 確認ダイアログ
+  (`MITLCategoryOverride = "analysis_plan"`)
+
+reject 時は free-text feedback を LLM に戻して revise 可能。
 
 ## 6. ストレージレイアウト
 

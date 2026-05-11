@@ -36,7 +36,7 @@ shell-agent-v2/
 │   ├── main.go              # Entry point, Wails app setup
 │   ├── bindings.go          # Wails bindings (thin delegation)
 │   ├── internal/
-│   │   ├── agent/           # State machine, execution loop, tool dispatch, MCP guardians
+│   │   ├── agent/           # State machine, execution loop, tool dispatch, MCP guardians, ToolDescriptor registry (tool_descriptor*.go, v0.6)
 │   │   ├── chat/            # Message building, temporal context, context budget
 │   │   ├── llm/             # Backend abstraction (Local + Vertex AI)
 │   │   │   ├── backend.go   # Role types, Backend interface
@@ -199,6 +199,7 @@ All implementation must follow these design documents.
 - **docs/en/sandbox-uid-mapping.md** — keep-id userns remap so corp/LDAP-mapped large host UIDs no longer break `podman run`
 - **docs/en/analyze-data-row-cap.md** — split chat-output 10k row cap from sliding-window analyze cap (`MaxAnalyzeRows`); rationale + memory math + LLM-time tables
 - **docs/en/markdown-attachments.md** — `TypeMarkdown` object type, analyze-text / grep-text / get-text tools, document anchor convention, lazy backfill for legacy report Lines/Tokens (v0.5.0)
+- **docs/en/tool-registry-refactor.md** — `ToolDescriptor` registry as single source of truth for analysis + builtin + sandbox tools; replaces five hand-maintained parallel lists. Structural tests enforce the invariants (v0.6.0)
 
 **History (audit trail behind v0.2.0):**
 - **agent-data-flow.md** — agent loop, context budget, MITL, events, tool confirmation
@@ -234,7 +235,7 @@ All implementation must follow these design documents.
 - Sandbox `Exec` caps each of stdout/stderr at `Sandbox.MaxOutputBytes` (default 8 MiB); excess is dropped with a trailing marker (C3)
 - Local-backend `Chat` / `ChatStream` reject response bodies above 16 MiB (`MaxLocalResponseBytes`) (H12)
 - `analysis.refreshTableMeta` uses parameter binding for the `duckdb_tables()` lookup — never string-concatenate LLM-supplied table names into SQL (C1)
-- Analysis tools route through `IsToolMITLRequired` like every other source — `analysisToolMITLDefault` (`tools.go`) is the single source of truth for per-tool defaults; `executeAnalysisTool` no longer does its own MITL gating (security-hardening-2.md H1+H2)
+- Analysis tools route through `IsToolMITLRequired` like every other source. v0.6: per-tool defaults come from `descriptor.MITLDefault` (the `ToolDescriptor` registry under `internal/agent/tool_descriptors_*.go` is the single source of truth, replacing the v0.5 `analysisToolMITLDefault` map). `executeAnalysisTool` was removed; the outer dispatcher routes through `dispatchDescriptor` which applies the MITL gate centrally (security-hardening-2.md H1+H2 / tool-registry-refactor.md)
 - MCP tool name parsing uses `splitMCPName` with longest-prefix fallback for the rare guardian / tool name containing `__`. Guardian names must match `validGuardianName` (`^[a-zA-Z0-9-]+$`) at startup (H3)
 - JSON stores on the data path go through `internal/atomicio.WriteFileAtomic` (tmp+rename + parent-dir fsync) so a crash mid-save leaves the previous file intact. Applies to objstore index, per-session findings, per-session session_memory, global_memory, summaries cache, and per-session chat.json (security-hardening-2.md C4 / H10)
 - `findings.Store.Add` is mutex-protected; ID generation reads the per-day count under the same lock so concurrent Adds can't collide (H9). The >999-per-day overflow uses a 6-hex random suffix.
