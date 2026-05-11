@@ -1253,6 +1253,8 @@ func (b *Bindings) GetImageDataURL(id string) (string, error) {
 // --- Object repository bindings ---
 
 // ObjectInfo is the JSON-serializable view of an object's metadata.
+// Lines / Tokens (v0.5) are populated only for text-bearing types
+// (markdown / report); other types omit them via omitempty.
 type ObjectInfo struct {
 	ID        string `json:"id"`
 	Type      string `json:"type"`
@@ -1261,6 +1263,8 @@ type ObjectInfo struct {
 	CreatedAt string `json:"created_at"`
 	SessionID string `json:"session_id"`
 	Size      int64  `json:"size"`
+	Lines     int    `json:"lines,omitempty"`
+	Tokens    int    `json:"tokens,omitempty"`
 }
 
 // ListObjects returns metadata for every object in the central repository,
@@ -1277,6 +1281,8 @@ func (b *Bindings) ListObjects() []ObjectInfo {
 			CreatedAt: m.CreatedAt.Format("2006-01-02 15:04:05"),
 			SessionID: m.SessionID,
 			Size:      m.Size,
+			Lines:     m.Lines,
+			Tokens:    m.Tokens,
 		})
 	}
 	// Newest first.
@@ -1305,6 +1311,8 @@ func (b *Bindings) GetSessionObjects(sessionID string) []ObjectInfo {
 			CreatedAt: m.CreatedAt.Format("2006-01-02 15:04:05"),
 			SessionID: m.SessionID,
 			Size:      m.Size,
+			Lines:     m.Lines,
+			Tokens:    m.Tokens,
 		})
 	}
 	sort.SliceStable(result, func(i, j int) bool {

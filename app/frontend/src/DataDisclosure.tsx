@@ -375,7 +375,13 @@ function ObjectCard({
                     <ObjectImage id={obj.id} alt={obj.orig_name} />
                 ) : (
                     <span className="data-object-glyph">
-                        {obj.type === 'report' ? '\u{1F4C4}' : '\u{1F4E6}'}
+                        {/* v0.5: distinguish agent-generated reports
+                            (📄 TypeReport) from user-attached
+                            markdown (📝 TypeMarkdown) so the user
+                            can tell provenance at a glance. */}
+                        {obj.type === 'report' ? '\u{1F4C4}'
+                            : obj.type === 'markdown' ? '\u{1F4DD}'
+                            : '\u{1F4E6}'}
                     </span>
                 )}
             </div>

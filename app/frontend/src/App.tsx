@@ -783,7 +783,13 @@ function App() {
                                 if (obj.type === 'image') {
                                     const url = await window.go.main.Bindings.GetImageDataURL(obj.id)
                                     setLightboxImage(url)
-                                } else if (obj.type === 'report') {
+                                } else if (obj.type === 'report' || obj.type === 'markdown') {
+                                    // v0.5: TypeMarkdown joins the report branch
+                                    // — both are markdown strings in objstore,
+                                    // both render through ReportViewer. Provenance
+                                    // (user-attached vs agent-generated) is signalled
+                                    // by the data-disclosure glyph (📝 vs 📄), not
+                                    // by the viewer.
                                     const text = await window.go.main.Bindings.GetObjectText(obj.id)
                                     const title = (text.split('\n')[0] || '').replace(/^#\s*/, '') || obj.orig_name || obj.id
                                     setExpandedReport({title, content: text})

@@ -175,3 +175,22 @@
     justify-content: center;
 }
 
+/* v0.5: pending text/markdown attachments. The .pending-image
+   container still controls the slot size; we override the
+   visual to show a labelled card instead of an image. */
+.pending-attachment-doc {
+    background: #2a3a4a;
+    border: 1px solid #3a4a5a;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.pending-attachment-label {
+    font-size: 10px;
+    color: #cccccc;
+    text-align: center;
+    padding: 0 4px;
+}
+

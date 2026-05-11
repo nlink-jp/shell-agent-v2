@@ -83,14 +83,40 @@ function ChatInput({onSend, disabled}: Props) {
         }
     }
 
+    // Predicate: which files the chat input accepts as attachments.
+    // v0.5 widens beyond image/* to include text/markdown and
+    // text/plain. Some browsers (notably older Safari) don't set
+    // f.type for .md / .txt; fall back to the file-name extension
+    // so drag-drop of a .md file still works in those environments.
+    function isAcceptedAttachment(f: File): boolean {
+        if (f.type.startsWith('image/')) return true
+        if (f.type === 'text/markdown' || f.type === 'text/plain') return true
+        const lower = f.name.toLowerCase()
+        if (lower.endsWith('.md') || lower.endsWith('.markdown')) return true
+        if (lower.endsWith('.txt')) return true
+        return false
+    }
+
+    // v0.5: 50 MB hard cap. Mirrors objstore.MaxAttachmentBytes on
+    // the Go side. The frontend check exists so we can give a
+    // friendlier error than the truncated stack trace that would
+    // come back from SaveDataURL after the data-URL round-trip.
+    const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
+
     async function addImages(files: FileList | File[]) {
         // FileReader is async; reading files in a plain for-loop and
         // appending each onload result lets readers race — bigger
-        // images finish later, so pendingImages can end up in a
+        // files finish later, so pendingImages can end up in a
         // different order than the user actually attached. Read all
         // in parallel, await, then append in the original order.
-        const fileArr = Array.from(files).filter(f => f.type.startsWith('image/'))
-        const dataURLs = await Promise.all(fileArr.map(file =>
+        const fileArr = Array.from(files).filter(isAcceptedAttachment)
+        const oversized = fileArr.filter(f => f.size > MAX_ATTACHMENT_BYTES)
+        if (oversized.length > 0) {
+            const names = oversized.map(f => `${f.name} (${(f.size / 1024 / 1024).toFixed(1)} MB)`).join(', ')
+            alert(`File too large to attach (limit 50 MB): ${names}\nFor larger documents, copy the file into the sandbox /work directory and use register-object instead.`)
+        }
+        const accepted = fileArr.filter(f => f.size <= MAX_ATTACHMENT_BYTES)
+        const dataURLs = await Promise.all(accepted.map(file =>
             new Promise<string>((resolve, reject) => {
                 const reader = new FileReader()
                 reader.onload = () => resolve(reader.result as string)
@@ -102,16 +128,16 @@ function ChatInput({onSend, disabled}: Props) {
     }
 
     function handlePaste(e: React.ClipboardEvent) {
-        const imageFiles: File[] = []
+        const accepted: File[] = []
         for (const item of Array.from(e.clipboardData.items)) {
-            if (item.type.startsWith('image/')) {
-                const file = item.getAsFile()
-                if (file) imageFiles.push(file)
+            const file = item.getAsFile()
+            if (file && isAcceptedAttachment(file)) {
+                accepted.push(file)
             }
         }
-        if (imageFiles.length > 0) {
+        if (accepted.length > 0) {
             e.preventDefault()
-            addImages(imageFiles)
+            addImages(accepted)
         }
     }
 
@@ -121,16 +147,30 @@ function ChatInput({onSend, disabled}: Props) {
             onDragOver={e => e.preventDefault()}>
             {pendingImages.length > 0 && (
                 <div className="pending-images">
-                    {pendingImages.map((img, i) => (
-                        <div key={i} className="pending-image">
-                            <img src={img} alt="" />
-                            <button className="pending-image-remove" onClick={() => setPendingImages(prev => prev.filter((_, j) => j !== i))}>&#x2715;</button>
-                        </div>
-                    ))}
+                    {pendingImages.map((url, i) => {
+                        const isImage = url.startsWith('data:image/')
+                        // Pull a label out of the data URL prefix when
+                        // possible — the MIME after "data:" hints at
+                        // markdown vs plain text. Browsers don't put
+                        // filenames into FileReader-produced data URLs
+                        // so this is the best we can do without
+                        // tracking the File objects separately.
+                        const label = url.startsWith('data:text/markdown') ? 'markdown'
+                            : url.startsWith('data:text/plain') ? 'text'
+                            : 'document'
+                        return (
+                            <div key={i} className={isImage ? "pending-image" : "pending-image pending-attachment-doc"}>
+                                {isImage
+                                    ? <img src={url} alt="" />
+                                    : <span className="pending-attachment-label">📝 {label}</span>}
+                                <button className="pending-image-remove" onClick={() => setPendingImages(prev => prev.filter((_, j) => j !== i))}>&#x2715;</button>
+                            </div>
+                        )
+                    })}
                 </div>
             )}
             <div className="input-row">
-                <input ref={fileInputRef} type="file" accept="image/*" multiple style={{display: 'none'}} onChange={e => { if (e.target.files) addImages(e.target.files); e.target.value = '' }} />
+                <input ref={fileInputRef} type="file" accept="image/*,text/markdown,text/plain,.md,.markdown,.txt" multiple style={{display: 'none'}} onChange={e => { if (e.target.files) addImages(e.target.files); e.target.value = '' }} />
                 <div className="textarea-wrap">
                     <textarea
                         ref={textareaRef}
@@ -147,7 +187,7 @@ function ChatInput({onSend, disabled}: Props) {
                         autoCapitalize="off"
                         spellCheck={false}
                     />
-                    <button className="attach-btn" onClick={() => fileInputRef.current?.click()} disabled={disabled} title="Attach image">&#x1F4CE;</button>
+                    <button className="attach-btn" onClick={() => fileInputRef.current?.click()} disabled={disabled} title="Attach image, markdown, or text">&#x1F4CE;</button>
                 </div>
                 <button onClick={handleSend} disabled={disabled || (!input.trim() && pendingImages.length === 0)}>
                     {disabled ? '...' : 'Send'}
