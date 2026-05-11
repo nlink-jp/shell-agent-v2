@@ -168,6 +168,37 @@ func TestImageIDPrefix(t *testing.T) {
 	}
 }
 
+// TestDocumentIDPrefix exercises the v0.5 markdown attachment
+// anchor helper. The token-suffix tiers (none / N / Nk / N.NM)
+// keep the anchor compact for small docs and informative for
+// large ones without leaking precise counts that would balloon
+// the prompt across sessions.
+func TestDocumentIDPrefix(t *testing.T) {
+	cases := []struct {
+		id     string
+		name   string
+		tokens int
+		want   string
+	}{
+		// No size hint when tokens=0.
+		{"abc", "x.md", 0, "Document (object ID: abc, name: x.md):"},
+		// Small files: N tokens.
+		{"abc", "x.md", 42, "Document (object ID: abc, name: x.md, 42 tokens):"},
+		// Medium: kilotokens.
+		{"abc", "audit.md", 5432, "Document (object ID: abc, name: audit.md, 5k tokens):"},
+		// Large: megatokens with one decimal.
+		{"abc", "huge.md", 1_500_000, "Document (object ID: abc, name: huge.md, 1.5M tokens):"},
+		// Missing name → omit ", name: ...".
+		{"abc", "", 100, "Document (object ID: abc, 100 tokens):"},
+	}
+	for _, tc := range cases {
+		got := DocumentIDPrefix(tc.id, tc.name, tc.tokens)
+		if got != tc.want {
+			t.Errorf("DocumentIDPrefix(%q,%q,%d) = %q, want %q", tc.id, tc.name, tc.tokens, got, tc.want)
+		}
+	}
+}
+
 func TestLocalBuildRequest(t *testing.T) {
 	l := NewLocal(config.LocalConfig{Model: "test-model"})
 	messages := []Message{

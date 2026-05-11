@@ -42,9 +42,18 @@ type Record struct {
 	ToolCallID   string           `json:"tool_call_id,omitempty"`
 	ToolName     string           `json:"tool_name,omitempty"`
 	ToolCalls    []ToolCallRecord `json:"tool_calls,omitempty"`   // populated when assistant emits function calls
-	ObjectIDs    []string         `json:"object_ids,omitempty"`   // references to objstore
+	ObjectIDs    []string         `json:"object_ids,omitempty"`   // references to objstore (images and other multimodal attachments)
 	ImageURLs    []string         `json:"image_urls,omitempty"`   // deprecated: use ObjectIDs
-	SummaryRange *TimeRange       `json:"summary_range,omitempty"`
+	// DocumentIDs holds the objstore IDs of TypeMarkdown / TypeReport
+	// attachments included with this user message (v0.5). Unlike
+	// ObjectIDs (which can be inlined as multimodal parts), document
+	// references are surfaced as text anchor lines prepended to
+	// Message.Content by the chat builder — the LLM reads the actual
+	// content via analyze-text / grep-text / get-text. Persisting only
+	// IDs (not names / tokens) keeps the on-disk record minimal and
+	// lets later tokenizer/rename changes flow through automatically.
+	DocumentIDs  []string `json:"document_ids,omitempty"`
+	SummaryRange *TimeRange `json:"summary_range,omitempty"`
 	// Status is meaningful only when Role == "tool". Allowed
 	// values: "success", "error". An empty Status on a tool record
 	// indicates a session written before this field existed and is

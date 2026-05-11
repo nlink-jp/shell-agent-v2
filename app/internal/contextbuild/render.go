@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/nlink-jp/shell-agent-v2/internal/llm"
 	"github.com/nlink-jp/shell-agent-v2/internal/memory"
 )
 
@@ -49,6 +50,15 @@ func formatTimestamp(t time.Time, loc *time.Location) string {
 // applies tool-result truncation, and wraps user/tool content via
 // the caller-supplied guard hook. The original record is unchanged.
 //
+// For user records with attached markdown/report documents
+// (Record.DocumentIDs populated, v0.5+), per-document anchor
+// lines are prepended OUTSIDE the guard wrap so the LLM treats
+// them as instruction-level metadata (parallel to how
+// imageIDPrefix anchors are emitted in the backend's multimodal
+// path). The lookup is best-effort: stale IDs (referenced
+// object deleted) are silently skipped rather than blocking
+// session reload.
+//
 // Returns an error if the WrapUserToolContent hook fails — fail-closed
 // per security-hardening-2.md L1.
 func renderRecordContent(records []memory.Record, i int, opts BuildOptions) (string, error) {
@@ -70,6 +80,10 @@ func renderRecordContent(records []memory.Record, i int, opts BuildOptions) (str
 	if shouldAnnotate(records, i) {
 		marker := "[" + formatTimestamp(r.Timestamp, opts.loc()) + "]"
 		content = marker + "\n" + content
+	}
+
+	if r.Role == "user" && len(r.DocumentIDs) > 0 && opts.ObjectLookup != nil {
+		content = llm.PrependDocumentAnchors(content, r.DocumentIDs, opts.ObjectLookup)
 	}
 	return content, nil
 }

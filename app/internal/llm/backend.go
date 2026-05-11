@@ -5,6 +5,7 @@ package llm
 import (
 	"context"
 	"fmt"
+	"strings"
 )
 
 // Role represents an application-level message role.
@@ -85,4 +86,70 @@ func imageIDPrefix(i int, objectIDs []string) string {
 		return fmt.Sprintf("Image (object ID: %s):", objectIDs[i])
 	}
 	return fmt.Sprintf("Image %d:", i+1)
+}
+
+// DocumentIDPrefix returns the short text label that introduces
+// a markdown / report attachment in a user message. Unlike
+// imageIDPrefix this anchor is text-only — the document's
+// content is NOT inlined into the message (the LLM reads it via
+// analyze-text / grep-text / get-text). The anchor just tells
+// the LLM "here's an attachment, its ID is X, here's a quick
+// hint at its size so you can decide whether to read it whole
+// or grep first".
+//
+// tokens=0 omits the size hint (legacy records without the
+// Tokens field; rare after Load() backfill from v0.5).
+func DocumentIDPrefix(id, origName string, tokens int) string {
+	sizeStr := ""
+	switch {
+	case tokens >= 1_000_000:
+		sizeStr = fmt.Sprintf(", %.1fM tokens", float64(tokens)/1_000_000)
+	case tokens >= 1_000:
+		sizeStr = fmt.Sprintf(", %dk tokens", tokens/1_000)
+	case tokens > 0:
+		sizeStr = fmt.Sprintf(", %d tokens", tokens)
+	}
+	if origName != "" {
+		return fmt.Sprintf("Document (object ID: %s, name: %s%s):", id, origName, sizeStr)
+	}
+	return fmt.Sprintf("Document (object ID: %s%s):", id, sizeStr)
+}
+
+// ObjectMetaLookup resolves an object ID to the metadata
+// PrependDocumentAnchors needs. Defined as a func type rather
+// than an interface so callers can wrap an objstore.Store with
+// a one-line closure without importing objstore into the chat
+// or contextbuild packages.
+type ObjectMetaLookup func(id string) (origName string, tokens int, ok bool)
+
+// PrependDocumentAnchors prefixes per-document anchor lines to
+// content for a user record that carries one or more attached
+// markdown / report references. Missing or unresolvable IDs are
+// silently skipped (the document may have been deleted out from
+// under the record — failing-closed here would block reload of
+// otherwise-valid sessions).
+//
+// Caller contract: only invoke for user-role records. Anchors
+// would be confusing on assistant turns and meaningless on tool
+// results.
+func PrependDocumentAnchors(content string, ids []string, lookup ObjectMetaLookup) string {
+	if len(ids) == 0 || lookup == nil {
+		return content
+	}
+	var sb strings.Builder
+	emitted := 0
+	for _, id := range ids {
+		name, tokens, ok := lookup(id)
+		if !ok {
+			continue // stale ref; tolerate
+		}
+		sb.WriteString(DocumentIDPrefix(id, name, tokens))
+		sb.WriteString("\n")
+		emitted++
+	}
+	if emitted == 0 {
+		return content
+	}
+	sb.WriteString(content)
+	return sb.String()
 }

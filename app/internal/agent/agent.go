@@ -519,6 +519,7 @@ func (a *Agent) buildMessagesV2(ctx context.Context, budget config.ContextBudget
 		SummarizerID:        a.backend.Name() + "/" + a.currentModelName(),
 		Summarize:           summarize,
 		WrapUserToolContent: a.chat.WrapUserToolContent,
+		ObjectLookup:        a.documentMetaLookup(),
 	})
 	if err != nil {
 		return nil, err
@@ -556,6 +557,26 @@ func (a *Agent) currentBackendKey() config.LLMBackend {
 // currentBudget returns the per-backend context budget for the active backend.
 func (a *Agent) currentBudget() config.ContextBudgetConfig {
 	return a.cfg.ContextBudgetFor(a.currentBackendKey())
+}
+
+// documentMetaLookup returns a closure suitable for
+// contextbuild.BuildOptions.ObjectLookup. The closure resolves
+// objstore IDs to (name, tokens) for the document-anchor lines
+// prepended to user messages with Record.DocumentIDs. Returns
+// nil when no objstore is wired (test fixtures); the renderer
+// then leaves user content untouched.
+func (a *Agent) documentMetaLookup() llm.ObjectMetaLookup {
+	if a.objects == nil {
+		return nil
+	}
+	store := a.objects
+	return func(id string) (string, int, bool) {
+		meta, ok := store.Get(id)
+		if !ok {
+			return "", 0, false
+		}
+		return meta.OrigName, meta.Tokens, true
+	}
 }
 
 // CurrentSession returns the current session (for session ID access).

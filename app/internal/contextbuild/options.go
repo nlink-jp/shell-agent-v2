@@ -65,6 +65,14 @@ type BuildOptions struct {
 	// silently feeding unwrapped untrusted content into the LLM
 	// context.
 	WrapUserToolContent func(string) (string, error)
+
+	// ObjectLookup resolves a Record.DocumentIDs entry to the metadata
+	// the document-anchor helper needs (name + tokens). nil → no
+	// anchor prepending (legacy / test paths). The agent supplies a
+	// closure over objstore.Store at message-build time so the lookup
+	// always sees the freshest metadata (Load() backfill may have
+	// updated tokens since the record was written).
+	ObjectLookup llm.ObjectMetaLookup
 }
 
 func (o *BuildOptions) now() time.Time {

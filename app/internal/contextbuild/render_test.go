@@ -123,6 +123,113 @@ func TestRenderRecordContent_AppliesGuardWrap(t *testing.T) {
 	}
 }
 
+// TestRenderRecordContent_PrependsDocumentAnchor pins the
+// v0.5 attachment-anchor injection. A user record carrying
+// DocumentIDs gets per-document anchor lines prepended OUTSIDE
+// the guard wrap (so the LLM treats them as instruction layer,
+// not user-content payload).
+func TestRenderRecordContent_PrependsDocumentAnchor(t *testing.T) {
+	now := time.Date(2026, 4, 27, 10, 0, 0, 0, utc)
+	rec := memory.Record{
+		Timestamp:   now,
+		Role:        "user",
+		Content:     "Summarise this.",
+		DocumentIDs: []string{"abc123", "def456"},
+	}
+	records := []memory.Record{rec}
+
+	opts := BuildOptions{
+		Loc: utc,
+		WrapUserToolContent: func(s string) (string, error) {
+			return "<<GUARD>>" + s + "<</GUARD>>", nil
+		},
+		ObjectLookup: func(id string) (string, int, bool) {
+			switch id {
+			case "abc123":
+				return "audit.md", 5432, true
+			case "def456":
+				return "spec.md", 800, true
+			}
+			return "", 0, false
+		},
+	}
+	out, err := renderRecordContent(records, 0, opts)
+	if err != nil {
+		t.Fatalf("renderRecordContent: %v", err)
+	}
+	if !strings.HasPrefix(out, "Document (object ID: abc123, name: audit.md, 5k tokens):\nDocument (object ID: def456, name: spec.md, 800 tokens):\n") {
+		t.Errorf("expected two anchor lines at the very start; got:\n%s", out)
+	}
+	// Anchors are OUTSIDE the guard wrap.
+	if !strings.Contains(out, "<<GUARD>>Summarise this.<</GUARD>>") {
+		t.Errorf("guard wrap must still surround user payload; got:\n%s", out)
+	}
+}
+
+// TestRenderRecordContent_DocumentAnchor_SilentlyDropsStaleIDs
+// pins the failure-mode: an ID that the objstore can't resolve
+// is skipped (no anchor line) rather than blocking session
+// reload. This matches the design's "tolerate stale refs" rule.
+func TestRenderRecordContent_DocumentAnchor_SilentlyDropsStaleIDs(t *testing.T) {
+	now := time.Date(2026, 4, 27, 10, 0, 0, 0, utc)
+	rec := memory.Record{
+		Timestamp:   now,
+		Role:        "user",
+		Content:     "hello",
+		DocumentIDs: []string{"vanished", "still-here"},
+	}
+	records := []memory.Record{rec}
+	opts := BuildOptions{
+		Loc: utc,
+		ObjectLookup: func(id string) (string, int, bool) {
+			if id == "still-here" {
+				return "ok.md", 10, true
+			}
+			return "", 0, false
+		},
+	}
+	out, err := renderRecordContent(records, 0, opts)
+	if err != nil {
+		t.Fatalf("renderRecordContent: %v", err)
+	}
+	if strings.Contains(out, "vanished") {
+		t.Errorf("stale ID must be silently skipped; got %q", out)
+	}
+	if !strings.Contains(out, "still-here") {
+		t.Errorf("live ID must emit an anchor; got %q", out)
+	}
+}
+
+// TestRenderRecordContent_DocumentAnchor_OnlyOnUserRole pins the
+// scope: assistant / tool records never get anchors prepended even
+// if they somehow carry DocumentIDs (defensive — Record.DocumentIDs
+// is populated by the agent only for user records, but the
+// renderer enforces the invariant in case future code paths set
+// it elsewhere).
+func TestRenderRecordContent_DocumentAnchor_OnlyOnUserRole(t *testing.T) {
+	now := time.Date(2026, 4, 27, 10, 0, 0, 0, utc)
+	rec := memory.Record{
+		Timestamp:   now,
+		Role:        "assistant",
+		Content:     "let me think.",
+		DocumentIDs: []string{"abc123"},
+	}
+	records := []memory.Record{rec}
+	opts := BuildOptions{
+		Loc: utc,
+		ObjectLookup: func(id string) (string, int, bool) {
+			return "x.md", 100, true
+		},
+	}
+	out, err := renderRecordContent(records, 0, opts)
+	if err != nil {
+		t.Fatalf("renderRecordContent: %v", err)
+	}
+	if strings.Contains(out, "Document (object ID:") {
+		t.Errorf("assistant record must not get anchor lines; got %q", out)
+	}
+}
+
 func TestTruncateToTokens_Idempotent(t *testing.T) {
 	short := "tiny payload"
 	if got := truncateToTokens(short, 100); got != short {
