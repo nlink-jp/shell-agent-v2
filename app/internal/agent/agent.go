@@ -1738,53 +1738,22 @@ func normalizeToolArgs(raw string) string {
 //     ActivityStatusError; everything else is ActivityStatusSuccess.
 func (a *Agent) executeTool(ctx context.Context, tc llm.ToolCall) (string, ActivityEventStatus) {
 	tc.Arguments = normalizeToolArgs(tc.Arguments)
-	switch tc.Name {
-	case "resolve-date":
-		result, err := chat.ResolveDate(tc.Arguments)
-		if err != nil {
-			return fmt.Sprintf("Error: %v", err), ActivityStatusError
-		}
-		return result, ActivityStatusSuccess
-	case "list-objects":
-		return a.toolListObjects(tc.Arguments), ActivityStatusSuccess
-	case "get-object":
-		return a.toolGetObject(tc.Arguments), ActivityStatusSuccess
-	case "register-object":
-		// Bridge a host-side artefact (typically produced by a
-		// shell tool that wrote to $SHELL_AGENT_WORK_DIR) into
-		// objstore so the chat can render it as object:<ID>.
-		// Mirrors sandbox-register-object for the no-sandbox
-		// flow. Design: docs/en/work-dir-shell-bridge.md.
-		if a.IsToolMITLRequired(tc.Name) {
-			if rejection := a.requestMITL(tc.Name, tc.Arguments, "write"); rejection != "" {
-				return rejection, ActivityStatusError
-			}
-		}
-		return a.toolRegisterObject(tc.Arguments)
-	case "load-data", "describe-data", "query-sql", "query-preview", "suggest-analysis", "quick-summary", "list-tables", "reset-analysis", "create-report", "promote-finding", "analyze-data", "analyze-text", "grep-text", "get-text":
-		if a.analysis == nil {
-			return "Error: no analysis engine available", ActivityStatusError
-		}
-		// MITL is gated centrally here so the Settings → Tools toggle
-		// (cfg.Tools.MITLOverrides via IsToolMITLRequired) takes
-		// effect for analysis tools. Before security-hardening-2.md
-		// H1+H2 the toggle was a no-op for this branch — load-data,
-		// reset-analysis and promote-finding ran without confirmation
-		// regardless, while query-sql / analyze-data prompted
-		// regardless. The hard-coded MITL calls inside
-		// executeAnalysisTool have been removed.
-		if a.IsToolMITLRequired(tc.Name) {
-			category := analysisToolMITLCategory(tc.Name)
-			if rejection := a.requestMITL(tc.Name, tc.Arguments, category); rejection != "" {
-				return rejection, ActivityStatusError
-			}
-		}
-		result, err := a.executeAnalysisTool(ctx, tc.Name, tc.Arguments)
-		if err != nil {
-			return fmt.Sprintf("Error: %v", err), ActivityStatusError
-		}
-		return result, ActivityStatusSuccess
-	default:
+
+	// v0.6: descriptor registry handles analysis + builtin
+	// tools (the 18 names that v0.5 enumerated across a
+	// resolve-date case, three single-name cases for the
+	// objstore builtins, and the analysis multi-case label).
+	// MITL gate + analysis-engine guard live inside
+	// dispatchDescriptor so each call site here is uniform.
+	if result, status, handled := a.dispatchDescriptor(ctx, tc); handled {
+		return result, status
+	}
+
+	// Below: tool sources that aren't in the descriptor
+	// registry — sandbox (prefix-routed), MCP guardians
+	// (dynamic per-server), and shell scripts (toolcall
+	// Registry). Order preserved from v0.5.
+	{
 		// Sandbox tools (prefixed with "sandbox-")
 		if strings.HasPrefix(tc.Name, "sandbox-") {
 			if a.IsToolMITLRequired(tc.Name) {

@@ -68,35 +68,11 @@ func analysisToolMITLCategory(name string) string {
 // a.toolDescriptors via descriptorToolDefs() — see
 // tool_descriptor.go and tool_descriptors_analysis.go.
 
-// executeAnalysisTool handles analysis tool calls.
-//
-// Phase 2e: switch deleted, dispatch goes through the
-// descriptor's Handle closure. The 14-case switch this used
-// to be was the v0.5 drift surface where each new tool
-// needed an entry remembered alongside five other parallel
-// lists. Closures capture the same toolXxx methods as the
-// pre-refactor switch, so handler behaviour is bit-identical.
-//
-// The wrapper signature stays (string, error) for one more
-// commit because executeTool() — the outer dispatcher — is
-// migrated separately in Phase 2f. The caller wraps any
-// error in "Error: %v" again, so we strip the "Error: "
-// prefix that wrapErrHandler prepended (status carries the
-// failure-vs-success distinction independent of the prefix).
-func (a *Agent) executeAnalysisTool(ctx context.Context, name string, argsJSON string) (string, error) {
-	d, ok := a.toolDescriptorByName(name)
-	if !ok {
-		return "", fmt.Errorf("unknown analysis tool: %s", name)
-	}
-	if d.Handle == nil {
-		return "", fmt.Errorf("analysis tool %q has no handler", name)
-	}
-	result, status := d.Handle(ctx, argsJSON)
-	if status == ActivityStatusError {
-		return "", fmt.Errorf("%s", strings.TrimPrefix(result, "Error: "))
-	}
-	return result, nil
-}
+// executeAnalysisTool was the v0.5 inner dispatcher for the
+// 14-case switch of analysis tool names. Phase 2e replaced
+// the switch with descriptor lookup, then Phase 2f replaced
+// the outer call site with dispatchDescriptor — leaving this
+// function unused. Deleted.
 
 func (a *Agent) toolLoadData(argsJSON string) (string, error) {
 	var args struct {

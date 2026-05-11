@@ -159,6 +159,67 @@ func wrapStringHandler(fn func(ctx context.Context, args string) string) func(ct
 	}
 }
 
+// toolMITLCategory returns the MITL category string the UI
+// should use for a tool: descriptor.MITLCategoryOverride
+// when set (e.g. "sql_preview" / "analysis_plan"), else
+// descriptor.Category as the generic confirmation flavour.
+// Returns "" for unknown tools (caller falls back to its
+// own default — typically "execute" for sandbox/MCP).
+func (a *Agent) toolMITLCategory(name string) string {
+	d, ok := a.toolDescriptorByName(name)
+	if !ok {
+		return ""
+	}
+	if d.MITLCategoryOverride != "" {
+		return d.MITLCategoryOverride
+	}
+	return d.Category
+}
+
+// dispatchDescriptor tries to dispatch a tool call via the
+// descriptor registry. Returns (result, status, true) when
+// the tool name maps to a descriptor (the dispatcher's
+// invocation is final — caller must NOT try other sources).
+// Returns (zero, zero, false) when no descriptor matches —
+// caller should fall through to its other sources (sandbox
+// prefix, MCP guardians, shell-tool registry).
+//
+// The MITL gate runs centrally here using
+// IsToolMITLRequired (which already consults the
+// MITLOverrides map and falls back to the descriptor's
+// MITLDefault via toolMITLDefault → analysisToolMITLDefault
+// today; Phase 2g migrates the lookup to read from
+// descriptors directly).
+func (a *Agent) dispatchDescriptor(ctx context.Context, tc llm.ToolCall) (string, ActivityEventStatus, bool) {
+	d, ok := a.toolDescriptorByName(tc.Name)
+	if !ok {
+		return "", ActivityStatusSuccess, false
+	}
+	if d.Handle == nil {
+		return "Error: tool " + tc.Name + " has no handler", ActivityStatusError, true
+	}
+	// Analysis-source tools require a.analysis to exist.
+	// Pre-refactor the outer dispatcher checked this with the
+	// "Error: no analysis engine available" message and we
+	// preserve the same wording so the LLM sees a stable
+	// error string.
+	if d.Source == "analysis" && a.analysis == nil {
+		return "Error: no analysis engine available", ActivityStatusError, true
+	}
+	// MITL gate.
+	if a.IsToolMITLRequired(tc.Name) {
+		category := a.toolMITLCategory(tc.Name)
+		if category == "" {
+			category = "execute"
+		}
+		if rejection := a.requestMITL(tc.Name, tc.Arguments, category); rejection != "" {
+			return rejection, ActivityStatusError, true
+		}
+	}
+	result, status := d.Handle(ctx, tc.Arguments)
+	return result, status, true
+}
+
 // descriptorToolDefs derives the LLM tool-def slice from the
 // agent's descriptor list, applying the same visibility
 // filters (analysis-engine presence, legacy data-gating)
