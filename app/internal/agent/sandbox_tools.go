@@ -11,153 +11,27 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/nlink-jp/shell-agent-v2/internal/llm"
 	"github.com/nlink-jp/shell-agent-v2/internal/objstore"
 	"github.com/nlink-jp/shell-agent-v2/internal/sandbox"
 )
 
-// sandboxToolDefs returns the LLM-facing definitions for the eight
-// sandbox-* tools. Returned only when a.sandbox is non-nil; the
-// caller in buildToolDefs gates on that.
-func sandboxToolDefs() []llm.ToolDef {
-	return []llm.ToolDef{
-		{
-			Name:        "sandbox-run-shell",
-			Description: "Execute a shell command inside this session's sandbox container. Files in /work persist across calls within the session and are isolated between sessions. Side effects do not affect the host. Use for filesystem operations, package installs (pip), and orchestrating subprocesses.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"command": map[string]any{"type": "string", "description": "Shell command to execute."},
-				},
-				"required": []string{"command"},
-			},
-		},
-		{
-			Name:        "sandbox-run-python",
-			Description: "Execute Python code inside this session's sandbox container. Working directory is /work; files there persist across calls. Each call is a fresh interpreter, but the filesystem and any installed packages persist within the session.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"code": map[string]any{"type": "string", "description": "Python source to execute."},
-				},
-				"required": []string{"code"},
-			},
-		},
-		{
-			Name:        "sandbox-write-file",
-			Description: "Write text content to /work/<path> inside this session's sandbox. Use to seed the sandbox with data the LLM has already produced (CSVs, source files, configs) without escaping it through run-shell heredocs. Path must be relative to /work; parent directories are created if missing. Existing files are overwritten.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"path":    map[string]any{"type": "string", "description": "Relative path under /work."},
-					"content": map[string]any{"type": "string", "description": "Text content to write."},
-				},
-				"required": []string{"path", "content"},
-			},
-		},
-		{
-			Name:        "sandbox-copy-object",
-			Description: "Copy a stored object (image / blob / report / markdown) from the session object store into /work/<path> inside this session's sandbox. Use to bring user-uploaded images, markdown attachments, or earlier reports into the sandbox for analysis (e.g. running ripgrep or pandoc against an attached document). Use list-objects to find a valid object_id.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"object_id": map[string]any{"type": "string", "description": "Object ID from list-objects."},
-					"path":      map[string]any{"type": "string", "description": "Destination path under /work. Defaults to the object's orig_name when omitted."},
-				},
-				"required": []string{"object_id"},
-			},
-		},
-		{
-			Name:        "sandbox-register-object",
-			Description: "Register a file from /work (typically an output from sandbox-run-python — chart, generated CSV, etc.) into the session object store. Returns the object ID, which can be referenced in reports as ![alt](object:ID).",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"path": map[string]any{"type": "string", "description": "Source path under /work."},
-					"type": map[string]any{"type": "string", "description": "image | blob | report | markdown. Defaults to inference from MIME (image/* → image, text/markdown → report, otherwise blob). Pass \"markdown\" explicitly when staging user-supplied source material rather than agent-generated content."},
-					"name": map[string]any{"type": "string", "description": "Friendly name (orig_name); defaults to filename."},
-				},
-				"required": []string{"path"},
-			},
-		},
-		{
-			Name:        "sandbox-info",
-			Description: "Return a description of this session's sandbox: engine, image, Python version, key pre-installed packages, network policy, resource limits, and the contents of /work (path, size, mtime). Use this to discover the runtime before running code.",
-			Parameters: map[string]any{
-				"type":       "object",
-				"properties": map[string]any{},
-			},
-		},
-		{
-			Name:        "sandbox-export-sql",
-			Description: "Run a SELECT query against the analysis database and write the result as CSV to /work/<file_path>. Use this when you want sandbox-run-python (pandas etc.) to operate on a query result — pasting the result text into Python is wasteful and lossy; this hands the data over as a precise CSV file. The file appears under /work and can also be loaded back with sandbox-load-into-analysis.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"sql":       map[string]any{"type": "string", "description": "SELECT query to run."},
-					"file_path": map[string]any{"type": "string", "description": "Destination path under /work (e.g. 'tokyo_sales.csv'). Parent directories are created if missing."},
-				},
-				"required": []string{"sql", "file_path"},
-			},
-		},
-		{
-			Name:        "sandbox-load-into-analysis",
-			Description: "Load a CSV/JSON/JSONL file from /work into the analysis database (DuckDB) as a table, so it can be queried with query-sql, described with describe-data, etc. Use this after generating data with sandbox-run-python to bridge the produced file into the analysis side. file_path is relative to /work (do not include the '/work/' prefix).",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"file_path":  map[string]any{"type": "string", "description": "Path to the data file under /work (e.g. 'sales.csv'). Same parameter name as load-data."},
-					"table_name": map[string]any{"type": "string", "description": "Table name to create in the analysis database. Alphanumeric and underscores only."},
-				},
-				"required": []string{"file_path", "table_name"},
-			},
-		},
-	}
-}
-
-// executeSandboxTool dispatches sandbox-* tool calls. Returns the
-// LLM-facing text result and an ActivityEventStatus that the
-// agentLoop forwards to the chat as the tool-end bubble colour.
+// executeSandboxTool dispatches a sandbox-* tool call by name
+// via the descriptor registry, bypassing the MITL gate that
+// dispatchDescriptor applies for production callers. Used by
+// the unit tests that assert raw handler behaviour without
+// simulating an MITL approval; production tool calls flow
+// through executeTool → dispatchDescriptor → descriptor.Handle,
+// which centralises the MITL gate.
 //
-// Phase B-1: only run-shell / run-python actually classify
-// failure (non-zero exit code or TimedOut → error). Other
-// sandbox tools return success unless the Go-side error path
-// fired.
+// Returns "unknown sandbox tool %q" when no descriptor matches
+// or when the matched descriptor isn't a sandbox-source one
+// (which catches typos in test names).
 func (a *Agent) executeSandboxTool(ctx context.Context, name, argsJSON string) (string, ActivityEventStatus) {
-	if a.sandbox == nil {
-		return "Error: sandbox is not enabled", ActivityStatusError
-	}
-	if a.session == nil {
-		return "Error: no active session", ActivityStatusError
-	}
-	sid := a.session.ID
-
-	// All sandbox tools require the container to exist; EnsureContainer
-	// is idempotent and cheap on subsequent calls.
-	if err := a.sandbox.EnsureContainer(ctx, sid); err != nil {
-		return fmt.Sprintf("Error: ensure container: %v", err), ActivityStatusError
-	}
-
-	switch name {
-	case "sandbox-run-shell":
-		return a.toolSandboxRunShell(ctx, sid, argsJSON)
-	case "sandbox-run-python":
-		return a.toolSandboxRunPython(ctx, sid, argsJSON)
-	case "sandbox-write-file":
-		return a.toolSandboxWriteFile(sid, argsJSON)
-	case "sandbox-copy-object":
-		return a.toolSandboxCopyObject(sid, argsJSON)
-	case "sandbox-register-object":
-		return a.toolSandboxRegisterObject(sid, argsJSON)
-	case "sandbox-info":
-		return a.toolSandboxInfo(ctx, sid)
-	case "sandbox-load-into-analysis":
-		return a.toolSandboxLoadIntoAnalysis(sid, argsJSON)
-	case "sandbox-export-sql":
-		return a.toolSandboxExportSQL(sid, argsJSON)
-	default:
+	d, ok := a.toolDescriptorByName(name)
+	if !ok || d.Source != "sandbox" || d.Handle == nil {
 		return fmt.Sprintf("Error: unknown sandbox tool %q", name), ActivityStatusError
 	}
+	return d.Handle(ctx, argsJSON)
 }
 
 func (a *Agent) toolSandboxRunShell(ctx context.Context, sid, argsJSON string) (string, ActivityEventStatus) {
