@@ -62,7 +62,7 @@ declare global {
                     ApproveMITL(): Promise<void>;
                     RejectMITL(): Promise<void>;
                     RejectMITLWithFeedback(feedback: string): Promise<void>;
-                    SendWithImages(message: string, imageDataURLs: string[]): Promise<string>;
+                    SendWithImages(message: string, imageDataURLs: string[], imageNames: string[]): Promise<string>;
                     SaveImage(dataURL: string): Promise<string>;
                     GetImageDataURL(id: string): Promise<string>;
                     GetTools(): Promise<ToolInfo[]>;

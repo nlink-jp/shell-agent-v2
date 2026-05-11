@@ -359,6 +359,13 @@ const MaxAttachmentBytes = 50 * 1024 * 1024
 
 // SaveDataURL parses a data URL and stores the binary data.
 //
+// origName is the user-visible filename to record on the stored
+// ObjectMeta (orig_name). Pass "" when the data URL has no
+// associated filename (e.g. paste-from-clipboard images). For
+// drag-drop / file-picker attachments the chat input passes the
+// actual filename here so the data panel and chat bubbles can
+// show "audit.md" instead of the 32-hex object ID.
+//
 // Type inference from MIME:
 //   - image/*                         → TypeImage
 //   - text/markdown, text/plain       → TypeMarkdown   (v0.5)
@@ -368,7 +375,7 @@ const MaxAttachmentBytes = 50 * 1024 * 1024
 // has its own DuckDB path via load-data; non-tabular JSON as a
 // document is deferred to a later release (user can wrap in a
 // .md code fence today).
-func (s *Store) SaveDataURL(dataURL, sessionID string) (*ObjectMeta, error) {
+func (s *Store) SaveDataURL(dataURL, origName, sessionID string) (*ObjectMeta, error) {
 	parts := strings.SplitN(dataURL, ",", 2)
 	if len(parts) != 2 {
 		return nil, fmt.Errorf("invalid data URL format")
@@ -397,7 +404,7 @@ func (s *Store) SaveDataURL(dataURL, sessionID string) (*ObjectMeta, error) {
 		objType = TypeMarkdown
 	}
 
-	return s.Store(strings.NewReader(string(decoded)), objType, mimeType, "", sessionID)
+	return s.Store(strings.NewReader(string(decoded)), objType, mimeType, origName, sessionID)
 }
 
 // LoadAsDataURL reads an object and returns it as a data URL.

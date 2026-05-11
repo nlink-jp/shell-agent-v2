@@ -264,7 +264,7 @@ func TestSaveDataURL_Markdown_PopulatesLinesAndTokens(t *testing.T) {
 	s := NewStoreAt(t.TempDir())
 	body := "# Doc\n\nLine 1.\nLine 2.\n"
 	dataURL := "data:text/markdown;base64," + base64Std(body)
-	meta, err := s.SaveDataURL(dataURL, "sess-1")
+	meta, err := s.SaveDataURL(dataURL, "", "sess-1")
 	if err != nil {
 		t.Fatalf("SaveDataURL: %v", err)
 	}
@@ -288,7 +288,7 @@ func TestSaveDataURL_Markdown_PopulatesLinesAndTokens(t *testing.T) {
 func TestSaveDataURL_TextPlain_TreatedAsMarkdown(t *testing.T) {
 	s := NewStoreAt(t.TempDir())
 	dataURL := "data:text/plain;base64," + base64Std("hello world\n")
-	meta, err := s.SaveDataURL(dataURL, "sess-1")
+	meta, err := s.SaveDataURL(dataURL, "", "sess-1")
 	if err != nil {
 		t.Fatalf("SaveDataURL: %v", err)
 	}
@@ -306,7 +306,7 @@ func TestSaveDataURL_OversizedRefused(t *testing.T) {
 	// 51 MB of bytes.
 	body := strings.Repeat("x", MaxAttachmentBytes+1024)
 	dataURL := "data:text/plain;base64," + base64Std(body)
-	_, err := s.SaveDataURL(dataURL, "sess-1")
+	_, err := s.SaveDataURL(dataURL, "", "sess-1")
 	if err == nil {
 		t.Fatal("expected oversize error, got nil")
 	}
@@ -320,7 +320,7 @@ func TestSaveDataURL_OversizedRefused(t *testing.T) {
 func TestSaveDataURL_Image_StillRoutesToImage(t *testing.T) {
 	s := NewStoreAt(t.TempDir())
 	dataURL := "data:image/png;base64," + base64Std("\x89PNG\r\n\x1a\nfake")
-	meta, err := s.SaveDataURL(dataURL, "")
+	meta, err := s.SaveDataURL(dataURL, "", "")
 	if err != nil {
 		t.Fatalf("SaveDataURL: %v", err)
 	}

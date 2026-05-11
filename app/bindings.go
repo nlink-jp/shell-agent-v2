@@ -233,7 +233,7 @@ func (b *Bindings) Send(message string) (string, error) {
 // ObjectIDs), markdown / plain-text attachments flow into the
 // new DocumentIDs slice and surface to the LLM via anchor lines
 // prepended in the contextbuild render path.
-func (b *Bindings) SendWithImages(message string, imageDataURLs []string) (string, error) {
+func (b *Bindings) SendWithImages(message string, imageDataURLs, imageNames []string) (string, error) {
 	var imageObjectIDs []string
 	var imageOnlyDataURLs []string
 	var documentObjectIDs []string
@@ -241,8 +241,17 @@ func (b *Bindings) SendWithImages(message string, imageDataURLs []string) (strin
 	if s := b.agent.CurrentSession(); s != nil {
 		sessionID = s.ID
 	}
-	for _, du := range imageDataURLs {
-		meta, err := b.objects.SaveDataURL(du, sessionID)
+	for i, du := range imageDataURLs {
+		// imageNames is a parallel slice; pre-v0.5 frontends could
+		// omit it entirely (slice shorter than the URL slice), so
+		// guard the index access. Missing names degrade to ""
+		// → orig_name shows as the object ID in the data panel,
+		// matching v0.4.x behaviour for paste-from-clipboard images.
+		name := ""
+		if i < len(imageNames) {
+			name = imageNames[i]
+		}
+		meta, err := b.objects.SaveDataURL(du, name, sessionID)
 		if err != nil {
 			logger.Error("SaveDataURL: %v", err)
 			continue
@@ -438,6 +447,23 @@ func (b *Bindings) LoadSession(sessionID string) ([]MessageData, error) {
 			if len(r.ObjectIDs) > 0 {
 				md.ObjectIDs = append(md.ObjectIDs, r.ObjectIDs...)
 			}
+			// v0.5: surface markdown / text attachments via the
+			// new Documents view. We resolve OrigName here so
+			// the frontend can render the bubble without an
+			// extra ListObjects round-trip per restored user
+			// turn. A missing objstore entry (stale ID after
+			// manual deletion) degrades to "(missing)" rather
+			// than dropping the entry entirely — keeps the
+			// historical record intact.
+			for _, id := range r.DocumentIDs {
+				name := id
+				if b.objects != nil {
+					if meta, ok := b.objects.Get(id); ok && meta.OrigName != "" {
+						name = meta.OrigName
+					}
+				}
+				md.Documents = append(md.Documents, AttachedDocument{ID: id, Name: name})
+			}
 			msgs = append(msgs, md)
 		default:
 			msgs = append(msgs, MessageData{
@@ -617,6 +643,24 @@ type MessageData struct {
 	// in LoadSession so the frontend can fetch full args + result
 	// via GetToolCallDetails when the user clicks the bubble.
 	ToolCallID string `json:"tool_call_id,omitempty"`
+	// Documents is populated for restored user records that
+	// originally attached markdown / text files (v0.5). Each
+	// entry carries both the objstore ID (for click-to-preview
+	// via GetObjectText) and the original filename (for the
+	// visible label in the chat bubble). The names are resolved
+	// server-side via objstore.Get so the frontend can render
+	// the bubble without an extra round-trip.
+	Documents []AttachedDocument `json:"documents,omitempty"`
+}
+
+// AttachedDocument is the per-document view bundled into a
+// restored user message — id + filename, no content. The
+// content is fetched on click via Bindings.GetObjectText so
+// the chat bubble stays cheap until the user actually wants to
+// see it.
+type AttachedDocument struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 // --- MITL bindings ---
@@ -1237,8 +1281,13 @@ func (b *Bindings) GetMCPStatus() []agent.MCPStatus {
 // --- Image bindings ---
 
 // SaveImage stores a data URL image and returns its ID.
+// SaveImage doesn't have a filename to associate (callers are
+// programmatic paths), so origName is "" — the data panel will
+// fall back to showing the object ID. Frontends that want a
+// proper filename should use SendWithImages with a parallel
+// imageNames slice instead.
 func (b *Bindings) SaveImage(dataURL string) (string, error) {
-	meta, err := b.objects.SaveDataURL(dataURL, "")
+	meta, err := b.objects.SaveDataURL(dataURL, "", "")
 	if err != nil {
 		return "", err
 	}

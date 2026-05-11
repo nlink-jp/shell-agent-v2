@@ -34,6 +34,46 @@ interface MessageItemProps {
     onToolEventClick?: (toolCallId: string) => void;
 }
 
+// openDocumentAttachment resolves a {id?, name, dataURL?} entry
+// to the markdown body and routes it through the existing
+// ReportViewer. Live messages have dataURL (decode locally);
+// restored messages have id (fetch via GetObjectText). Keeps
+// the click-to-preview behaviour symmetric across the two paths.
+async function openDocumentAttachment(
+    att: {id?: string; name: string; dataURL?: string},
+    onExpandReport: (r: {title: string; content: string}) => void,
+): Promise<void> {
+    let content: string
+    if (att.dataURL) {
+        // data:text/markdown;base64,<encoded>
+        const m = att.dataURL.match(/^data:[^;,]*;base64,(.*)$/)
+        if (!m) return
+        try {
+            // atob → binary string → percent-encoded → decoded UTF-8.
+            // base64 decode and re-decode as UTF-8 so non-ASCII
+            // markdown (CJK headings, accented characters) renders
+            // correctly through ReportViewer.
+            const bin = atob(m[1])
+            const bytes = new Uint8Array(bin.length)
+            for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+            content = new TextDecoder('utf-8').decode(bytes)
+        } catch (_e) {
+            content = '(failed to decode attachment data URL)'
+        }
+    } else if (att.id && window.go) {
+        try {
+            content = await window.go.main.Bindings.GetObjectText(att.id)
+        } catch (e: any) {
+            content = `(failed to load attachment: ${e?.message || e})`
+        }
+    } else {
+        return
+    }
+    const firstLine = (content.split('\n')[0] || '').replace(/^#\s*/, '')
+    const title = firstLine || att.name || att.id || 'Attachment'
+    onExpandReport({title, content})
+}
+
 const MessageItem = memo(function MessageItem({msg, onLightbox, onExpandReport, onToolEventClick}: MessageItemProps) {
     const components = useMemo(() => ({
         img: ({src, alt}: {src?: string; alt?: string}) => {
@@ -120,27 +160,30 @@ const MessageItem = memo(function MessageItem({msg, onLightbox, onExpandReport, 
                         if (url.startsWith('object:')) {
                             return <ObjectImage key={j} id={url.slice(7)} onClick={onLightbox} />
                         }
-                        // v0.5: chat input's imageUrls slice may carry
-                        // text/markdown / text/plain data URLs too
-                        // (the binding layer routes them to TypeMarkdown
-                        // server-side, but the live message used for
-                        // optimistic rendering passes the raw URLs
-                        // through). Rendering a non-image data URL via
-                        // <img> shows the browser's broken-image "?"
-                        // placeholder — branch on the MIME prefix and
-                        // emit a labelled document card instead.
-                        if (url.startsWith('data:') && !url.startsWith('data:image/')) {
-                            const label = url.startsWith('data:text/markdown') ? 'markdown'
-                                : url.startsWith('data:text/plain') ? 'text'
-                                : 'document'
-                            return (
-                                <span key={j} className="message-attachment-doc" title={label}>
-                                    📝 {label}
-                                </span>
-                            )
-                        }
                         return <img key={j} src={url} alt="" className="message-image" onClick={() => onLightbox(url)} />
                     })}
+                </div>
+            )}
+            {/* v0.5: markdown / text attachments render as labelled
+                cards with filename + click-to-preview (opens the
+                same ReportViewer the data panel uses). Live messages
+                carry a dataURL (decode locally); restored messages
+                carry an objstore id (fetch via GetObjectText on
+                click). Either way the bubble shows the filename
+                immediately. */}
+            {msg.documents && msg.documents.length > 0 && (
+                <div className="message-attachments">
+                    {msg.documents.map((att, j) => (
+                        <button
+                            key={j}
+                            type="button"
+                            className="message-attachment-doc"
+                            title={att.name + ' — click to preview'}
+                            onClick={() => { void openDocumentAttachment(att, onExpandReport) }}
+                        >
+                            📝 {att.name}
+                        </button>
+                    ))}
                 </div>
             )}
             <div className="message-content">

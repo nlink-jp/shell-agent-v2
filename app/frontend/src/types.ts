@@ -20,6 +20,14 @@ export interface ChatMessage {
     // full args + result on click via GetToolCallDetails. Empty for
     // legacy rows that predate the field.
     toolCallId?: string;
+    /** v0.5: markdown / text attachments on a user bubble. Each
+     *  entry can carry the objstore id (set for restored
+     *  messages — used by the click-to-preview handler via
+     *  GetObjectText) and/or the live data URL (set when the
+     *  message was just sent — content is locally decodable so
+     *  preview doesn't need a backend round-trip). name is the
+     *  filename to render in the bubble label. */
+    documents?: Array<{id?: string; name: string; dataURL?: string}>;
 }
 
 export interface ToolCallDetails {
@@ -58,6 +66,11 @@ export interface MessageData {
     // Populated for restored `tool-event` rows so the click-to-
     // inspect overlay can fetch full args + result.
     tool_call_id?: string;
+    /** v0.5: restored markdown / text attachments. Each entry
+     *  carries the objstore id and a display name (resolved
+     *  server-side from objstore.OrigName so the bubble can
+     *  render without an extra round-trip). */
+    documents?: Array<{id: string; name: string}>;
 }
 
 export interface Finding {

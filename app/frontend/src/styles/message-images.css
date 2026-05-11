@@ -30,18 +30,35 @@
 }
 
 /* v0.5: text/markdown / text/plain attachments rendered inside
-   a user message bubble. Distinguishes from images so the
-   user sees a labelled placeholder instead of the broken-image
-   glyph that <img src="data:text/..."> would produce. */
+   a user message bubble. Clickable card with the filename;
+   click opens the same ReportViewer the data panel uses. */
+.message-attachments {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+}
+
 .message-attachment-doc {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    padding: 4px 10px;
+    gap: 6px;
+    padding: 6px 12px;
     background: #2a3a4a;
     border: 1px solid #3a4a5a;
     border-radius: 6px;
-    font-size: 12px;
+    font-size: 13px;
     color: #cccccc;
+    cursor: pointer;
+    font-family: inherit;
+    max-width: 320px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.message-attachment-doc:hover {
+    border-color: #5a8abf;
+    background: #2f4054;
 }
 

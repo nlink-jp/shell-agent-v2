@@ -252,7 +252,7 @@ func TestSaveDataURL(t *testing.T) {
 	s := NewStoreAt(t.TempDir())
 	// Tiny 1x1 PNG as data URL
 	dataURL := "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
-	meta, err := s.SaveDataURL(dataURL, "sess-test")
+	meta, err := s.SaveDataURL(dataURL, "", "sess-test")
 	if err != nil {
 		t.Fatalf("SaveDataURL: %v", err)
 	}

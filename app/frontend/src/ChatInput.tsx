@@ -1,13 +1,23 @@
 import {useState, useRef, useEffect, useLayoutEffect, memo} from 'react'
 
+// PendingAttachment tracks both the data URL and the original
+// filename so the chat input can preserve the name through the
+// SendWithImages binding (whose new parallel `imageNames` slice
+// makes it to objstore.OrigName) — the data panel + chat bubbles
+// then show "audit.md" instead of the bare 32-hex object ID.
+export interface PendingAttachment {
+    dataURL: string
+    name: string
+}
+
 interface Props {
-    onSend: (text: string, images: string[]) => void
+    onSend: (text: string, attachments: PendingAttachment[]) => void
     disabled: boolean
 }
 
 function ChatInput({onSend, disabled}: Props) {
     const [input, setInput] = useState('')
-    const [pendingImages, setPendingImages] = useState<string[]>([])
+    const [pendingImages, setPendingImages] = useState<PendingAttachment[]>([])
     const composingRef = useRef(false)
     const textareaRef = useRef<HTMLTextAreaElement>(null)
     const fileInputRef = useRef<HTMLInputElement>(null)
@@ -38,10 +48,10 @@ function ChatInput({onSend, disabled}: Props) {
             historyIndexRef.current = -1
             draftRef.current = ''
         }
-        const images = [...pendingImages]
+        const attachments = [...pendingImages]
         setInput('')
         setPendingImages([])
-        onSend(text, images)
+        onSend(text, attachments)
         setTimeout(() => textareaRef.current?.focus(), 50)
     }
 
@@ -116,15 +126,23 @@ function ChatInput({onSend, disabled}: Props) {
             alert(`File too large to attach (limit 50 MB): ${names}\nFor larger documents, copy the file into the sandbox /work directory and use register-object instead.`)
         }
         const accepted = fileArr.filter(f => f.size <= MAX_ATTACHMENT_BYTES)
-        const dataURLs = await Promise.all(accepted.map(file =>
-            new Promise<string>((resolve, reject) => {
+        const attached: PendingAttachment[] = await Promise.all(accepted.map(file =>
+            new Promise<PendingAttachment>((resolve, reject) => {
                 const reader = new FileReader()
-                reader.onload = () => resolve(reader.result as string)
+                reader.onload = () => resolve({
+                    dataURL: reader.result as string,
+                    // file.name is empty for clipboard-paste images
+                    // ("image/png" item with no filename) — leave it
+                    // empty so objstore.OrigName stays "" and the
+                    // bubble/data panel falls back to the object ID
+                    // (matches the pre-v0.5 paste-image experience).
+                    name: file.name || '',
+                })
                 reader.onerror = () => reject(reader.error)
                 reader.readAsDataURL(file)
             })
         ))
-        setPendingImages(prev => [...prev, ...dataURLs])
+        setPendingImages(prev => [...prev, ...attached])
     }
 
     function handlePaste(e: React.ClipboardEvent) {
@@ -147,21 +165,17 @@ function ChatInput({onSend, disabled}: Props) {
             onDragOver={e => e.preventDefault()}>
             {pendingImages.length > 0 && (
                 <div className="pending-images">
-                    {pendingImages.map((url, i) => {
-                        const isImage = url.startsWith('data:image/')
-                        // Pull a label out of the data URL prefix when
-                        // possible — the MIME after "data:" hints at
-                        // markdown vs plain text. Browsers don't put
-                        // filenames into FileReader-produced data URLs
-                        // so this is the best we can do without
-                        // tracking the File objects separately.
-                        const label = url.startsWith('data:text/markdown') ? 'markdown'
-                            : url.startsWith('data:text/plain') ? 'text'
+                    {pendingImages.map((att, i) => {
+                        const isImage = att.dataURL.startsWith('data:image/')
+                        const label = att.name || (
+                            att.dataURL.startsWith('data:text/markdown') ? 'markdown'
+                            : att.dataURL.startsWith('data:text/plain') ? 'text'
                             : 'document'
+                        )
                         return (
-                            <div key={i} className={isImage ? "pending-image" : "pending-image pending-attachment-doc"}>
+                            <div key={i} className={isImage ? "pending-image" : "pending-image pending-attachment-doc"} title={att.name || undefined}>
                                 {isImage
-                                    ? <img src={url} alt="" />
+                                    ? <img src={att.dataURL} alt={att.name} />
                                     : <span className="pending-attachment-label">📝 {label}</span>}
                                 <button className="pending-image-remove" onClick={() => setPendingImages(prev => prev.filter((_, j) => j !== i))}>&#x2715;</button>
                             </div>

@@ -4,7 +4,7 @@ import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import rehypeHighlight from 'rehype-highlight'
 import rehypeKatex from 'rehype-katex'
-import ChatInput from './ChatInput'
+import ChatInput, {type PendingAttachment} from './ChatInput'
 import ObjectImage, {clearObjectCache} from './ObjectImage'
 import DataDisclosure from './DataDisclosure'
 import FindingsDisclosure from './FindingsDisclosure'
@@ -494,6 +494,14 @@ function App() {
             ...(m.object_ids && m.object_ids.length > 0
                 ? {imageUrls: m.object_ids.map(id => `object:${id}`)}
                 : {}),
+            // v0.5: restored markdown / text attachments. Backend
+            // resolved each id to its OrigName so the bubble can
+            // render the filename label immediately; click-to-
+            // preview fetches the content via GetObjectText on
+            // demand (no large body in the restored payload).
+            ...(m.documents && m.documents.length > 0
+                ? {documents: m.documents.map(d => ({id: d.id, name: d.name}))}
+                : {}),
             // Restored tool-event rows carry tool_call_id so the
             // bubble is clickable for the inspect overlay.
             ...(m.tool_call_id ? {toolCallId: m.tool_call_id} : {}),
@@ -624,8 +632,8 @@ function App() {
     const isBusy = state === 'busy' || postBusy
     const canChat = state === 'idle' && !postBusy && currentSessionId !== ''
 
-    const handleSend = useCallback(async (text: string, images: string[]) => {
-        if ((!text && images.length === 0) || isBusy || !currentSessionId) return
+    const handleSend = useCallback(async (text: string, attachments: PendingAttachment[]) => {
+        if ((!text && attachments.length === 0) || isBusy || !currentSessionId) return
 
         // Slash commands that need a native file dialog are routed
         // through the bindings directly rather than agent.Send: the
@@ -643,16 +651,36 @@ function App() {
             return
         }
 
+        // Split image attachments (multimodal — stay in
+        // ChatMessage.imageUrls for inline rendering) from
+        // text/markdown attachments (v0.5 — stay in
+        // ChatMessage.documents for the new labelled card).
+        // We only need the data URLs from images for the
+        // optimistic bubble; the binding will re-decode them
+        // server-side after we send.
+        const imageURLs = attachments
+            .filter(a => a.dataURL.startsWith('data:image/'))
+            .map(a => a.dataURL)
+        const docAttachments = attachments
+            .filter(a => !a.dataURL.startsWith('data:image/'))
+            .map(a => ({
+                name: a.name || (a.dataURL.startsWith('data:text/markdown') ? 'markdown' : 'document'),
+                dataURL: a.dataURL,
+            }))
+
         setMessages(prev => [...prev, {
             role: 'user', content: text, timestamp: nowTime(),
-            imageUrls: images.length > 0 ? images : undefined,
+            imageUrls: imageURLs.length > 0 ? imageURLs : undefined,
+            documents: docAttachments.length > 0 ? docAttachments : undefined,
         }])
         setState('busy')
         setStreaming('')
 
         try {
-            const response = images.length > 0
-                ? await window.go.main.Bindings.SendWithImages(text, images)
+            const dataURLs = attachments.map(a => a.dataURL)
+            const names = attachments.map(a => a.name)
+            const response = attachments.length > 0
+                ? await window.go.main.Bindings.SendWithImages(text, dataURLs, names)
                 : await window.go.main.Bindings.Send(text)
             if (response && response.startsWith('[CMD]')) {
                 // Command result: show as popup, remove user message from chat
