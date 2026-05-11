@@ -126,3 +126,20 @@ func (a *Agent) rebuildToolDescriptorIndex() {
 		a.toolDescriptorIndex[d.Name] = i
 	}
 }
+
+// wrapErrHandler adapts a toolXxx-style handler returning
+// (string, error) to ToolDescriptor.Handle's signature
+// (string, ActivityEventStatus). Used by every analysis +
+// builtin descriptor so the existing toolXxx implementations
+// stay unchanged. The "Error: %v" prefix matches the
+// formatting that executeAnalysisTool used to apply at the
+// outer dispatcher level (agent.go's "Error: %v" path).
+func wrapErrHandler(fn func(ctx context.Context, args string) (string, error)) func(ctx context.Context, args string) (string, ActivityEventStatus) {
+	return func(ctx context.Context, args string) (string, ActivityEventStatus) {
+		result, err := fn(ctx, args)
+		if err != nil {
+			return "Error: " + err.Error(), ActivityStatusError
+		}
+		return result, ActivityStatusSuccess
+	}
+}
