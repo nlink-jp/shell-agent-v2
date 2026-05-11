@@ -35,23 +35,13 @@ import (
 // construction. Map deleted; see analysisDescriptors() /
 // builtinDescriptors() for the per-tool values.
 
-// analysisToolMITLCategory returns the human-readable category passed
-// to requestMITL for analysis tools. The frontend special-cases
-// "sql_preview" and "analysis_plan" to render a SQL preview dialog
-// and an analysis-plan dialog respectively; everything else falls
-// back to the standard execute / write confirmation.
-func analysisToolMITLCategory(name string) string {
-	switch name {
-	case "query-sql":
-		return "sql_preview"
-	case "analyze-data":
-		return "analysis_plan"
-	case "load-data", "reset-analysis":
-		return "execute"
-	default:
-		return "write"
-	}
-}
+// analysisToolMITLCategory was the v0.5 free-function
+// switch that mapped tool name → frontend MITL dialog
+// category (sql_preview / analysis_plan / execute / write).
+// v0.6 moves the override into ToolDescriptor (MITLCategory
+// Override + Category fallback) and the dispatcher calls
+// a.toolMITLCategory(name) which reads from there. Function
+// deleted.
 
 // analysisTools was the v0.5 hand-coded LLM tool-def
 // builder. v0.6 derives the same output from
