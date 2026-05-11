@@ -50,16 +50,19 @@ func newTestEngine(t *testing.T, dir string) *analysis.Engine {
 // See docs/en/agent-tool-visibility.md.
 func TestAnalysisToolsFiltering(t *testing.T) {
 	// Legacy mode, no data: load-data, reset-analysis, create-report,
-	// list-objects, get-object, register-object = 6.
+	// list-objects, get-object, register-object (6) + analyze-text,
+	// grep-text, get-text (3 added in v0.5) = 9. Text tools are
+	// data-independent (objstore-only) so they belong in the
+	// always-visible block even in legacy mode.
 	tools := analysisTools(false, true)
-	if len(tools) != 6 {
-		t.Errorf("legacy no-data tools count = %d, want 6", len(tools))
+	if len(tools) != 9 {
+		t.Errorf("legacy no-data tools count = %d, want 9", len(tools))
 	}
 
 	// Legacy mode, with data: full set.
 	tools = analysisTools(true, true)
-	if len(tools) <= 6 {
-		t.Errorf("legacy with-data tools count = %d, want > 6", len(tools))
+	if len(tools) <= 9 {
+		t.Errorf("legacy with-data tools count = %d, want > 9", len(tools))
 	}
 	if !containsTool(tools, "promote-finding") {
 		t.Error("promote-finding not in legacy with-data tools")
@@ -84,12 +87,15 @@ func TestAnalysisTools_FullSetByDefault_AllowsPlanning(t *testing.T) {
 // flag (cfg.Tools.HideAnalysisToolsUntilDataLoaded=true) restores
 // the pre-v0.1.21 split. The unconditional set grew from 5 to 6
 // in v0.1.25 with the addition of register-object
-// (docs/en/work-dir-shell-bridge.md).
+// (docs/en/work-dir-shell-bridge.md), and from 6 to 9 in v0.5
+// with analyze-text / grep-text / get-text (always-visible per
+// design §7.4 — they don't depend on DuckDB data, only on
+// objstore attachments which can pre-date load-data).
 func TestAnalysisTools_HideFlagRestoresLegacyBehaviour(t *testing.T) {
 	short := analysisTools(false, true)
 	full := analysisTools(true, true)
-	if len(short) != 6 {
-		t.Errorf("hide-flag, no data: %d tools, want 6", len(short))
+	if len(short) != 9 {
+		t.Errorf("hide-flag, no data: %d tools, want 9", len(short))
 	}
 	if len(full) <= len(short) {
 		t.Errorf("hide-flag, with-data tools (%d) should be more than no-data (%d)", len(full), len(short))
@@ -99,6 +105,12 @@ func TestAnalysisTools_HideFlagRestoresLegacyBehaviour(t *testing.T) {
 	}
 	if !containsTool(full, "query-sql") {
 		t.Error("hide-flag with-data should contain query-sql")
+	}
+	// v0.5 text tools are always-visible (data-independent).
+	for _, want := range []string{"analyze-text", "grep-text", "get-text"} {
+		if !containsTool(short, want) {
+			t.Errorf("hide-flag no-data should still contain %q (data-independent text tool)", want)
+		}
 	}
 }
 

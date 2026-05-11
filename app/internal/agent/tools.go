@@ -40,6 +40,9 @@ var analysisToolMITLDefault = map[string]bool{
 	"suggest-analysis": false, // LLM-side suggestion, no state change
 	"quick-summary":    false, // SELECT + summarise, no mutation
 	"register-object":  false, // moves a /work file into objstore — same trust level as a drag-and-drop
+	"analyze-text":     false, // read-only objstore access, LLM-mediated chunked analysis (v0.5)
+	"grep-text":        false, // read-only regex search over an objstore object (v0.5)
+	"get-text":         false, // read-only line-range read from an objstore object (v0.5)
 }
 
 // analysisToolMITLCategory returns the human-readable category passed
@@ -165,14 +168,15 @@ func analysisTools(hasData, hideUntilDataLoaded bool) []llm.ToolDef {
 					},
 					"type": map[string]any{
 						"type":        "string",
-						"enum":        []string{"image", "blob", "report"},
-						"description": "Object type. If omitted, inferred from the file's MIME (image/* → image, text/markdown → report, otherwise blob).",
+						"enum":        []string{"image", "blob", "report", "markdown"},
+						"description": "Object type. If omitted, inferred from the file's MIME (image/* → image, text/markdown → report, otherwise blob). Pass \"markdown\" explicitly when the file is user-staged source material rather than an agent-generated report.",
 					},
 				},
 				"required": []string{"path"},
 			},
 		},
 	}
+	tools = append(tools, textToolDefs()...)
 
 	// Legacy mode (opt-in via cfg.Tools.HideAnalysisToolsUntilDataLoaded):
 	// only the load-data half until a successful load. The new default
@@ -332,6 +336,12 @@ func (a *Agent) executeAnalysisTool(ctx context.Context, name string, argsJSON s
 		// MITL is now gated by the dispatcher via IsToolMITLRequired
 		// (security-hardening-2.md H1+H2 / agent.go:1231).
 		return a.toolAnalyzeData(ctx, argsJSON)
+	case "analyze-text":
+		return a.toolAnalyzeText(ctx, argsJSON)
+	case "grep-text":
+		return a.toolGrepText(argsJSON)
+	case "get-text":
+		return a.toolGetText(argsJSON)
 	default:
 		return "", fmt.Errorf("unknown analysis tool: %s", name)
 	}
