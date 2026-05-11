@@ -1067,8 +1067,11 @@ func (a *Agent) toolMITLDefault(name, category, source string) bool {
 	if strings.HasPrefix(name, "sandbox-") || source == "sandbox" {
 		return true
 	}
-	if def, ok := analysisToolMITLDefault[name]; ok {
-		return def
+	// v0.6: same descriptor-registry lookup IsToolMITLRequired
+	// uses, so the Settings-UI default and the dispatcher gate
+	// can never drift.
+	if d, ok := a.toolDescriptorByName(name); ok {
+		return d.MITLDefault
 	}
 	// Shell tools: write/execute categories require MITL by default.
 	switch toolcall.Category(category) {
@@ -1954,8 +1957,13 @@ func (a *Agent) IsToolMITLRequired(toolName string) bool {
 	if strings.HasPrefix(toolName, "sandbox-") {
 		return true
 	}
-	if def, ok := analysisToolMITLDefault[toolName]; ok {
-		return def
+	// v0.6: descriptor registry replaces the
+	// analysisToolMITLDefault map. The lookup is O(1) via the
+	// toolDescriptorIndex map; descriptors carry the
+	// MITLDefault flag directly so Settings UI defaults and
+	// dispatcher behaviour stay in sync by construction.
+	if d, ok := a.toolDescriptorByName(toolName); ok {
+		return d.MITLDefault
 	}
 	// Shell tools — consult the registry's own category. Without this
 	// branch, the dispatcher's shell path used to compute MITL via

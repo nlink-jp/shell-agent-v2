@@ -27,23 +27,13 @@ import (
 //     that already had a UI confirmation dialog
 //   - false                       — pure metadata reads or local-only
 //     artefact creation
-var analysisToolMITLDefault = map[string]bool{
-	"load-data":        true,  // host-file ingest into the analysis DB
-	"reset-analysis":   true,  // drops every table in the session
-	"promote-finding":  true,  // mutates the global findings store
-	"query-sql":        true,  // SQL preview dialog already in place
-	"analyze-data":     true,  // analysis-plan dialog already in place
-	"create-report":    false, // local artefact in objstore
-	"describe-data":    false, // metadata read
-	"list-tables":      false, // metadata read
-	"query-preview":    false, // NL → SQL only, doesn't execute
-	"suggest-analysis": false, // LLM-side suggestion, no state change
-	"quick-summary":    false, // SELECT + summarise, no mutation
-	"register-object":  false, // moves a /work file into objstore — same trust level as a drag-and-drop
-	"analyze-text":     false, // read-only objstore access, LLM-mediated chunked analysis (v0.5)
-	"grep-text":        false, // read-only regex search over an objstore object (v0.5)
-	"get-text":         false, // read-only line-range read from an objstore object (v0.5)
-}
+// analysisToolMITLDefault was the v0.6 single source of
+// truth for analysis-tool MITL defaults. v0.6 moves the
+// per-tool MITLDefault flag into ToolDescriptor so the
+// IsToolMITLRequired lookup and the Settings UI default
+// derive from the same value — drift impossible by
+// construction. Map deleted; see analysisDescriptors() /
+// builtinDescriptors() for the per-tool values.
 
 // analysisToolMITLCategory returns the human-readable category passed
 // to requestMITL for analysis tools. The frontend special-cases

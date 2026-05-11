@@ -9,15 +9,15 @@ import (
 
 // TestIsToolMITLRequired_AnalysisDefaultsMatchTable confirms that the
 // per-analysis-tool defaults exposed via IsToolMITLRequired stay in
-// sync with analysisToolMITLDefault. Before security-hardening-2.md
-// H1+H2 these defaults existed only in inline switch statements that
-// the dispatcher bypassed; now they are the source of truth and the
-// Settings → Tools toggle reads from the same table.
+// sync with each descriptor's MITLDefault flag. v0.6: the
+// descriptor registry is the source of truth — Settings → Tools UI
+// and the dispatcher both read from a.toolDescriptors, so drift
+// between them is structurally impossible.
 func TestIsToolMITLRequired_AnalysisDefaultsMatchTable(t *testing.T) {
 	a := New(config.Default())
-	for name, want := range analysisToolMITLDefault {
-		if got := a.IsToolMITLRequired(name); got != want {
-			t.Errorf("IsToolMITLRequired(%q) = %v, want %v", name, got, want)
+	for _, d := range a.toolDescriptors {
+		if got := a.IsToolMITLRequired(d.Name); got != d.MITLDefault {
+			t.Errorf("IsToolMITLRequired(%q) = %v, descriptor MITLDefault = %v", d.Name, got, d.MITLDefault)
 		}
 	}
 }
