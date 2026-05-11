@@ -150,6 +150,16 @@ type Agent struct {
 	// agent, so a scalar field suffices. See
 	// docs/en/tool-progress-events.md.
 	activeToolCallID string
+
+	// toolDescriptors is the v0.6 tool registry — the single
+	// source of truth for analysis + builtin (+ sandbox in
+	// Phase 3) tools. Populated by Phase 2+ commits via
+	// per-source builders (analysisDescriptors,
+	// builtinDescriptors, etc.). Phase 1 only allocates
+	// the slice + index map; no view function reads them yet.
+	// See docs/en/tool-registry-refactor.md.
+	toolDescriptors     []ToolDescriptor
+	toolDescriptorIndex map[string]int
 }
 
 // New creates a new Agent with the given configuration.
@@ -170,18 +180,21 @@ func New(cfg *config.Config) *Agent {
 	// findings + sessionMemory are per-session (v0.2.0);
 	// constructed by LoadSession.
 	a := &Agent{
-		cfg:          cfg,
-		state:        StateIdle,
-		findings:     nil, // set by LoadSession
-		globalMemory: globalStore,
-		chat:         chatEngine,
-		toolRegistry: registry,
-		guardians:    make(map[string]*mcp.Guardian),
+		cfg:                 cfg,
+		state:               StateIdle,
+		findings:            nil, // set by LoadSession
+		globalMemory:        globalStore,
+		chat:                chatEngine,
+		toolRegistry:        registry,
+		guardians:           make(map[string]*mcp.Guardian),
+		toolDescriptors:     nil, // populated by Phase 2 (analysisDescriptors / builtinDescriptors)
+		toolDescriptorIndex: nil, // rebuilt by rebuildToolDescriptorIndex()
 	}
 	a.startGuardians()
 	a.maybeStartSandbox()
 	a.setBackend(cfg.LLM.DefaultBackend)
 	_ = a.globalMemory.Load()
+	a.rebuildToolDescriptorIndex() // safe with empty slice; non-nil index map post-call
 	return a
 }
 
