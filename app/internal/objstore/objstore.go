@@ -6,6 +6,7 @@
 package objstore
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
@@ -20,18 +21,26 @@ import (
 
 	"github.com/nlink-jp/shell-agent-v2/internal/atomicio"
 	"github.com/nlink-jp/shell-agent-v2/internal/config"
+	"github.com/nlink-jp/shell-agent-v2/internal/memory"
 )
 
 // ObjectType identifies the kind of stored object.
 type ObjectType string
 
 const (
-	TypeImage  ObjectType = "image"
-	TypeBlob   ObjectType = "blob"
-	TypeReport ObjectType = "report"
+	TypeImage    ObjectType = "image"
+	TypeBlob     ObjectType = "blob"
+	TypeReport   ObjectType = "report"
+	TypeMarkdown ObjectType = "markdown" // v0.5: user-attached markdown / plain text
 )
 
 // ObjectMeta holds metadata for a stored object.
+//
+// Lines and Tokens are populated by Store() for text/* MIME types
+// (and backfilled by Load() for pre-v0.5 records). They allow
+// list-objects to surface document size without forcing the LLM
+// to copy the content into the sandbox just to run `wc -l`.
+// omitempty keeps the JSON forward/backward compatible.
 type ObjectMeta struct {
 	ID        string     `json:"id"`
 	Type      ObjectType `json:"type"`
@@ -40,6 +49,17 @@ type ObjectMeta struct {
 	CreatedAt time.Time  `json:"created_at"`
 	SessionID string     `json:"session_id,omitempty"`
 	Size      int64      `json:"size"`
+	Lines     int        `json:"lines,omitempty"`  // newline count + 1, text/* only
+	Tokens    int        `json:"tokens,omitempty"` // memory.EstimateTokens cache, text/* only
+}
+
+// isTextMIME reports whether the MIME type is text-shaped and
+// thus eligible for Lines/Tokens auto-fill. Mirrors the
+// SaveDataURL MIME→TypeMarkdown inference rule: text/markdown
+// and text/plain are the headline cases, but anything under
+// text/* (text/csv, text/html, ...) is also worth measuring.
+func isTextMIME(mime string) bool {
+	return strings.HasPrefix(mime, "text/")
 }
 
 // Store manages binary objects on disk.
@@ -56,6 +76,12 @@ type Store struct {
 	mu        sync.RWMutex
 	index     map[string]*ObjectMeta
 	indexPath string
+	// dirty is set when Load() back-fills missing Lines/Tokens
+	// for pre-v0.5 text objects; Load flushes the updated index
+	// via saveLocked() before returning. Subsequent reads see
+	// dirty=false because the persisted index already has the
+	// computed values.
+	dirty bool
 }
 
 // NewStore creates a store at the default location.
@@ -75,6 +101,18 @@ func NewStoreAt(baseDir string) *Store {
 }
 
 // Load reads the index from disk.
+//
+// On first launch after v0.5, any pre-existing text-MIME object
+// whose `Lines` field is zero gets its `Lines` / `Tokens`
+// computed from the data file (lazy backfill). The updated index
+// is persisted before Load returns so subsequent reads pay no
+// cost. Missing data files are tolerated — the entry stays at
+// Lines=0 and the rest of the app keeps working.
+//
+// This makes the v0.5 upgrade self-healing for the
+// `create-report` objects users already have on disk: no
+// migration UI, no user action, no permanent metadata asymmetry
+// between legacy reports and new TypeMarkdown attachments.
 func (s *Store) Load() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -85,7 +123,29 @@ func (s *Store) Load() error {
 		}
 		return err
 	}
-	return json.Unmarshal(data, &s.index)
+	if err := json.Unmarshal(data, &s.index); err != nil {
+		return err
+	}
+	for _, meta := range s.index {
+		if meta.Lines > 0 {
+			continue // already populated
+		}
+		if !isTextMIME(meta.MimeType) {
+			continue // image/blob: nothing to compute
+		}
+		content, rerr := os.ReadFile(filepath.Join(s.dataDir, meta.ID))
+		if rerr != nil || len(content) == 0 {
+			continue // tolerate missing/empty data file
+		}
+		meta.Lines = bytes.Count(content, []byte{'\n'}) + 1
+		meta.Tokens = memory.EstimateTokens(string(content))
+		s.dirty = true
+	}
+	if s.dirty {
+		_ = s.saveLocked()
+		s.dirty = false
+	}
+	return nil
 }
 
 // Save writes the index to disk.
@@ -120,10 +180,28 @@ func (s *Store) saveLocked() error {
 // already present — up to 3 attempts before bailing out. This both
 // future-proofs against ID-space shrinks and guards against a buggy
 // crypto/rand returning all zeros (security-hardening-2.md H11).
+//
+// As of v0.5, Store buffers the reader's content fully into memory
+// before writing so it can compute Lines/Tokens for text/* MIME
+// types in a single pass. Callers must keep their input within
+// reasonable bounds (SaveDataURL enforces a 50 MB cap; other
+// callers (toolCreateReport, sandbox register/import) all pass
+// already-in-memory data). This contract narrowing is benign
+// because every existing caller already had the content in memory.
 func (s *Store) Store(reader io.Reader, objType ObjectType, mimeType, origName, sessionID string) (*ObjectMeta, error) {
 	if err := os.MkdirAll(s.dataDir, 0700); err != nil {
 		return nil, err
 	}
+
+	// Buffer the reader so Lines/Tokens can be computed in the
+	// same pass as the disk write (avoids a second os.ReadFile
+	// after the file is closed). At 50 MB cap this is at most
+	// a single 50 MB allocation, freed when this function returns.
+	content, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("read object: %w", err)
+	}
+	size := int64(len(content))
 
 	s.mu.Lock()
 	var id string
@@ -147,20 +225,7 @@ func (s *Store) Store(reader io.Reader, objType ObjectType, mimeType, origName, 
 	path := filepath.Join(s.dataDir, id)
 
 	// Use 0600 to restrict access to owner only (may contain sensitive content).
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
-	if err != nil {
-		s.mu.Lock()
-		delete(s.index, id)
-		s.mu.Unlock()
-		return nil, fmt.Errorf("create object: %w", err)
-	}
-
-	size, err := io.Copy(f, reader)
-	if cerr := f.Close(); cerr != nil && err == nil {
-		err = cerr
-	}
-	if err != nil {
-		os.Remove(path)
+	if err := os.WriteFile(path, content, 0600); err != nil {
 		s.mu.Lock()
 		delete(s.index, id)
 		s.mu.Unlock()
@@ -175,6 +240,15 @@ func (s *Store) Store(reader io.Reader, objType ObjectType, mimeType, origName, 
 		CreatedAt: time.Now(),
 		SessionID: sessionID,
 		Size:      size,
+	}
+
+	// v0.5: auto-fill Lines/Tokens for text content so list-objects
+	// can surface document size to the LLM without a sandbox detour.
+	// Mirrors the Load() lazy-backfill path so new writes and legacy
+	// reads converge on the same metadata shape.
+	if isTextMIME(mimeType) && len(content) > 0 {
+		meta.Lines = bytes.Count(content, []byte{'\n'}) + 1
+		meta.Tokens = memory.EstimateTokens(string(content))
 	}
 
 	s.mu.Lock()
