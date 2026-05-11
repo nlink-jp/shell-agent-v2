@@ -18,6 +18,8 @@ package agent
 
 import (
 	"context"
+
+	"github.com/nlink-jp/shell-agent-v2/internal/llm"
 )
 
 // ToolDescriptor is the single source of truth for a tool —
@@ -155,4 +157,38 @@ func wrapStringHandler(fn func(ctx context.Context, args string) string) func(ct
 	return func(ctx context.Context, args string) (string, ActivityEventStatus) {
 		return fn(ctx, args), ActivityStatusSuccess
 	}
+}
+
+// descriptorToolDefs derives the LLM tool-def slice from the
+// agent's descriptor list, applying the same visibility
+// filters (analysis-engine presence, legacy data-gating)
+// that the pre-refactor `analysisTools()` builder applied.
+//
+// Replaces analysisTools() and the hand-coded resolve-date
+// entry that buildToolDefs() prepended in v0.5. Sandbox
+// tools are not included here — Phase 3 migrates them.
+func (a *Agent) descriptorToolDefs(hasData, legacyMode bool) []llm.ToolDef {
+	out := make([]llm.ToolDef, 0, len(a.toolDescriptors))
+	for _, d := range a.toolDescriptors {
+		// Analysis-source tools depend on a.analysis being
+		// non-nil. Pre-refactor: buildToolDefs guarded the
+		// analysisTools() call with `if a.analysis != nil`,
+		// so calling analyse-data with no engine never even
+		// surfaced as an LLM-visible option. Preserve that.
+		if d.Source == "analysis" && a.analysis == nil {
+			continue
+		}
+		// Data gating: legacy hide-until-data-loaded mode
+		// hides data-dependent tools until the engine has at
+		// least one table.
+		if d.HideUntilDataLoaded && legacyMode && !hasData {
+			continue
+		}
+		out = append(out, llm.ToolDef{
+			Name:        d.Name,
+			Description: d.Description,
+			Parameters:  d.Parameters,
+		})
+	}
+	return out
 }

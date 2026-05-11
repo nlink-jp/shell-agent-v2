@@ -1857,25 +1857,18 @@ func (a *Agent) executeTool(ctx context.Context, tc llm.ToolCall) (string, Activ
 }
 
 func (a *Agent) buildToolDefs() []llm.ToolDef {
-	tools := []llm.ToolDef{
-		{
-			Name:        "resolve-date",
-			Description: "Resolve relative date expressions to absolute dates. Use when you need to calculate dates like 'last Thursday', '3 weeks ago', 'first Monday of last month'.",
-			Parameters:  chat.ResolveDateToolDef(),
-		},
-	}
-
-	// Add analysis tools. Default exposes all 11 every round so the
-	// LLM can plan multi-step "load → query → analyse → report"
-	// workflows up front. Legacy filter behaviour is preserved
-	// behind cfg.Tools.HideAnalysisToolsUntilDataLoaded for users
-	// on weaker local backends. See docs/en/agent-tool-visibility.md.
-	if a.analysis != nil {
-		tools = append(tools, analysisTools(
-			a.analysis.HasData(),
-			a.cfg.Tools.HideAnalysisToolsUntilDataLoaded,
-		)...)
-	}
+	// v0.6: descriptor-derived path. The previous hand-coded
+	// resolve-date entry + conditional analysisTools call are
+	// replaced by a single descriptorToolDefs() call. Builtin
+	// tools (resolve-date / list-objects / get-object /
+	// register-object) are now in builtinDescriptors() and
+	// always emit; analysis tools are gated by an internal
+	// `Source == "analysis" && a.analysis == nil` check so
+	// the LLM doesn't see analyse-data when the engine
+	// doesn't exist yet (matches v0.5 behaviour).
+	hasData := a.analysis != nil && a.analysis.HasData()
+	legacyMode := a.cfg.Tools.HideAnalysisToolsUntilDataLoaded
+	tools := a.descriptorToolDefs(hasData, legacyMode)
 
 	// Add shell script tools from registry
 	logger.Debug("buildToolDefs: registry has %d shell tools", len(a.toolRegistry.All()))

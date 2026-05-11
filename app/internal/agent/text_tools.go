@@ -15,7 +15,6 @@ import (
 
 	"github.com/nlink-jp/shell-agent-v2/internal/analysis"
 	"github.com/nlink-jp/shell-agent-v2/internal/findings"
-	"github.com/nlink-jp/shell-agent-v2/internal/llm"
 	"github.com/nlink-jp/shell-agent-v2/internal/objstore"
 )
 
@@ -387,79 +386,3 @@ func (a *Agent) toolGetText(argsJSON string) (string, error) {
 	return out, nil
 }
 
-// textToolDefs returns the three new text-attachment tools so
-// they can be appended to the always-visible analysis tool list.
-func textToolDefs() []llm.ToolDef {
-	return []llm.ToolDef{
-		{
-			Name:        "analyze-text",
-			Description: "Run sliding-window analysis over a markdown / text attachment (TypeMarkdown — user-attached) or a previously generated report (TypeReport — your own prior output via create-report). Same pipeline as analyze-data, but the chunks are text segments rather than DuckDB rows. Findings are auto-promoted into the session findings store tagged with the object ID. Heavy: many LLM calls for large documents. Use grep-text for keyword search, get-text for verbatim line reads.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"object": map[string]any{
-						"type":        "string",
-						"description": "Object ID, either bare (e.g. \"abc123\") or \"object:abc123\". Must be a TypeMarkdown or TypeReport object — use list-objects to discover.",
-					},
-					"perspective": map[string]any{
-						"type":        "string",
-						"description": "Analysis perspective, in the user's language (e.g. \"List anomalies in this audit log\", \"監査ログの不正アクセス痕跡を抽出\").",
-					},
-					"lines": map[string]any{
-						"type":        "string",
-						"description": "Optional line range to restrict the analysis to (e.g. \"1-5000\", \"10000-\", \"-500\"). Defaults to the whole document.",
-					},
-				},
-				"required": []string{"object", "perspective"},
-			},
-		},
-		{
-			Name:        "grep-text",
-			Description: "Regex search across a markdown or report object. Returns matching lines with line numbers and configurable context lines (-A / -B equivalent). If the match count exceeds max_matches, returns an error suggesting you narrow the pattern or restrict via the lines argument — much like ripgrep would. Use this when you need to FIND something specific in a document; use analyze-text for narrative summarisation.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"object": map[string]any{
-						"type":        "string",
-						"description": "Object ID, bare or \"object:<id>\".",
-					},
-					"pattern": map[string]any{
-						"type":        "string",
-						"description": "RE2 regular expression. Examples: \"error|fatal\", \"^## \", \"\\\\bdeadline\\\\b\".",
-					},
-					"lines": map[string]any{
-						"type":        "string",
-						"description": "Optional line range to restrict the search (same syntax as analyze-text).",
-					},
-					"max_matches": map[string]any{
-						"type":        "integer",
-						"description": "Cap on returned matches before erroring. Default 200.",
-					},
-					"context_lines": map[string]any{
-						"type":        "integer",
-						"description": "Lines of context printed around each match (both before and after). Default 2.",
-					},
-				},
-				"required": []string{"object", "pattern"},
-			},
-		},
-		{
-			Name:        "get-text",
-			Description: "Read a specific line range from a markdown or report object verbatim, with line numbers prefixed for unambiguous citation. Hard cap of 1000 lines per call — for longer ranges use analyze-text (summarised) or call get-text in chunks.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"object": map[string]any{
-						"type":        "string",
-						"description": "Object ID, bare or \"object:<id>\".",
-					},
-					"lines": map[string]any{
-						"type":        "string",
-						"description": "Line range (1-based, inclusive). Examples: \"42\" (single line), \"100-200\", \"500-\" (from line 500 to end), \"-50\" (first 50 lines).",
-					},
-				},
-				"required": []string{"object", "lines"},
-			},
-		},
-	}
-}

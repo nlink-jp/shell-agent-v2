@@ -45,24 +45,49 @@ func newTestEngine(t *testing.T, dir string) *analysis.Engine {
 	return analysis.NewWithPath("test-session", filepath.Join(dir, "test.duckdb"))
 }
 
+// agentForToolDefs builds an agent fixture suitable for
+// exercising descriptorToolDefs() without needing a session
+// loaded. Uses a temp HOME so config.DataDir doesn't leak
+// into ~/Library/Application Support during tests, and
+// stamps a real (but empty) analysis engine on a.analysis so
+// the descriptor filter doesn't drop analysis-source tools.
+func agentForToolDefs(t *testing.T) *Agent {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	a := New(config.Default())
+	// v0.6 descriptorToolDefs() drops Source="analysis" tools
+	// when a.analysis is nil — match the v0.5 contract where
+	// the LLM saw the full analysis catalogue once a session
+	// existed.
+	a.analysis = analysis.New("test-tooldefs")
+	return a
+}
+
 // TestAnalysisToolsFiltering covers the legacy hide-until-data-loaded
 // flag (default OFF in v0.1.21+; ON restores the pre-v0.1.21 split).
 // See docs/en/agent-tool-visibility.md.
+//
+// v0.6: descriptor-derived count merges the builtin tools
+// (resolve-date / list-objects / get-object / register-object,
+// 4 tools) into the same iteration that previously only
+// returned analysis-source tools. Counts:
+//   - Legacy no-data:   4 builtin + 3 always-visible analysis + 3 text = 10
+//   - Legacy with-data: 10 + 8 data-gated = 18
+// Pre-refactor analysisTools output was 9 (analysis-only) and
+// resolve-date was added separately by buildToolDefs, so the
+// LLM saw 10 tools either way — the count this test pins
+// shifts because the unit under test now covers both halves.
 func TestAnalysisToolsFiltering(t *testing.T) {
-	// Legacy mode, no data: load-data, reset-analysis, create-report,
-	// list-objects, get-object, register-object (6) + analyze-text,
-	// grep-text, get-text (3 added in v0.5) = 9. Text tools are
-	// data-independent (objstore-only) so they belong in the
-	// always-visible block even in legacy mode.
-	tools := analysisTools(false, true)
-	if len(tools) != 9 {
-		t.Errorf("legacy no-data tools count = %d, want 9", len(tools))
+	a := agentForToolDefs(t)
+
+	tools := a.descriptorToolDefs(false, true)
+	if len(tools) != 10 {
+		t.Errorf("legacy no-data tools count = %d, want 10", len(tools))
 	}
 
-	// Legacy mode, with data: full set.
-	tools = analysisTools(true, true)
-	if len(tools) <= 9 {
-		t.Errorf("legacy with-data tools count = %d, want > 9", len(tools))
+	tools = a.descriptorToolDefs(true, true)
+	if len(tools) <= 10 {
+		t.Errorf("legacy with-data tools count = %d, want > 10", len(tools))
 	}
 	if !containsTool(tools, "promote-finding") {
 		t.Error("promote-finding not in legacy with-data tools")
@@ -74,8 +99,8 @@ func TestAnalysisToolsFiltering(t *testing.T) {
 // etc.) are exposed every round so the LLM can plan a load-then-
 // query workflow up front.
 func TestAnalysisTools_FullSetByDefault_AllowsPlanning(t *testing.T) {
-	// Default mode (hideUntilDataLoaded=false), no data: still full set.
-	tools := analysisTools(false, false)
+	a := agentForToolDefs(t)
+	tools := a.descriptorToolDefs(false, false)
 	for _, want := range []string{"query-sql", "describe-data", "analyze-data", "promote-finding", "list-tables"} {
 		if !containsTool(tools, want) {
 			t.Errorf("default-mode no-data tools missing %q (full set should be exposed)", want)
@@ -85,17 +110,14 @@ func TestAnalysisTools_FullSetByDefault_AllowsPlanning(t *testing.T) {
 
 // TestAnalysisTools_HideFlagRestoresLegacyBehaviour: the opt-in
 // flag (cfg.Tools.HideAnalysisToolsUntilDataLoaded=true) restores
-// the pre-v0.1.21 split. The unconditional set grew from 5 to 6
-// in v0.1.25 with the addition of register-object
-// (docs/en/work-dir-shell-bridge.md), and from 6 to 9 in v0.5
-// with analyze-text / grep-text / get-text (always-visible per
-// design §7.4 — they don't depend on DuckDB data, only on
-// objstore attachments which can pre-date load-data).
+// the pre-v0.1.21 split. v0.6 includes builtin tools (4) in the
+// always-visible count along with the v0.5 analysis 6 + text 3 = 13.
 func TestAnalysisTools_HideFlagRestoresLegacyBehaviour(t *testing.T) {
-	short := analysisTools(false, true)
-	full := analysisTools(true, true)
-	if len(short) != 9 {
-		t.Errorf("hide-flag, no data: %d tools, want 9", len(short))
+	a := agentForToolDefs(t)
+	short := a.descriptorToolDefs(false, true)
+	full := a.descriptorToolDefs(true, true)
+	if len(short) != 10 {
+		t.Errorf("hide-flag, no data: %d tools, want 10", len(short))
 	}
 	if len(full) <= len(short) {
 		t.Errorf("hide-flag, with-data tools (%d) should be more than no-data (%d)", len(full), len(short))
@@ -110,6 +132,14 @@ func TestAnalysisTools_HideFlagRestoresLegacyBehaviour(t *testing.T) {
 	for _, want := range []string{"analyze-text", "grep-text", "get-text"} {
 		if !containsTool(short, want) {
 			t.Errorf("hide-flag no-data should still contain %q (data-independent text tool)", want)
+		}
+	}
+	// v0.6: builtin tools are now in the descriptor list and
+	// surface here too — guard against a future regression
+	// that drops them out.
+	for _, want := range []string{"resolve-date", "list-objects", "get-object", "register-object"} {
+		if !containsTool(short, want) {
+			t.Errorf("hide-flag no-data should contain builtin %q", want)
 		}
 	}
 }
