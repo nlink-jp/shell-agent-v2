@@ -143,39 +143,19 @@ make test       # テスト実行
 
 ## ドキュメント
 
-現状の正準資料:
+- **ユーザー** — 本 README + [CHANGELOG.md](CHANGELOG.md)
+- **新規貢献者** — [CONTRIBUTING.ja.md](CONTRIBUTING.ja.md)
+  (英語: [CONTRIBUTING.md](CONTRIBUTING.md))
+- **メンテナ / 詳細** — [docs/ja/INDEX.ja.md](docs/ja/INDEX.ja.md)
+  が単一エントリポイントで、Evergreen リファレンス
+  (architecture, memory model, data analysis, privacy controls) と
+  時系列の ADR カタログを掲載。英語ミラー:
+  [docs/en/INDEX.md](docs/en/INDEX.md)
 
-- [**アーキテクチャ概要**](docs/ja/architecture.ja.md) ⭐ ここから
-- [**メモリモデル**](docs/ja/memory-model.ja.md) — 4-facility 設計
-- [**データ分析**](docs/ja/data-analysis.ja.md) — DuckDB エンジン、analyze-data sliding-window、Findings ライフサイクル
-
-最近の設計メモ (post-v0.2.0 機能):
-
-- [**プライバシー制御 (v0.3.0)**](docs/ja/privacy-controls.ja.md) — プライベートセッション、ログレベルフィルタ、監査ログ
-- [**セッション import / export (v0.4.0)**](docs/ja/session-import-export.ja.md) — `.shellagent` bundle 形式、ID 再生成、レース条件カタログ
-- [**ツール進捗イベント (v0.4.1)**](docs/ja/tool-progress-events.ja.md) — `tool_progress` activity event による in-place バブル更新
-- [**セッション削除 UX (v0.4.2)**](docs/ja/session-delete-ux.ja.md) — 2-click confirm、Deleting 状態、agent state-machine 統合
-- [**サンドボックス UID マッピング (v0.4.3)**](docs/ja/sandbox-uid-mapping.ja.md) — keep-id remap で企業/LDAP マップの巨大ホスト UID 環境でも `podman run` が破綻しないように修正
-- [**analyze-data 行数上限 (v0.4.4)**](docs/ja/analyze-data-row-cap.ja.md) — チャット出力 10k 行 cap とスライドウィンドウ analyze cap を分離し、大きいテーブルが `analyze-data` を short-circuit しないようにした
-- [**Markdown 添付 (v0.5.0)**](docs/ja/markdown-attachments.ja.md) — `TypeMarkdown` 型、`analyze-text` / `grep-text` / `get-text` ツール、document anchor 規約、drag-drop `.md` / `.txt` 添付、レガシーレポート用の lazy `Lines` / `Tokens` backfill
-- [**ツールレジストリリファクタ (v0.6.0)**](docs/ja/tool-registry-refactor.ja.md) — `ToolDescriptor` が LLM ツールリスト・Settings → Tools UI・MITL デフォルト・ディスパッチャの単一 source of truth (5 つの手作業並列リストを置換)。analysis / builtin / sandbox ツール追加は 1 ファイル編集で済む。構造テストで invariant を機械的に enforce
-- [**MCP ツール呼び出し Abort (v0.6.1)**](docs/ja/mcp-abort.ja.md) — Chat Abort が in-flight MCP ツール呼び出しを中断できるように。`mcp.Guardian.CallToolContext` が Send context を伝播し、キャンセル時に guardian 子プロセスを kill。ディスパッチャは `Agent.restartGuardian` で該当 guardian のみを非同期で再 spawn するので次のユーザーターンに影響しない。MCP 2024-11-05 に tool-call キャンセル通知が存在しないため、kill-and-respawn が唯一の確実な中断手段
-
-過去の設計メモは [`docs/ja/history/`](docs/ja/history/) に
-v0.2.0 の audit trail として保存。一部は現状を反映していない —
-詳細はそのディレクトリの README 参照。今も妥当な主要なもの:
-
-- [サンドボックス実行設計 + macOS セットアップ](docs/ja/history/sandbox-execution.ja.md)
-- [オブジェクトストレージ設計](docs/ja/history/object-storage.ja.md)
-- [LLM バックエンド抽象化](docs/ja/history/llm-abstraction.ja.md)
-- [セッション復元時のツールイベント復活](docs/ja/history/tool-event-restore.ja.md)
-- [Tool-call round-trip (Vertex / Local)](docs/ja/history/tool-call-roundtrip.ja.md)
-- [セキュリティ強化（第 2 ラウンド、v0.1.20）](docs/ja/history/security-hardening-2.ja.md)
-- [Shell tool 実行タイムアウト (`@timeout: N`)](docs/ja/history/tool-execution-timeout.ja.md)
-- [Shell tool ↔ /work ブリッジ (`SHELL_AGENT_WORK_DIR`, `register-object`)](docs/ja/history/work-dir-shell-bridge.ja.md)
-- [RFP (英語)](docs/en/history/shell-agent-v2-rfp.md) · [RFP (日本語)](docs/ja/history/shell-agent-v2-rfp.ja.md)
-
-英語ミラーは `docs/en/` 配下。
+v0.2.0 以前の audit trail は [`docs/ja/history/`](docs/ja/history/)
+(英語: [`docs/en/history/`](docs/en/history/)) に保存。大半は現在の
+リファレンスドキュメントに統合済み — 過去の "why" が必要なときの
+み参照してください。
 
 ## ライセンス
 

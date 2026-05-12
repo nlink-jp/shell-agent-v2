@@ -184,23 +184,23 @@ shell-agent-v2/
 
 ## Design Documents
 
-All implementation must follow these design documents.
+All implementation must follow these design documents. The single
+entry point for the design-doc catalogue is
+[**docs/en/INDEX.md**](docs/en/INDEX.md) (Japanese mirror:
+[docs/ja/INDEX.ja.md](docs/ja/INDEX.ja.md)). The index splits into:
 
-**Current top-level (post-v0.2.0):**
-- **docs/en/architecture.md** — system-wide architecture, package layout, state machine (now gates Send/Load/Export/Import/Delete), events (now incl. tool_progress), storage (now incl. .shellagent bundle layout). The canonical reference.
-- **docs/en/memory-model.md** — 4-facility design + Session.Private flag (v0.3.0).
-- **docs/en/data-analysis.md** — DuckDB engine, sliding-window analyze-data, Findings lifecycle.
+- **Reference** — current behaviour, evergreen (architecture,
+  memory-model, data-analysis, privacy-controls). Updated in place
+  as code evolves.
+- **ADRs** — point-in-time design decisions, sequentially numbered
+  (`adr/0001-…` through `adr/0008-…` at the time of writing).
+  Immutable after acceptance.
+- **History** — pre-v0.2.0 audit trail, frozen.
 
-**Recent design notes (v0.3.0+):**
-- **docs/en/privacy-controls.md** — private sessions, log-level filter, audit log entries
-- **docs/en/session-import-export.md** — `.shellagent` bundle format, ID regeneration on import, race-condition catalogue
-- **docs/en/tool-progress-events.md** — `tool_progress` activity event for in-place bubble updates
-- **docs/en/session-delete-ux.md** — 2-click confirm + per-row Deleting state + state-machine integration
-- **docs/en/sandbox-uid-mapping.md** — keep-id userns remap so corp/LDAP-mapped large host UIDs no longer break `podman run`
-- **docs/en/analyze-data-row-cap.md** — split chat-output 10k row cap from sliding-window analyze cap (`MaxAnalyzeRows`); rationale + memory math + LLM-time tables
-- **docs/en/markdown-attachments.md** — `TypeMarkdown` object type, analyze-text / grep-text / get-text tools, document anchor convention, lazy backfill for legacy report Lines/Tokens (v0.5.0)
-- **docs/en/tool-registry-refactor.md** — `ToolDescriptor` registry as single source of truth for analysis + builtin + sandbox tools; replaces five hand-maintained parallel lists. Structural tests enforce the invariants (v0.6.0)
-- **docs/en/mcp-abort.md** — abort path for in-flight MCP tool calls: `Guardian.CallToolContext` + per-guardian `Agent.restartGuardian`; kill-and-respawn because MCP 2024-11-05 has no tool-call cancel notification (v0.6.1)
+Start at INDEX for any "where is the design doc for X" question.
+Do **not** add a flat "Recent design notes" list back here — that
+parallel-list pattern is exactly what the v0.6.1 docs refactor
+eliminated.
 
 **History (audit trail behind v0.2.0):**
 - **agent-data-flow.md** — agent loop, context budget, MITL, events, tool confirmation
@@ -245,5 +245,5 @@ All implementation must follow these design documents.
 - `objstore.generateID` produces 16-byte (32 hex) IDs; legacy 12-hex IDs continue to load via the length-tolerant read path (H11)
 - `analysis.validateFilePath` uses `os.Lstat` and rejects symlinks outright — applies to `load-data` and any other host-path entry point (H14)
 - `guard.Wrap` is fail-closed: `chat.BuildMessages` / `BuildMessagesWithBudget` / `WrapUserToolContent` and `contextbuild.Build` return an error rather than silently falling back to unwrapped content. The agent loop surfaces the error to the user (security-hardening-2.md L1)
-- Analysis tools are exposed every round regardless of `hasData` since v0.1.21 (LLM can plan load-then-query workflows up front). Legacy hide-until-data-loaded behaviour is preserved behind `cfg.Tools.HideAnalysisToolsUntilDataLoaded` for users on weaker local backends. See `docs/en/history/agent-tool-visibility.md`.
-- `extractMemories` (v0.2.0, was `extractPinnedMemories`) rejects self-referential facts (`memory.IsSelfReferential`) and unknown categories (`memory.ValidExtractionCategories`), wraps both the conversation tail and the existing-facts list with `nlk/guard` so the extraction LLM treats them as data, and routes by category: `preference` / `decision` → GlobalMemoryStore, `fact` / `context` → SessionMemoryStore. The window walks back past tool records to keep at least 4 user/assistant turns in scope. `findings.Add` runs a 3-tier dedup (exact / normalised / Jaccard ≥ 0.5) and takes a `source` argument (`SourceLLMPromoted` for `promote-finding`, `SourceAnalyzeData` for the analyze-data auto-promote). `FormatForPrompt` for all three stores prefixes lines with `[user-stated]` (high trust) or `[derived]` (lower trust — content traces through the LLM and may carry attacker-influenced bytes). Retention caps via `MemoryConfig.MaxPinnedFacts` (default 100, applies to GlobalMemory) and per-session `MaxFindings` / `MaxSessionMemory` (defaults 100 / 50) prevent unbounded store growth (FIFO eviction). See `docs/en/memory-model.md` (v0.2.0) and `docs/en/history/memory-injection-hardening.md` (v0.1.26).
+- Analysis tools are exposed every round regardless of `hasData` since v0.1.21 (LLM can plan load-then-query workflows up front). Legacy hide-until-data-loaded behaviour is preserved behind `cfg.Tools.HideAnalysisToolsUntilDataLoaded` for users on weaker local backends. See `docs/en/history/agent-tool-visibility.md` (audit trail).
+- `extractMemories` (v0.2.0, was `extractPinnedMemories`) rejects self-referential facts (`memory.IsSelfReferential`) and unknown categories (`memory.ValidExtractionCategories`), wraps both the conversation tail and the existing-facts list with `nlk/guard` so the extraction LLM treats them as data, and routes by category: `preference` / `decision` → GlobalMemoryStore, `fact` / `context` → SessionMemoryStore. The window walks back past tool records to keep at least 4 user/assistant turns in scope. `findings.Add` runs a 3-tier dedup (exact / normalised / Jaccard ≥ 0.5) and takes a `source` argument (`SourceLLMPromoted` for `promote-finding`, `SourceAnalyzeData` for the analyze-data auto-promote). `FormatForPrompt` for all three stores prefixes lines with `[user-stated]` (high trust) or `[derived]` (lower trust — content traces through the LLM and may carry attacker-influenced bytes). Retention caps via `MemoryConfig.MaxPinnedFacts` (default 100, applies to GlobalMemory) and per-session `MaxFindings` / `MaxSessionMemory` (defaults 100 / 50) prevent unbounded store growth (FIFO eviction). See `docs/en/reference/memory-model.md` and `docs/en/history/memory-injection-hardening.md` (audit trail).

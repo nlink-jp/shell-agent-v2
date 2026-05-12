@@ -12,7 +12,7 @@ For Japanese: [CONTRIBUTING.ja.md](CONTRIBUTING.ja.md) (full parity).
 - **Use the tool** → [README.md](README.md) covers install, features,
   and basic usage.
 - **Understand the internals** →
-  [docs/en/architecture.md](docs/en/architecture.md) for the system
+  [docs/en/reference/architecture.md](docs/en/reference/architecture.md) for the system
   overview, then drill into the subsystem documents linked from there.
 - **Fix a bug or add a feature** → read this file end to end, then
   jump to [§6 How to add X](#6-how-to-add-x).
@@ -110,19 +110,29 @@ shell-agent-v2/
 
 For the conceptual model — state machine, memory architecture, tool
 dispatch flow — start at
-[docs/en/architecture.md](docs/en/architecture.md). That document is
+[docs/en/reference/architecture.md](docs/en/reference/architecture.md). That document is
 the canonical "how it fits together" reference and links into the
 per-subsystem deep dives.
 
 ## 5. Documentation rules
 
-The repository keeps documentation in three audience tiers:
+The repository keeps documentation in three audience tiers, each
+with its own entry point:
 
-| Audience | Files |
-|----------|-------|
-| Users | `README.md`, `README.ja.md`, `CHANGELOG.md` |
-| New developers | `CONTRIBUTING.md`, `CONTRIBUTING.ja.md` (this file) |
-| Maintainers | `docs/en/`, `docs/ja/` |
+| Audience | Entry point | Companion files |
+|----------|-------------|------------------|
+| Users | `README.md` / `README.ja.md` | `CHANGELOG.md` |
+| New developers | `CONTRIBUTING.md` / `CONTRIBUTING.ja.md` (this file) | — |
+| Maintainers | [`docs/en/INDEX.md`](docs/en/INDEX.md) / [`docs/ja/INDEX.ja.md`](docs/ja/INDEX.ja.md) | `docs/{en,ja}/reference/` `docs/{en,ja}/adr/` `docs/{en,ja}/history/` |
+
+Inside `docs/{en,ja}/`:
+
+- **`reference/`** — current behaviour, evergreen. Updated in place
+  as the code changes.
+- **`adr/`** — sequentially-numbered design-decision records,
+  immutable after acceptance. A new ADR supersedes an old one rather
+  than rewriting it; typo fixes and link maintenance are exempt.
+- **`history/`** — pre-v0.2.0 audit trail, frozen.
 
 **English and Japanese are mandatory mirrors.** Every `docs/en/X.md`
 has a paired `docs/ja/X.ja.md` with the same structure. README and
@@ -131,10 +141,17 @@ CONTRIBUTING follow the same parity rule.
 `CHANGELOG.md` gets an entry for every behaviour change, in the same
 PR as the change itself.
 
-For substantial design decisions — new subsystems, breaking changes,
-non-obvious tradeoffs — write a design note under `docs/en/` (with the
-`docs/ja/` mirror). Routine behaviour changes update the relevant
-existing reference document instead.
+Where to write what:
+
+- **Substantial design decisions** (new subsystem, breaking change,
+  non-obvious tradeoff) → write a new ADR in `docs/en/adr/` with the
+  `docs/ja/adr/` mirror. Numbering is sequential in release order;
+  ask for the next number when opening the PR.
+- **Behaviour changes to an existing subsystem** → update the
+  relevant `docs/{en,ja}/reference/` document in place.
+- **No design note for a fix or feature** is acceptable if the
+  CHANGELOG entry plus the commit messages already explain the
+  rationale.
 
 ## 6. How to add X
 
@@ -184,7 +201,7 @@ sources is **a one-file edit** plus the handler implementation.
 
 The v0.6.0 rationale and the structural invariants the registry
 enforces are documented in
-[docs/en/tool-registry-refactor.md](docs/en/tool-registry-refactor.md).
+[docs/en/adr/0007-tool-registry-refactor.md](docs/en/adr/0007-tool-registry-refactor.md).
 
 ## 7. Commit & PR conventions
 

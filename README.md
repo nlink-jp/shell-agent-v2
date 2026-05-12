@@ -148,40 +148,20 @@ make test       # Run tests
 
 ## Documentation
 
-Current state of the system:
+- **Users** — this README + [CHANGELOG.md](CHANGELOG.md).
+- **New contributors** — [CONTRIBUTING.md](CONTRIBUTING.md)
+  (Japanese: [CONTRIBUTING.ja.md](CONTRIBUTING.ja.md)).
+- **Maintainers / deep dives** — [docs/en/INDEX.md](docs/en/INDEX.md)
+  is the single entry point listing the evergreen reference
+  documents (architecture, memory model, data analysis, privacy
+  controls) and the chronological ADR catalogue. Japanese mirror:
+  [docs/ja/INDEX.ja.md](docs/ja/INDEX.ja.md).
 
-- [**Architecture overview**](docs/en/architecture.md) ⭐ start here
-- [**Memory model**](docs/en/memory-model.md) — 4-facility design
-- [**Data analysis**](docs/en/data-analysis.md) — DuckDB engine, sliding-window analyze-data, Findings lifecycle
-
-Recent design notes (post-v0.2.0 features):
-
-- [**Privacy controls (v0.3.0)**](docs/en/privacy-controls.md) — private sessions, log-level filter, audit log
-- [**Session import / export (v0.4.0)**](docs/en/session-import-export.md) — `.shellagent` bundle format, ID regeneration, race-condition catalogue
-- [**Tool progress events (v0.4.1)**](docs/en/tool-progress-events.md) — `tool_progress` activity event for in-place bubble updates
-- [**Session delete UX (v0.4.2)**](docs/en/session-delete-ux.md) — 2-click confirm, deleting state, agent state-machine integration
-- [**Sandbox UID mapping (v0.4.3)**](docs/en/sandbox-uid-mapping.md) — keep-id remap so corp/LDAP-mapped large host UIDs no longer break `podman run`
-- [**analyze-data row cap (v0.4.4)**](docs/en/analyze-data-row-cap.md) — split the chat-output 10k row cap from the sliding-window analyze cap so large tables stop short-circuiting `analyze-data`
-- [**Markdown attachments (v0.5.0)**](docs/en/markdown-attachments.md) — `TypeMarkdown` object type, `analyze-text` / `grep-text` / `get-text` tools, document anchor convention, drag-drop `.md` / `.txt` attach, lazy `Lines` / `Tokens` backfill for legacy reports
-- [**Tool registry refactor (v0.6.0)**](docs/en/tool-registry-refactor.md) — `ToolDescriptor` is the single source of truth backing the LLM tool list, the Settings → Tools UI, the MITL default, and the dispatcher; replaces five hand-maintained parallel lists. Adding a new analysis / builtin / sandbox tool now requires editing exactly one file. Structural tests enforce the invariants
-- [**MCP tool-call abort (v0.6.1)**](docs/en/mcp-abort.md) — chat Abort now interrupts in-flight MCP tool calls. `mcp.Guardian.CallToolContext` propagates the Send context and kills the guardian's child process on cancellation; the dispatcher asynchronously re-spawns just that guardian via `Agent.restartGuardian` so the next user turn is unaffected. Kill-and-respawn is the only reliable interruption mechanism because MCP 2024-11-05 lacks a tool-call cancel notification
-
-Past design notes are kept under [`docs/en/history/`](docs/en/history/)
-as the audit trail behind v0.2.0. Some no longer reflect current
-behaviour — see the README in that directory for an annotated
-index. Notable still-current ones:
-
-- [Sandbox execution + macOS setup](docs/en/history/sandbox-execution.md)
-- [Object storage design](docs/en/history/object-storage.md)
-- [LLM backend abstraction](docs/en/history/llm-abstraction.md)
-- [Tool-event restore on session reload](docs/en/history/tool-event-restore.md)
-- [Tool-call round-trip (Vertex / Local)](docs/en/history/tool-call-roundtrip.md)
-- [Security hardening (round 2, v0.1.20)](docs/en/history/security-hardening-2.md)
-- [Shell tool execution timeout (`@timeout: N`)](docs/en/history/tool-execution-timeout.md)
-- [Shell tool ↔ /work bridge (`SHELL_AGENT_WORK_DIR`, `register-object`)](docs/en/history/work-dir-shell-bridge.md)
-- [RFP (English)](docs/en/history/shell-agent-v2-rfp.md) · [RFP (Japanese)](docs/ja/history/shell-agent-v2-rfp.ja.md)
-
-Japanese mirrors live under `docs/ja/`.
+Older pre-v0.2.0 audit-trail material lives under
+[`docs/en/history/`](docs/en/history/) (Japanese:
+[`docs/ja/history/`](docs/ja/history/)). Most of it has been
+superseded by the current reference docs — consult only when you
+need the historical "why."
 
 ## License
 

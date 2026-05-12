@@ -36,8 +36,8 @@ hook.
   asynchronously after an aborted MCP call so the next user turn
   uses a fresh process. Uses the new `spawnGuardian` helper
   extracted from `startGuardians`.
-- **Design note:** [`docs/en/mcp-abort.md`](docs/en/mcp-abort.md) /
-  [`docs/ja/mcp-abort.ja.md`](docs/ja/mcp-abort.ja.md) covers the
+- **Design note:** [`docs/en/adr/0008-mcp-abort.md`](docs/en/adr/0008-mcp-abort.md) /
+  [`docs/ja/adr/0008-mcp-abort.ja.md`](docs/ja/adr/0008-mcp-abort.ja.md) covers the
   rationale, the rejected alternatives (full restart, orphan-drain,
   rewrite `call()`), and the protocol-level constraints.
 
@@ -114,7 +114,7 @@ builtin, or sandbox tool now requires editing exactly one file.
   also appears in the Settings → Tools catalogue, unknown
   names return handled=false so the outer dispatcher falls
   through to MCP / shell sources.
-- **Design note**: `docs/en/tool-registry-refactor.md` (with
+- **Design note**: `docs/en/adr/0007-tool-registry-refactor.md` (with
   Japanese parity translation) explains the motivation,
   pre-refactor symptoms (the v0.5.0 → v0.5.1 drift bugs as
   the trigger), the principles, the architecture, the
@@ -281,7 +281,7 @@ agent-generated `create-report` outputs (TypeReport), enabling
 other binary formats are deferred to v0.6 — the external
 converter contract is a separate design problem.
 
-Full design: [`docs/en/markdown-attachments.md`](docs/en/markdown-attachments.md).
+Full design: [`docs/en/adr/0006-markdown-attachments.md`](docs/en/adr/0006-markdown-attachments.md).
 
 ### Added
 
@@ -528,8 +528,8 @@ where the feature is interesting.
 
 ### Documentation
 
-- New design note: [docs/en/analyze-data-row-cap.md](docs/en/analyze-data-row-cap.md)
-  / [docs/ja/analyze-data-row-cap.ja.md](docs/ja/analyze-data-row-cap.ja.md)
+- New design note: [docs/en/adr/0005-analyze-data-row-cap.md](docs/en/adr/0005-analyze-data-row-cap.md)
+  / [docs/ja/adr/0005-analyze-data-row-cap.ja.md](docs/ja/adr/0005-analyze-data-row-cap.ja.md)
   with symptom, root-cause analysis, the per-row memory math
   table that justifies the 1 M ceiling, the LLM-call latency
   table that explains why the practical ceiling is much lower
@@ -599,8 +599,8 @@ Image build was already succeeding; only the container
 
 ### Documentation
 
-- New design note: [docs/en/sandbox-uid-mapping.md](docs/en/sandbox-uid-mapping.md)
-  / [docs/ja/sandbox-uid-mapping.ja.md](docs/ja/sandbox-uid-mapping.ja.md)
+- New design note: [docs/en/adr/0004-sandbox-uid-mapping.md](docs/en/adr/0004-sandbox-uid-mapping.md)
+  / [docs/ja/adr/0004-sandbox-uid-mapping.ja.md](docs/ja/adr/0004-sandbox-uid-mapping.ja.md)
   documenting the symptom, root cause, fix, podman version
   requirement (4.3+, Nov 2022), and what is explicitly out of
   scope. README + README.ja and AGENTS.md "Recent design notes"
@@ -658,8 +658,8 @@ back in sync with everything that shipped in v0.3.0–v0.4.1.
 
 ### Documentation
 
-- New design note: [docs/en/session-delete-ux.md](docs/en/session-delete-ux.md)
-  / [docs/ja/session-delete-ux.ja.md](docs/ja/session-delete-ux.ja.md)
+- New design note: [docs/en/adr/0003-session-delete-ux.md](docs/en/adr/0003-session-delete-ux.md)
+  / [docs/ja/adr/0003-session-delete-ux.ja.md](docs/ja/adr/0003-session-delete-ux.ja.md)
   (full parity, ~280 lines each). Covers the four real
   failure modes the looser pre-v0.4.2 path allowed (F1–F4),
   the 2-click confirm + Deleting state visual treatment,
@@ -709,8 +709,8 @@ in "running" state in the chat pane.
 
 ### Documentation
 
-- New design note: [docs/en/tool-progress-events.md](docs/en/tool-progress-events.md)
-  / [docs/ja/tool-progress-events.ja.md](docs/ja/tool-progress-events.ja.md)
+- New design note: [docs/en/adr/0002-tool-progress-events.md](docs/en/adr/0002-tool-progress-events.md)
+  / [docs/ja/adr/0002-tool-progress-events.ja.md](docs/ja/adr/0002-tool-progress-events.ja.md)
   (full parity, ~280 lines each). Covers wire format, the
   active-tool-call-ID propagation choice (struct field vs
   threaded arg), the matcher change, and three rejected
@@ -732,7 +732,7 @@ a bundle stays private after import.
   manifest at the root + every per-session artifact + an
   `objects/` subtree (index + raw blobs). Schema version 1
   is gated strictly: any other version is rejected. See
-  [docs/en/session-import-export.md §3](docs/en/session-import-export.md).
+  [docs/en/adr/0001-session-import-export.md §3](docs/en/adr/0001-session-import-export.md).
 - **Sidebar `Export` icon** (⬇) on each session row's hover
   actions, alongside Rename / Delete. Disabled while the agent
   is busy with explanatory tooltip.
@@ -761,7 +761,7 @@ a bundle stays private after import.
   trivially safe instead of a deterministic ID collision.
   `session_memory.json` and `findings.json` are intentionally
   not swept; the audit in
-  [§5.3](docs/en/session-import-export.md#53-object-id-strategy)
+  [§5.3](docs/en/adr/0001-session-import-export.md#53-object-id-strategy)
   explains why their write paths cannot embed object refs.
 - **Active-session export** drains the post-task work group,
   flushes per-session stores, and closes the analysis Engine
@@ -779,8 +779,8 @@ a bundle stays private after import.
 
 ### Documentation
 
-- New design note: [docs/en/session-import-export.md](docs/en/session-import-export.md)
-  / [docs/ja/session-import-export.ja.md](docs/ja/session-import-export.ja.md)
+- New design note: [docs/en/adr/0001-session-import-export.md](docs/en/adr/0001-session-import-export.md)
+  / [docs/ja/adr/0001-session-import-export.ja.md](docs/ja/adr/0001-session-import-export.ja.md)
   (full parity, ~550 lines each). Covers bundle format, race
   conditions catalogued by the Idle/Busy state machine, ID
   regeneration rationale, edge cases, and the manual smoke
@@ -810,7 +810,7 @@ gets persisted on disk without an explicit user action.
   so the boundary stays unambiguous. `Session.Private` is
   persisted in `chat.json` with `omitempty`, so legacy sessions
   load as non-private without migration. See
-  [docs/en/privacy-controls.md §2](docs/en/privacy-controls.md).
+  [docs/en/reference/privacy-controls.md §2](docs/en/reference/privacy-controls.md).
 - **Audit log entries** for session creation and load
   (`session created: id=... private=true|false` and
   `session loaded: ...`) so the user can verify privacy state
@@ -822,7 +822,7 @@ gets persisted on disk without an explicit user action.
   contained user message snippets, LLM response heads, tool
   arguments, vertex response heads) is now suppressed unless
   the operator opts in. See
-  [docs/en/privacy-controls.md §3](docs/en/privacy-controls.md).
+  [docs/en/reference/privacy-controls.md §3](docs/en/reference/privacy-controls.md).
 - **Settings → Privacy → Log verbosity** select added (debug
   / info / warn / error). Changes apply live without an app
   restart.
@@ -835,7 +835,7 @@ gets persisted on disk without an explicit user action.
 
 ### Documentation
 
-- **`docs/en/privacy-controls.md`** + Japanese mirror — full
+- **`docs/en/reference/privacy-controls.md`** + Japanese mirror — full
   design note covering the threat model, both features, the
   resolved open questions, implementation phases, and
   non-goals. The §1 threat model + §3.1 leak-source audit
@@ -969,7 +969,7 @@ gets persisted on disk without an explicit user action.
 
 The pinned + findings memory model from v0.1.x is replaced with a
 4-facility design. **No data migration**: legacy `pinned.json` and
-`findings.json` are ignored on first launch. See `docs/en/memory-model.md`.
+`findings.json` are ignored on first launch. See `docs/en/reference/memory-model.md`.
 
 The new facilities:
 
@@ -1182,7 +1182,7 @@ a Session Memory entry or a Finding into the cross-session pool.
   vector — anything an assistant turn ever quotes (CSV cells,
   MCP responses, image OCR, web fetches) can be auto-extracted
   and pinned, then re-injected indefinitely. Design:
-  [docs/en/memory-injection-hardening.md](docs/en/memory-injection-hardening.md).
+  [docs/en/history/memory-injection-hardening.md](docs/en/history/memory-injection-hardening.md).
   - **Phase A — provenance.** `PinnedFact` and `Finding` now
     carry source attribution (`user_turn` / `assistant_turn` /
     `manual` / `llm_promoted`), `SessionID`, and a
@@ -1253,7 +1253,7 @@ a Session Memory entry or a Finding into the cross-session pool.
   image appear inline). Path validation reuses the existing
   sandbox-side traversal / symlink rejection logic. MITL default:
   `false` (same trust level as a chat drag-and-drop). Design:
-  [docs/en/work-dir-shell-bridge.md](docs/en/work-dir-shell-bridge.md).
+  [docs/en/history/work-dir-shell-bridge.md](docs/en/history/work-dir-shell-bridge.md).
 
 ### Fixed
 
@@ -1298,7 +1298,7 @@ a Session Memory entry or a Finding into the cross-session pool.
   (non-numeric, zero, negative, Go duration string like `90s`)
   surface as `[ERROR]` in `app.log` and the script falls back to
   the default — registration still succeeds. Design:
-  [docs/en/tool-execution-timeout.md](docs/en/tool-execution-timeout.md).
+  [docs/en/history/tool-execution-timeout.md](docs/en/history/tool-execution-timeout.md).
 
 ## [0.1.23] - 2026-05-02
 
@@ -1369,7 +1369,7 @@ Hygiene + small-feature batch.
 UX-driven release: drop the `hasData`-based dynamic filter on the
 analysis-tool set so the LLM can plan multi-step "load → query →
 analyse → report" workflows up front. Design in
-[docs/en/agent-tool-visibility.md](docs/en/agent-tool-visibility.md).
+[docs/en/history/agent-tool-visibility.md](docs/en/history/agent-tool-visibility.md).
 
 ### Changed
 
@@ -1406,7 +1406,7 @@ analyse → report" workflows up front. Design in
 ## [0.1.20] - 2026-05-02
 
 Second-round security hardening on top of v0.1.18 / v0.1.19. Phased
-into five commits — see [docs/en/security-hardening-2.md](docs/en/security-hardening-2.md)
+into five commits — see [docs/en/history/security-hardening-2.md](docs/en/history/security-hardening-2.md)
 for the full design and finding inventory. Two additional
 verification follow-ups (Settings UI MITL default surfacing; `~/`
 expansion in `load-data`) are documented under §10 of the same
@@ -1548,9 +1548,9 @@ bubble restoration on session reload), and a sweep of LLM-pipeline
 and macOS-build issues exposed during data-analysis runs.
 
 Designs in
-[docs/en/background-task-indicator.md](docs/en/background-task-indicator.md),
-[docs/en/tool-event-restore.md](docs/en/tool-event-restore.md), and
-[docs/en/tool-call-roundtrip.md](docs/en/tool-call-roundtrip.md).
+[docs/en/history/background-task-indicator.md](docs/en/history/background-task-indicator.md),
+[docs/en/history/tool-event-restore.md](docs/en/history/tool-event-restore.md), and
+[docs/en/history/tool-call-roundtrip.md](docs/en/history/tool-call-roundtrip.md).
 
 ### Added
 
@@ -1664,7 +1664,7 @@ analysis tasks.
 
 Security-hardening release. Addresses three HIGH-severity and
 four MEDIUM-severity findings from the 2026-05-01 audit. Plan
-in [docs/en/security-hardening.md](docs/en/security-hardening.md).
+in [docs/en/history/security-hardening.md](docs/en/history/security-hardening.md).
 
 ### Fixed
 
@@ -1780,9 +1780,9 @@ on top of v0.1.16's resilience and multimodal work.
 
 Five resilience and multimodal improvements after v0.1.15. Plans
 in
-[docs/en/agent-loop-resilience.md](docs/en/agent-loop-resilience.md)
+[docs/en/history/agent-loop-resilience.md](docs/en/history/agent-loop-resilience.md)
 and
-[docs/en/multi-image-handling.md](docs/en/multi-image-handling.md).
+[docs/en/history/multi-image-handling.md](docs/en/history/multi-image-handling.md).
 
 ### Added
 
@@ -1877,7 +1877,7 @@ and
   Final `App.tsx`: 587 lines (~60% reduction). DOM, CSS
   classes, Wails binding surface all unchanged. Plan
   documented in
-  [docs/en/frontend-decomposition.md](docs/en/frontend-decomposition.md).
+  [docs/en/history/frontend-decomposition.md](docs/en/history/frontend-decomposition.md).
 
 ## [0.1.14] - 2026-04-30
 
@@ -2021,7 +2021,7 @@ several rough edges that this release smooths out.
   hardcoded `http.Client.Timeout` was removed (one timeout
   source only).
 - **Information display redesign — sidebar / chat pane /
-  footer reorganisation** (docs/en/information-display-redesign.md).
+  footer reorganisation** (docs/en/history/information-display-redesign.md).
   Six-phase plan; phases 1–5 ship in this release.
   - Sidebar shrinks to two panels: **Sessions** and **Memory**
     (Findings + Pinned, both global). The mixed-scope `Status`
@@ -2534,6 +2534,6 @@ Initial release. Full rewrite of shell-agent v1.
 
 ### Design Documents
 
-- `docs/en/agent-data-flow.md` — agent loop, context budget, MITL, events
-- `docs/en/object-storage.md` — central object storage design
-- `docs/en/llm-abstraction.md` — LLM backend abstraction layer
+- `docs/en/history/agent-data-flow.md` — agent loop, context budget, MITL, events
+- `docs/en/history/object-storage.md` — central object storage design
+- `docs/en/history/llm-abstraction.md` — LLM backend abstraction layer
