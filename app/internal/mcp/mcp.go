@@ -3,6 +3,7 @@ package mcp
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -228,6 +229,40 @@ func (g *Guardian) CallTool(name string, arguments json.RawMessage) (json.RawMes
 		return resp.Result, ErrToolFailed
 	}
 	return resp.Result, nil
+}
+
+// CallToolContext is CallTool with context-driven cancellation.
+//
+// MCP 2024-11-05 has no tool-call cancel notification, and the
+// underlying stdout.Scan has no cancellation hook (mcp.go:50-62).
+// So when ctx fires before the upstream replies, Stop() is called
+// to kill the child process — that unblocks the in-flight Scan,
+// the inner CallTool returns with a read error, and the orphan
+// goroutine exits cleanly (the buffered channel absorbs its
+// trailing write).
+//
+// IMPORTANT: a cancelled CallToolContext leaves the guardian
+// permanently stopped (g.stopped = true). Callers must re-spawn
+// the guardian before issuing the next CallTool — see
+// docs/en/mcp-abort.md and Agent.restartGuardian in the agent
+// package.
+func (g *Guardian) CallToolContext(ctx context.Context, name string, arguments json.RawMessage) (json.RawMessage, error) {
+	type result struct {
+		body json.RawMessage
+		err  error
+	}
+	ch := make(chan result, 1) // buffered: orphan goroutine never blocks on send
+	go func() {
+		body, err := g.CallTool(name, arguments)
+		ch <- result{body: body, err: err}
+	}()
+	select {
+	case r := <-ch:
+		return r.body, r.err
+	case <-ctx.Done():
+		_ = g.Stop()
+		return nil, ctx.Err()
+	}
 }
 
 // --- internal ---
