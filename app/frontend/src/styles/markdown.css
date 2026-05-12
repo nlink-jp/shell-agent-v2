@@ -20,18 +20,102 @@
     max-width: 100%;
 }
 
-/* Override highlight.js colors for light/warm themes */
+/* Light-theme highlight.js overrides.
+ *
+ * App.tsx imports highlight.js/styles/github-dark.css at startup
+ * (the dark theme is the most-used surface). Light theme then
+ * overrides every token class that github-dark colours, using
+ * the canonical github.css (Light) palette ported here so all
+ * tokens stay legible against the near-white code background
+ * (`--bg-code: rgba(50, 110, 180, 0.05)`).
+ *
+ * Pre-v0.6.0 only seven classes were overridden, leaving
+ * .hljs-attr, .hljs-meta, .hljs-variable, .hljs-symbol,
+ * .hljs-section, .hljs-name, .hljs-doctag, .hljs-bullet,
+ * .hljs-addition, .hljs-deletion etc. on the dark-theme
+ * palette (#79c0ff, #ffa657, #aff5b4 …) which read as washed-
+ * out colour-on-white in light mode. Selector groupings mirror
+ * github.css 1:1 so future highlight.js upgrades stay easy to
+ * sync. The `warm` / `midnight` themes use dark backgrounds
+ * and inherit github-dark unchanged.
+ */
 [data-theme="light"] .hljs {
     background: var(--bg-code) !important;
-    color: #2a2520 !important;
+    color: #24292e !important;
 }
-[data-theme="light"] .hljs-keyword { color: #1a60b8 !important; }
-[data-theme="light"] .hljs-string { color: #a04020 !important; }
-[data-theme="light"] .hljs-comment { color: #6a6560 !important; }
-[data-theme="light"] .hljs-number { color: #2a7a30 !important; }
-[data-theme="light"] .hljs-built_in { color: #5a50a0 !important; }
-[data-theme="light"] .hljs-title { color: #1058b0 !important; }
-[data-theme="light"] .hljs-type { color: #5a50a0 !important; }
+[data-theme="light"] .hljs-doctag,
+[data-theme="light"] .hljs-keyword,
+[data-theme="light"] .hljs-meta .hljs-keyword,
+[data-theme="light"] .hljs-template-tag,
+[data-theme="light"] .hljs-template-variable,
+[data-theme="light"] .hljs-type,
+[data-theme="light"] .hljs-variable.language_ {
+    color: #d73a49 !important;
+}
+[data-theme="light"] .hljs-title,
+[data-theme="light"] .hljs-title.class_,
+[data-theme="light"] .hljs-title.class_.inherited__,
+[data-theme="light"] .hljs-title.function_ {
+    color: #6f42c1 !important;
+}
+[data-theme="light"] .hljs-attr,
+[data-theme="light"] .hljs-attribute,
+[data-theme="light"] .hljs-literal,
+[data-theme="light"] .hljs-meta,
+[data-theme="light"] .hljs-number,
+[data-theme="light"] .hljs-operator,
+[data-theme="light"] .hljs-variable,
+[data-theme="light"] .hljs-selector-attr,
+[data-theme="light"] .hljs-selector-class,
+[data-theme="light"] .hljs-selector-id {
+    color: #005cc5 !important;
+}
+[data-theme="light"] .hljs-regexp,
+[data-theme="light"] .hljs-string,
+[data-theme="light"] .hljs-meta .hljs-string {
+    color: #032f62 !important;
+}
+[data-theme="light"] .hljs-built_in,
+[data-theme="light"] .hljs-symbol {
+    color: #e36209 !important;
+}
+[data-theme="light"] .hljs-comment,
+[data-theme="light"] .hljs-code,
+[data-theme="light"] .hljs-formula {
+    color: #6a737d !important;
+}
+[data-theme="light"] .hljs-name,
+[data-theme="light"] .hljs-quote,
+[data-theme="light"] .hljs-selector-tag,
+[data-theme="light"] .hljs-selector-pseudo {
+    color: #22863a !important;
+}
+[data-theme="light"] .hljs-subst {
+    color: #24292e !important;
+}
+[data-theme="light"] .hljs-section {
+    color: #005cc5 !important;
+    font-weight: bold;
+}
+[data-theme="light"] .hljs-bullet {
+    color: #735c0f !important;
+}
+[data-theme="light"] .hljs-emphasis {
+    color: #24292e !important;
+    font-style: italic;
+}
+[data-theme="light"] .hljs-strong {
+    color: #24292e !important;
+    font-weight: bold;
+}
+[data-theme="light"] .hljs-addition {
+    color: #22863a !important;
+    background-color: #f0fff4 !important;
+}
+[data-theme="light"] .hljs-deletion {
+    color: #b31d28 !important;
+    background-color: #ffeef0 !important;
+}
 
 .message-content code {
     font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
