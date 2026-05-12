@@ -135,7 +135,7 @@ func TestExecute(t *testing.T) {
 	}
 }
 
-// --- WithWorkDir env var injection (docs/en/work-dir-shell-bridge.md) ---
+// --- WithWorkDir env var injection (docs/en/history/work-dir-shell-bridge.md) ---
 
 // TestExecute_WithWorkDir_SetsEnvVar: when WithWorkDir is passed,
 // the spawned process sees SHELL_AGENT_WORK_DIR in its environment.
@@ -187,7 +187,7 @@ echo "${SHELL_AGENT_WORK_DIR:-UNSET}"
 	}
 }
 
-// --- @timeout header (docs/en/tool-execution-timeout.md) ---
+// --- @timeout header (docs/en/history/tool-execution-timeout.md) ---
 
 func writeScriptWithHeader(t *testing.T, body string) string {
 	t.Helper()

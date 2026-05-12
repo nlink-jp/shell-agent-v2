@@ -292,7 +292,7 @@ func (l *Local) buildRequest(messages []Message, tools []ToolDef, stream bool) [
 	}
 	for _, m := range messages {
 		// Map application-level roles to LM Studio/OpenAI API roles.
-		// Design: docs/en/llm-abstraction.md, docs/en/tool-call-roundtrip.md
+		// Design: docs/en/history/llm-abstraction.md, docs/en/history/tool-call-roundtrip.md
 		role := string(m.Role)
 		switch m.Role {
 		case RoleTool:

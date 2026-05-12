@@ -148,7 +148,7 @@ type Agent struct {
 	// through every tool function's signature. The Idle/Busy
 	// state machine guarantees only one tool runs at a time per
 	// agent, so a scalar field suffices. See
-	// docs/en/tool-progress-events.md.
+	// docs/en/adr/0002-tool-progress-events.md.
 	activeToolCallID string
 
 	// toolDescriptors is the v0.6 tool registry — the single
@@ -157,7 +157,7 @@ type Agent struct {
 	// per-source builders (analysisDescriptors,
 	// builtinDescriptors, etc.). Phase 1 only allocates
 	// the slice + index map; no view function reads them yet.
-	// See docs/en/tool-registry-refactor.md.
+	// See docs/en/adr/0007-tool-registry-refactor.md.
 	toolDescriptors     []ToolDescriptor
 	toolDescriptorIndex map[string]int
 }
@@ -642,7 +642,7 @@ func (a *Agent) SendWithImages(ctx context.Context, message string, objectIDs, d
 //     (prepended by contextbuild.renderRecordContent) and reads
 //     the content via list-objects → analyze-text / grep-text /
 //     get-text. This keeps system-prompt determinism intact
-//     (case X in docs/en/markdown-attachments.md §2).
+//     (case X in docs/en/adr/0006-markdown-attachments.md §2).
 //
 // Concurrency model: the agent's state stays Busy from the moment
 // this method takes the lock until the post-response background
@@ -961,7 +961,7 @@ func (a *Agent) LoadSession(session *memory.Session) error {
 	// whether the sandbox is enabled. Shell tools learn its host
 	// path via SHELL_AGENT_WORK_DIR and may write artefacts there
 	// for the LLM to surface via the register-object tool.
-	// Design: docs/en/work-dir-shell-bridge.md.
+	// Design: docs/en/history/work-dir-shell-bridge.md.
 	if workDir := a.sessionWorkDir(); workDir != "" {
 		if err := os.MkdirAll(workDir, 0700); err != nil {
 			logger.Error("agent: workdir create %q: %v", workDir, err)
@@ -998,7 +998,7 @@ func (a *Agent) SetAnalysis(engine *analysis.Engine) {
 // Findings returns the active session's findings, or empty if
 // no session is loaded. v0.2.0: per-session storage means
 // findings are scoped to the current session — see
-// docs/en/memory-model.md §4.
+// docs/en/reference/memory-model.md §4.
 func (a *Agent) Findings() []findings.Finding {
 	if a.findings == nil {
 		return nil
@@ -1478,7 +1478,7 @@ func (a *Agent) LLMStatus() struct {
 // --- internal ---
 
 // agentLoop implements the core agent execution loop.
-// Design: docs/en/agent-data-flow.md Section 2.2
+// Design: docs/en/history/agent-data-flow.md Section 2.2
 func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, dataURLs, documentObjectIDs []string) (string, error) {
 	if a.session == nil {
 		a.session = &memory.Session{ID: "default", Records: []memory.Record{}}
@@ -1711,8 +1711,8 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 // user explicitly wants to bail (e.g. a 429 retry that's taking
 // too long). Without an Abort, the goroutine waits to completion.
 //
-// Design: docs/en/agent-data-flow.md §4.1,
-// docs/en/background-task-indicator.md.
+// Design: docs/en/history/agent-data-flow.md §4.1,
+// docs/en/history/background-task-indicator.md.
 func (a *Agent) postResponseTasks(parentCtx context.Context) {
 	ctx, cancel := context.WithCancel(parentCtx)
 	a.mu.Lock()
@@ -1861,7 +1861,7 @@ func (a *Agent) executeTool(ctx context.Context, tc llm.ToolCall) (string, Activ
 				// so kill-and-respawn is the only way to make
 				// Abort responsive. Re-spawn this guardian
 				// asynchronously so the next user turn can use it.
-				// See docs/en/mcp-abort.md.
+				// See docs/en/adr/0008-mcp-abort.md.
 				go a.restartGuardian(guardianName)
 				return "(Cancelled by user)", ActivityStatusError
 			}
@@ -1893,7 +1893,7 @@ func (a *Agent) executeTool(ctx context.Context, tc llm.ToolCall) (string, Activ
 				}
 			}
 			// SHELL_AGENT_WORK_DIR injection — see
-			// docs/en/work-dir-shell-bridge.md.
+			// docs/en/history/work-dir-shell-bridge.md.
 			result, err := toolcall.Execute(ctx, tool, tc.Arguments,
 				toolcall.WithWorkDir(a.sessionWorkDir()))
 			if err != nil {
@@ -2456,7 +2456,7 @@ Already known:
 		// session is marked private. Session-route facts (fact /
 		// context) still persist to per-session SessionMemory and
 		// are deleted with the session — that's the privacy
-		// contract documented in docs/en/privacy-controls.md §2.
+		// contract documented in docs/en/reference/privacy-controls.md §2.
 		if isGlobal && a.session.Private {
 			logger.Debug("extractMemories: dropping global-route fact in private session: %q", fact)
 			continue

@@ -58,7 +58,7 @@ type Record struct {
 	// values: "success", "error". An empty Status on a tool record
 	// indicates a session written before this field existed and is
 	// treated as "success" at restore time. Design:
-	// docs/en/tool-event-restore.md.
+	// docs/en/history/tool-event-restore.md.
 	Status string `json:"status,omitempty"`
 }
 
@@ -90,7 +90,7 @@ type TimeRange struct {
 //
 // Session Memory + Findings still work normally — they're per-
 // session and get deleted with the session. See
-// docs/en/privacy-controls.md §2 for the full design.
+// docs/en/reference/privacy-controls.md §2 for the full design.
 //
 // `omitempty` on the JSON tag keeps legacy session files (where
 // the field doesn't exist) loading as Private=false.
@@ -151,7 +151,7 @@ func (s *Session) AddReportMessage(title, content string) {
 // ActivityEventStatus emitted by tool_end. Persisting it lets
 // LoadSession rebuild tool-event bubbles on session restore with
 // the right success / error styling. Design:
-// docs/en/tool-event-restore.md.
+// docs/en/history/tool-event-restore.md.
 func (s *Session) AddToolResult(toolCallID, toolName, content, status string) {
 	s.Records = append(s.Records, Record{
 		Timestamp:  time.Now(),

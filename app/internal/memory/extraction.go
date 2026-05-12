@@ -28,7 +28,7 @@ var ValidExtractionCategories = map[string]bool{
 // internals rather than the user. Such facts, when re-injected
 // into future sessions' system prompts, would directly steer
 // the LLM and were the root cause of the THINK leakage incident
-// (see docs/en/memory-injection-hardening.md).
+// (see docs/en/history/memory-injection-hardening.md).
 //
 // The list is intentionally over-broad: false positives (a
 // user fact about "the model T" never being pinned) are

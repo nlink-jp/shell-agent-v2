@@ -18,7 +18,7 @@
 // 2d the live builder reads from this descriptor list and
 // the duplication disappears.
 //
-// See docs/en/tool-registry-refactor.md.
+// See docs/en/adr/0007-tool-registry-refactor.md.
 
 package agent
 

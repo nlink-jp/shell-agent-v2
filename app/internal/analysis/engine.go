@@ -302,7 +302,7 @@ const MaxQueryRows = 10000
 // LLM calls instead. The cap exists strictly as a memory backstop
 // against pointing analyze-data at a billion-row table; the
 // practical ceiling is set by LLM call latency long before this
-// constant is hit. See docs/en/analyze-data-row-cap.md §3.3.
+// constant is hit. See docs/en/adr/0005-analyze-data-row-cap.md §3.3.
 //
 // Implementation seam: tests call setMaxAnalyzeRowsForTesting to
 // shrink this without making the test materialise a million rows.

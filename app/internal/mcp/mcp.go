@@ -244,7 +244,7 @@ func (g *Guardian) CallTool(name string, arguments json.RawMessage) (json.RawMes
 // IMPORTANT: a cancelled CallToolContext leaves the guardian
 // permanently stopped (g.stopped = true). Callers must re-spawn
 // the guardian before issuing the next CallTool — see
-// docs/en/mcp-abort.md and Agent.restartGuardian in the agent
+// docs/en/adr/0008-mcp-abort.md and Agent.restartGuardian in the agent
 // package.
 func (g *Guardian) CallToolContext(ctx context.Context, name string, arguments json.RawMessage) (json.RawMessage, error) {
 	type result struct {

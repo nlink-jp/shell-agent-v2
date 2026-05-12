@@ -17,7 +17,7 @@ import (
 // `decision` (architectural / persistent design choices) belong
 // in the cross-session global pool. `fact` and `context` are
 // session-scoped and route to SessionMemory instead.
-// See docs/en/memory-model.md §5.
+// See docs/en/reference/memory-model.md §5.
 var ValidGlobalMemoryCategories = map[string]bool{
 	"preference": true,
 	"decision":   true,

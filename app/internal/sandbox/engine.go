@@ -8,7 +8,7 @@
 // loop. The agent integration (Settings flag, six sandbox-* tools,
 // MITL routing) lands in Phase 2.
 //
-// Design: docs/en/sandbox-execution.md
+// Design: docs/en/history/sandbox-execution.md
 package sandbox
 
 import (

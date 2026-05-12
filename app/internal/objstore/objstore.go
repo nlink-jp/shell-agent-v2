@@ -2,7 +2,7 @@
 // Objects are stored as files with hex IDs (16 bytes / 32 hex chars
 // for new objects; legacy 12-hex IDs continue to load via the
 // length-tolerant read path).
-// Design: docs/en/object-storage.md
+// Design: docs/en/history/object-storage.md
 package objstore
 
 import (

@@ -10,7 +10,7 @@
 // so a stray Save / Engine call can't fight a half-deleted
 // session dir.
 //
-// Design: docs/en/session-delete-ux.md.
+// Design: docs/en/adr/0003-session-delete-ux.md.
 
 package agent
 

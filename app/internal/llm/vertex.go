@@ -15,7 +15,7 @@ import (
 )
 
 // Vertex is a Vertex AI (Gemini) backend using ADC.
-// Design: docs/en/llm-abstraction.md
+// Design: docs/en/history/llm-abstraction.md
 type Vertex struct {
 	cfg config.VertexAIConfig
 }

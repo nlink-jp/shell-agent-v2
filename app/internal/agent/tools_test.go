@@ -65,7 +65,7 @@ func agentForToolDefs(t *testing.T) *Agent {
 
 // TestAnalysisToolsFiltering covers the legacy hide-until-data-loaded
 // flag (default OFF in v0.1.21+; ON restores the pre-v0.1.21 split).
-// See docs/en/agent-tool-visibility.md.
+// See docs/en/history/agent-tool-visibility.md.
 //
 // v0.6: descriptor-derived count merges the builtin tools
 // (resolve-date / list-objects / get-object / register-object,
@@ -243,7 +243,7 @@ func TestToolResetAnalysis(t *testing.T) {
 	}
 }
 
-// --- register-object (docs/en/work-dir-shell-bridge.md) ---
+// --- register-object (docs/en/history/work-dir-shell-bridge.md) ---
 
 // setupAgentWithWorkDir builds an Agent with a fresh objstore and
 // session whose work dir is a tempdir we control, so we can drop a

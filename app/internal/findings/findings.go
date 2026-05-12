@@ -4,7 +4,7 @@
 // Each session owns its own `sessions/<id>/findings.json`. Cross-
 // session promotion is handled by the user explicitly via the
 // "Pin to Global Memory" UI action, which creates a corresponding
-// entry in GlobalMemoryStore. See docs/en/memory-model.md §4.
+// entry in GlobalMemoryStore. See docs/en/reference/memory-model.md §4.
 package findings
 
 import (

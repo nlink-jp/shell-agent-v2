@@ -31,7 +31,7 @@ func newExtractAgent(t *testing.T, mock *llm.MockBackend, records ...memory.Reco
 // internal marker. The IsSelfReferential filter must drop it before
 // pinning, otherwise the same fact would re-inject into every future
 // session's system prompt.
-// See docs/en/memory-injection-hardening.md §5 Phase B-2.
+// See docs/en/history/memory-injection-hardening.md §5 Phase B-2.
 func TestExtractPinned_RejectsSelfReferential(t *testing.T) {
 	mock := llm.NewMockBackend(llm.MockResponse{
 		Content: "fact|turn-2|THINK is the assistant's internal thought marker|THINKは内部思考マーカー",

@@ -7,7 +7,7 @@
 // case-label, and ListTools — and the v0.5.0 → v0.5.1 manual
 // smoke caught two of those forgotten).
 //
-// Design: docs/en/tool-registry-refactor.md.
+// Design: docs/en/adr/0007-tool-registry-refactor.md.
 //
 // Phase 1 of the refactor introduces only the type and the
 // per-agent storage / helper. No view function consumes the

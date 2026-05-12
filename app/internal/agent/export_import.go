@@ -10,7 +10,7 @@
 // analysis Engine so the on-disk DuckDB file is consistent for the
 // bundle copy. The Engine is left closed; the binding layer
 // re-creates it via switchAnalysis after this returns. See
-// docs/en/session-import-export.md §4.2.
+// docs/en/adr/0001-session-import-export.md §4.2.
 
 package agent
 

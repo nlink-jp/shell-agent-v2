@@ -1,7 +1,7 @@
 // Package sessionio packages a session's on-disk state into a single
 // portable .shellagent bundle and reads such bundles back. The
 // bundle format and import/export semantics are specified in
-// docs/en/session-import-export.md (and the JA mirror).
+// docs/en/adr/0001-session-import-export.md (and the JA mirror).
 //
 // This file defines the manifest format. The manifest is the first
 // file read on import and gates compatibility checks before any

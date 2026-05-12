@@ -15,7 +15,7 @@ import (
 // Memory. Only `fact` (factual context for the current task)
 // and `context` (situational awareness) belong here;
 // `preference`/`decision` are for cross-session Global Memory.
-// See docs/en/memory-model.md §3.
+// See docs/en/reference/memory-model.md §3.
 var ValidSessionMemoryCategories = map[string]bool{
 	"fact":    true,
 	"context": true,

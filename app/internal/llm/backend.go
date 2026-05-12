@@ -1,5 +1,5 @@
 // Package llm provides a unified interface over LLM backends.
-// Design: docs/en/llm-abstraction.md
+// Design: docs/en/history/llm-abstraction.md
 package llm
 
 import (

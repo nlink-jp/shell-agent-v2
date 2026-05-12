@@ -94,7 +94,7 @@ func (a *Agent) builtinDescriptors() []ToolDescriptor {
 		},
 		{
 			Name:        "register-object",
-			Description: "Register a file already present in the session work directory ($SHELL_AGENT_WORK_DIR — same physical path that the sandbox sees as /work) into the central object store, returning an object:<ID> reference the chat can render. Use this to surface artefacts produced by shell tools (e.g. generate-image): write to $SHELL_AGENT_WORK_DIR from the shell tool, then call this with the same filename. For artefacts produced by sandbox-run-python / sandbox-run-shell, prefer sandbox-register-object (both end up reading from the same physical directory). Design: docs/en/work-dir-shell-bridge.md.",
+			Description: "Register a file already present in the session work directory ($SHELL_AGENT_WORK_DIR — same physical path that the sandbox sees as /work) into the central object store, returning an object:<ID> reference the chat can render. Use this to surface artefacts produced by shell tools (e.g. generate-image): write to $SHELL_AGENT_WORK_DIR from the shell tool, then call this with the same filename. For artefacts produced by sandbox-run-python / sandbox-run-shell, prefer sandbox-register-object (both end up reading from the same physical directory). Design: docs/en/history/work-dir-shell-bridge.md.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{

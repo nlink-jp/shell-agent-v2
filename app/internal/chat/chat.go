@@ -208,7 +208,7 @@ func (e *Engine) BuildMessages(session *memory.Session, pinnedContext, findingsC
 
 	// Pass application-level roles as-is.
 	// Each backend handles role mapping internally.
-	// Design: docs/en/llm-abstraction.md Section 4
+	// Design: docs/en/history/llm-abstraction.md Section 4
 	for _, r := range session.Records {
 		content := r.Content
 		// Guard user and tool content against prompt injection

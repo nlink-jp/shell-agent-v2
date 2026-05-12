@@ -306,7 +306,7 @@ func (b *Bindings) NewSession() (string, error) {
 
 // NewPrivateSession creates a private chat session (Global
 // Memory promotion suppressed) and switches to it. See
-// docs/en/privacy-controls.md §2.
+// docs/en/reference/privacy-controls.md §2.
 func (b *Bindings) NewPrivateSession() (string, error) {
 	return b.newSession(true)
 }
@@ -355,7 +355,7 @@ func (b *Bindings) LoadSession(sessionID string) ([]MessageData, error) {
 	}
 
 	// Filter records for frontend display
-	// Design: docs/en/agent-data-flow.md Section 3.2
+	// Design: docs/en/history/agent-data-flow.md Section 3.2
 	var msgs []MessageData
 	for i, r := range session.Records {
 		switch r.Role {
@@ -365,7 +365,7 @@ func (b *Bindings) LoadSession(sessionID string) ([]MessageData, error) {
 			// a session written before the field existed; default
 			// to "success" so legacy chats render with a sane
 			// styling rather than no bubble at all.
-			// Design: docs/en/tool-event-restore.md.
+			// Design: docs/en/history/tool-event-restore.md.
 			if r.ToolName == "" {
 				continue
 			}
@@ -516,7 +516,7 @@ func (b *Bindings) RenameSession(sessionID, title string) error {
 // cleanup (Engine close + nil-clear of session/sessionMemory/
 // findings), objstore cleanup, sandbox teardown, and dir
 // removal all live there as one atomic-from-the-state-machine's-
-// perspective operation. See docs/en/session-delete-ux.md.
+// perspective operation. See docs/en/adr/0003-session-delete-ux.md.
 func (b *Bindings) DeleteSession(sessionID string) error {
 	if b.agent == nil {
 		return fmt.Errorf("agent not initialised")
@@ -533,7 +533,7 @@ func (b *Bindings) DeleteSession(sessionID string) error {
 // new instance is wired back into the agent so subsequent
 // analysis tool calls work normally).
 //
-// Design: docs/en/session-import-export.md §4 / §6.
+// Design: docs/en/adr/0001-session-import-export.md §4 / §6.
 func (b *Bindings) ExportSession(sessionID string) (string, error) {
 	if b.agent == nil {
 		return "", fmt.Errorf("agent not initialised")
@@ -584,7 +584,7 @@ func (b *Bindings) ExportSession(sessionID string) (string, error) {
 // Returns the new session ID, or an empty string if the user
 // cancelled the dialog.
 //
-// Design: docs/en/session-import-export.md §5 / §6.
+// Design: docs/en/adr/0001-session-import-export.md §5 / §6.
 func (b *Bindings) ImportSession() (string, error) {
 	if b.agent == nil {
 		return "", fmt.Errorf("agent not initialised")
@@ -721,7 +721,7 @@ func (b *Bindings) HasData() bool {
 //
 // FindingsResult is a per-session finding for the frontend.
 // v0.2.0: SessionID/SessionTitle removed (findings are per-session
-// now, the active session is implicit). See docs/en/memory-model.md §4.
+// now, the active session is implicit). See docs/en/reference/memory-model.md §4.
 type FindingsResult struct {
 	ID             string   `json:"id"`
 	Content        string   `json:"content"`

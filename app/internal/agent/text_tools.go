@@ -1,7 +1,7 @@
 // text_tools.go — v0.5 markdown / text attachment tools:
 // analyze-text, grep-text, get-text. Operate on objstore objects
 // of type TypeMarkdown (user-attached) or TypeReport (agent-
-// generated via create-report). See docs/en/markdown-attachments.md.
+// generated via create-report). See docs/en/adr/0006-markdown-attachments.md.
 package agent
 
 import (

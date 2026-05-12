@@ -45,7 +45,7 @@ type Param struct {
 // script that polls an external service or runs a heavy local
 // command — so they can opt out of the 30-second cap without
 // raising the floor for every other tool.
-// Design: docs/en/tool-execution-timeout.md.
+// Design: docs/en/history/tool-execution-timeout.md.
 type Tool struct {
 	Name        string        `json:"name"`
 	Description string        `json:"description"`
@@ -125,7 +125,7 @@ type execConfig struct {
 // WithWorkDir sets the SHELL_AGENT_WORK_DIR environment variable
 // on the spawned process so the script can write artefacts to the
 // per-session work directory the sandbox bind-mounts at /work.
-// Design: docs/en/work-dir-shell-bridge.md.
+// Design: docs/en/history/work-dir-shell-bridge.md.
 func WithWorkDir(path string) ExecOption {
 	return func(c *execConfig) { c.workDir = path }
 }
@@ -134,7 +134,7 @@ func WithWorkDir(path string) ExecOption {
 //
 // Per-tool Timeout (set via the `@timeout: N` header) wins over the
 // package DefaultTimeout when > 0. Design:
-// docs/en/tool-execution-timeout.md.
+// docs/en/history/tool-execution-timeout.md.
 //
 // Variadic ExecOption args allow callers to inject extra context
 // such as the session work directory; absent options preserve the
@@ -234,7 +234,7 @@ func (t *Tool) ToolDefParams() map[string]any {
 // Unknown directives are silently ignored. An invalid @timeout
 // (non-numeric, zero, negative) is logged via internal/logger and
 // the script falls back to DefaultTimeout. Design:
-// docs/en/tool-execution-timeout.md.
+// docs/en/history/tool-execution-timeout.md.
 func parseToolHeader(path string) (*Tool, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -288,7 +288,7 @@ func parseToolHeader(path string) (*Tool, error) {
 			} else {
 				// Surface the typo via the regular log path; the
 				// script still loads with DefaultTimeout. See
-				// docs/en/tool-execution-timeout.md §4.4.
+				// docs/en/history/tool-execution-timeout.md §4.4.
 				logger.Error("toolcall: %s: ignoring invalid @timeout %q (must be a positive integer of seconds)", path, raw)
 			}
 		}

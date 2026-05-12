@@ -138,7 +138,7 @@ type ToolsConfig struct {
 	// tool list after a successful load-data. Default false.
 	// Opt-in for users on weaker local backends where exposing
 	// 30+ tools measurably hurts selection accuracy. See
-	// docs/en/agent-tool-visibility.md.
+	// docs/en/history/agent-tool-visibility.md.
 	HideAnalysisToolsUntilDataLoaded bool `json:"hide_analysis_tools_until_data_loaded,omitempty"`
 }
 
@@ -186,7 +186,7 @@ func (b ContextBudgetConfig) OutputReserveResolved() int {
 }
 
 // SandboxConfig controls the per-session container sandbox.
-// Design: docs/en/sandbox-execution.md, docs/en/sandbox-image-build.md
+// Design: docs/en/history/sandbox-execution.md, docs/en/history/sandbox-image-build.md
 type SandboxConfig struct {
 	Enabled        bool   `json:"enabled"`
 	Engine         string `json:"engine,omitempty"`          // "auto" | "podman" | "docker"
@@ -234,7 +234,7 @@ func (a AgentConfig) MaxToolRoundsResolved() int {
 //     content. Privacy default.
 //   - "warn" / "error": progressively quieter.
 //
-// Empty string maps to "info". See docs/en/privacy-controls.md §3.
+// Empty string maps to "info". See docs/en/reference/privacy-controls.md §3.
 type LoggerConfig struct {
 	Level string `json:"level,omitempty"`
 }

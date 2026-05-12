@@ -291,7 +291,7 @@ func (a *Agent) toolQuickSummary(ctx context.Context, argsJSON string) (string, 
 }
 
 // toolCreateReport creates a report and stores it in session records.
-// Design: docs/en/agent-data-flow.md Section 6
+// Design: docs/en/history/agent-data-flow.md Section 6
 func (a *Agent) toolCreateReport(argsJSON string) (string, error) {
 	var args struct {
 		Title   string `json:"title"`
@@ -457,7 +457,7 @@ func (a *Agent) toolGetObject(argsJSON string) string {
 // Path validation reuses the sandbox-side `safeWorkPath` helper so
 // `..` traversal, absolute paths, and symlink leaves are all
 // refused (security-hardening-2 §3.2.1 / H14 pattern). Design:
-// docs/en/work-dir-shell-bridge.md.
+// docs/en/history/work-dir-shell-bridge.md.
 func (a *Agent) toolRegisterObject(argsJSON string) (string, ActivityEventStatus) {
 	var args struct {
 		Path string `json:"path"`
@@ -535,7 +535,7 @@ func (a *Agent) toolAnalyzeData(ctx context.Context, argsJSON string) (string, e
 	// tools but defeats the sliding window's whole purpose here —
 	// the rows never enter the chat directly, they get chunked
 	// into per-window LLM calls. analyze-data uses the much higher
-	// MaxAnalyzeRows backstop instead. See docs/en/analyze-data-row-cap.md.
+	// MaxAnalyzeRows backstop instead. See docs/en/adr/0005-analyze-data-row-cap.md.
 	query := fmt.Sprintf("SELECT * FROM \"%s\"", tableName)
 	results, err := a.analysis.QuerySQLForAnalyze(query)
 	if err != nil {
@@ -561,7 +561,7 @@ func (a *Agent) toolAnalyzeData(ctx context.Context, argsJSON string) (string, e
 	// shows a single bubble whose text updates in place rather
 	// than a fresh "running" bubble per window (which previously
 	// stayed stuck because no matching tool_end ever fired). See
-	// docs/en/tool-progress-events.md and issue #5.
+	// docs/en/adr/0002-tool-progress-events.md and issue #5.
 	a.mu.Lock()
 	parentToolCallID := a.activeToolCallID
 	a.mu.Unlock()

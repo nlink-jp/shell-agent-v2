@@ -23,7 +23,7 @@ var (
 // rationale: app.log is the easiest path for sensitive
 // conversation data to leak off-device, so we err on the side
 // of less. The Settings UI exposes a select to switch to Debug
-// for diagnosis. See docs/en/privacy-controls.md §3.
+// for diagnosis. See docs/en/reference/privacy-controls.md §3.
 type Level int
 
 const (

@@ -273,7 +273,7 @@ func TestE2E_SessionIsolation(t *testing.T) {
 // TestE2E_DynamicToolFilteringInLoop covers the legacy
 // hide-until-data-loaded path (cfg.Tools.HideAnalysisToolsUntilDataLoaded).
 // The new v0.1.21 default exposes all analysis tools every round
-// for planning visibility — see docs/en/agent-tool-visibility.md.
+// for planning visibility — see docs/en/history/agent-tool-visibility.md.
 func TestE2E_DynamicToolFilteringInLoop(t *testing.T) {
 	tmpDir := t.TempDir()
 	csvPath := filepath.Join(tmpDir, "data.csv")
