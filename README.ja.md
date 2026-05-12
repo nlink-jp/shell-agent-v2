@@ -158,6 +158,7 @@ make test       # テスト実行
 - [**サンドボックス UID マッピング (v0.4.3)**](docs/ja/sandbox-uid-mapping.ja.md) — keep-id remap で企業/LDAP マップの巨大ホスト UID 環境でも `podman run` が破綻しないように修正
 - [**analyze-data 行数上限 (v0.4.4)**](docs/ja/analyze-data-row-cap.ja.md) — チャット出力 10k 行 cap とスライドウィンドウ analyze cap を分離し、大きいテーブルが `analyze-data` を short-circuit しないようにした
 - [**Markdown 添付 (v0.5.0)**](docs/ja/markdown-attachments.ja.md) — `TypeMarkdown` 型、`analyze-text` / `grep-text` / `get-text` ツール、document anchor 規約、drag-drop `.md` / `.txt` 添付、レガシーレポート用の lazy `Lines` / `Tokens` backfill
+- [**ツールレジストリリファクタ (v0.6.0)**](docs/ja/tool-registry-refactor.ja.md) — `ToolDescriptor` が LLM ツールリスト・Settings → Tools UI・MITL デフォルト・ディスパッチャの単一 source of truth (5 つの手作業並列リストを置換)。analysis / builtin / sandbox ツール追加は 1 ファイル編集で済む。構造テストで invariant を機械的に enforce
 
 過去の設計メモは [`docs/ja/history/`](docs/ja/history/) に
 v0.2.0 の audit trail として保存。一部は現状を反映していない —

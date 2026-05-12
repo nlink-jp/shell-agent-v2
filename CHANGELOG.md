@@ -5,6 +5,118 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] - 2026-05-11
+
+Tool registry refactor. The four parallel-list drift bugs that
+v0.5.1 fixed by hand were symptoms of a structural problem: each
+analysis or sandbox tool name had to appear in five hand-maintained
+places (`analysisToolMITLDefault`, `analysisToolMITLCategory`,
+`analysisTools()`, `executeAnalysisTool` switch, `executeTool`
+outer case-label, `ListTools()`, plus the sandbox equivalents).
+v0.6 replaces the parallel lists with a single `ToolDescriptor`
+registry that backs the LLM tool list, the Settings → Tools UI,
+the MITL default, and the dispatcher. Adding a new analysis,
+builtin, or sandbox tool now requires editing exactly one file.
+
+### Changed
+
+- **`ToolDescriptor` is the new single source of truth** for
+  analysis (14 tools), builtin (4 tools), and sandbox (8 tools)
+  tool metadata. Each descriptor carries Name, Description,
+  Parameters (JSON Schema), Category, Source, MITLDefault,
+  MITLCategoryOverride (for the SQL-preview / analysis-plan
+  specialised dialogs), HideUntilDataLoaded, and Handle (the
+  closure that captures `*Agent` and dispatches to the
+  underlying tool method). View functions
+  (`descriptorToolDefs`, `dispatchDescriptor`, `ListTools`,
+  `IsToolMITLRequired`, `toolMITLDefault`) all derive from
+  `a.toolDescriptors`.
+- **Sandbox visibility moved to view-function time.** The
+  pre-refactor `if a.sandbox != nil` gates around
+  `sandboxToolDefs()` are replaced by descriptor-time filters
+  on `Source == "sandbox" && a.sandbox == nil`, which keeps
+  the registry stable across `RestartSandbox` calls.
+- **MITL prefix branches stay** as defense in depth. The
+  `strings.HasPrefix("mcp__"|"sandbox-")` branches in
+  `IsToolMITLRequired` agree with the descriptor `MITLDefault`
+  for those tools but win first so a missing descriptor
+  cannot accidentally grant a zero-friction sandbox call.
+- **Builtin tools (resolve-date, list-objects, get-object,
+  register-object) now group as Source="builtin"** in the
+  Settings → Tools UI, separated from the analysis bucket
+  they were lumped under in v0.5. Cosmetic — same names, same
+  defaults.
+- **Analysis-source tools surface every round** even when the
+  engine isn't loaded yet (LLM can plan a load-then-query
+  workflow up front), but the descriptor filter still drops
+  them from the LLM tool list when `a.analysis == nil` so the
+  agent loop can't dispatch a tool that has no engine to run
+  against.
+
+### Added
+
+- **Structural invariant tests** (`tool_descriptor_structural_test.go`)
+  catch parallel-list drift mechanically: unique Names across
+  the registry, every descriptor has a non-nil Handle, every
+  LLM-visible name is dispatchable, every LLM-visible name
+  also appears in the Settings → Tools catalogue, unknown
+  names return handled=false so the outer dispatcher falls
+  through to MCP / shell sources.
+- **Design note**: `docs/en/tool-registry-refactor.md` (with
+  Japanese parity translation) explains the motivation,
+  pre-refactor symptoms (the v0.5.0 → v0.5.1 drift bugs as
+  the trigger), the principles, the architecture, the
+  phased migration, and the resolved design decisions.
+
+### Removed
+
+- `analysisToolMITLDefault` map (16 entries) — replaced by
+  `descriptor.MITLDefault`.
+- `analysisToolMITLCategory` free function — replaced by
+  `descriptor.MITLCategoryOverride` + `Agent.toolMITLCategory`.
+- `analysisTools()` function (~240 lines) — replaced by
+  `descriptorToolDefs()` view.
+- `executeAnalysisTool` function — collapsed into per-tool
+  `descriptor.Handle` closures, dispatched centrally via
+  `dispatchDescriptor`.
+- `sandboxToolDefs()` free function (~95 lines) — replaced
+  by `sandboxDescriptors()` builder + `descriptorToolDefs()`
+  view.
+- `executeTool`'s `strings.HasPrefix("sandbox-")` branch and
+  `executeSandboxTool`'s switch dispatcher — both now
+  redundant; the descriptor's `Handle` field is wired
+  directly to the per-tool `toolSandboxXxx` methods via the
+  `sandboxHandle` wrapper that keeps the
+  EnsureContainer / nil-check preconditions.
+- `text_tools.go::textToolDefs()` — orphan after the
+  `analysisTools()` deletion (the single caller went away).
+
+### Fixed
+
+- **Light theme code-block syntax highlighting was washed out
+  for many token classes.** The pre-v0.6 light-theme override
+  in `markdown.css` only covered seven highlight.js classes;
+  the rest (`.hljs-attr`, `.hljs-meta`, `.hljs-variable`,
+  `.hljs-symbol`, `.hljs-section`, `.hljs-name`, `.hljs-bullet`,
+  `.hljs-addition`, `.hljs-deletion` etc.) inherited the
+  github-dark palette and rendered as low-contrast pastels on
+  the near-white code background. Ported the canonical
+  highlight.js github.css (Light) palette in full, mirroring
+  the upstream selector groupings so future highlight.js
+  upgrades are a straight diff. Warm / Midnight themes are
+  unaffected (their dark backgrounds inherit github-dark).
+
+### Compatibility
+
+No LLM-observable behaviour changes from the registry
+refactor — the same tool names, descriptions, parameter
+schemas, and MITL gates ship as v0.5.1. The Settings → Tools
+UI lists the same toggles. Test count assertions in
+`TestAnalysisToolsFiltering` shifted because the unit under
+test now also returns the four builtin tools (the LLM tool
+count surfaced to the model is unchanged at 10 in legacy
+no-data mode).
+
 ## [0.5.1] - 2026-05-12
 
 Manual-smoke follow-up to v0.5.0. Four parallel-list / wiring

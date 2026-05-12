@@ -163,6 +163,7 @@ Recent design notes (post-v0.2.0 features):
 - [**Sandbox UID mapping (v0.4.3)**](docs/en/sandbox-uid-mapping.md) — keep-id remap so corp/LDAP-mapped large host UIDs no longer break `podman run`
 - [**analyze-data row cap (v0.4.4)**](docs/en/analyze-data-row-cap.md) — split the chat-output 10k row cap from the sliding-window analyze cap so large tables stop short-circuiting `analyze-data`
 - [**Markdown attachments (v0.5.0)**](docs/en/markdown-attachments.md) — `TypeMarkdown` object type, `analyze-text` / `grep-text` / `get-text` tools, document anchor convention, drag-drop `.md` / `.txt` attach, lazy `Lines` / `Tokens` backfill for legacy reports
+- [**Tool registry refactor (v0.6.0)**](docs/en/tool-registry-refactor.md) — `ToolDescriptor` is the single source of truth backing the LLM tool list, the Settings → Tools UI, the MITL default, and the dispatcher; replaces five hand-maintained parallel lists. Adding a new analysis / builtin / sandbox tool now requires editing exactly one file. Structural tests enforce the invariants
 
 Past design notes are kept under [`docs/en/history/`](docs/en/history/)
 as the audit trail behind v0.2.0. Some no longer reflect current
