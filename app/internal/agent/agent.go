@@ -741,48 +741,55 @@ func (a *Agent) startGuardians() {
 	defer a.guardiansMu.Unlock()
 	a.mcpStatuses = nil
 	for _, p := range a.cfg.Tools.MCPProfiles {
-		if !p.Enabled || p.Name == "" || p.Binary == "" {
-			a.mcpStatuses = append(a.mcpStatuses, MCPStatus{Name: p.Name, Status: "disabled"})
-			continue
+		g, status := spawnGuardian(p)
+		if g != nil {
+			a.guardians[p.Name] = g
 		}
-		if !validGuardianName.MatchString(p.Name) {
-			// Reject profiles whose name doesn't match the
-			// allowed character set so the dispatcher's
-			// `mcp__<name>__<tool>` parsing stays unambiguous
-			// (security-hardening-2.md H3). Underscores and
-			// double-underscores in particular collide with the
-			// separator.
-			err := fmt.Errorf("invalid guardian name %q: must match %s", p.Name, validGuardianName)
-			logger.Error("MCP guardian %q rejected: %v", p.Name, err)
-			a.mcpStatuses = append(a.mcpStatuses, MCPStatus{Name: p.Name, Status: "error", Error: err.Error()})
-			continue
-		}
-		binary, err := validateBinaryPath(p.Binary)
-		if err != nil {
-			logger.Error("MCP guardian %q binary validation failed: %v", p.Name, err)
-			a.mcpStatuses = append(a.mcpStatuses, MCPStatus{Name: p.Name, Status: "error", Error: err.Error()})
-			continue
-		}
-		profile, err := validateProfilePath(p.ProfilePath)
-		if err != nil {
-			logger.Error("MCP guardian %q profile validation failed: %v", p.Name, err)
-			a.mcpStatuses = append(a.mcpStatuses, MCPStatus{Name: p.Name, Status: "error", Error: err.Error()})
-			continue
-		}
-		g := mcp.NewGuardian(binary, "--profile", profile)
-		// Tag the guardian so its drained stderr lines (and any
-		// future log lines) carry the profile name.
-		g.SetName(p.Name)
-		if err := g.Start(); err != nil {
-			logger.Error("MCP guardian %q start failed: %v", p.Name, err)
-			a.mcpStatuses = append(a.mcpStatuses, MCPStatus{Name: p.Name, Status: "error", Error: err.Error()})
-			continue
-		}
-		a.guardians[p.Name] = g
-		toolCount := len(g.Tools())
-		a.mcpStatuses = append(a.mcpStatuses, MCPStatus{Name: p.Name, Status: "running", ToolCount: toolCount})
-		logger.Info("MCP guardian %q started (%d tools)", p.Name, toolCount)
+		a.mcpStatuses = append(a.mcpStatuses, status)
 	}
+}
+
+// spawnGuardian builds and starts a guardian for one profile and
+// returns (live guardian or nil, MCPStatus to record). Pure helper
+// used by both startGuardians (boot path) and restartGuardian
+// (post-abort recovery in v0.6.1). Callers hold guardiansMu when
+// updating the agent's map / status slice with the return values;
+// spawnGuardian itself is stateless w.r.t. the Agent.
+func spawnGuardian(p config.MCPProfileConfig) (*mcp.Guardian, MCPStatus) {
+	if !p.Enabled || p.Name == "" || p.Binary == "" {
+		return nil, MCPStatus{Name: p.Name, Status: "disabled"}
+	}
+	if !validGuardianName.MatchString(p.Name) {
+		// Reject profiles whose name doesn't match the allowed
+		// character set so the dispatcher's `mcp__<name>__<tool>`
+		// parsing stays unambiguous (security-hardening-2.md H3).
+		// Underscores and double-underscores in particular collide
+		// with the separator.
+		err := fmt.Errorf("invalid guardian name %q: must match %s", p.Name, validGuardianName)
+		logger.Error("MCP guardian %q rejected: %v", p.Name, err)
+		return nil, MCPStatus{Name: p.Name, Status: "error", Error: err.Error()}
+	}
+	binary, err := validateBinaryPath(p.Binary)
+	if err != nil {
+		logger.Error("MCP guardian %q binary validation failed: %v", p.Name, err)
+		return nil, MCPStatus{Name: p.Name, Status: "error", Error: err.Error()}
+	}
+	profile, err := validateProfilePath(p.ProfilePath)
+	if err != nil {
+		logger.Error("MCP guardian %q profile validation failed: %v", p.Name, err)
+		return nil, MCPStatus{Name: p.Name, Status: "error", Error: err.Error()}
+	}
+	g := mcp.NewGuardian(binary, "--profile", profile)
+	// Tag the guardian so its drained stderr lines (and any future
+	// log lines) carry the profile name.
+	g.SetName(p.Name)
+	if err := g.Start(); err != nil {
+		logger.Error("MCP guardian %q start failed: %v", p.Name, err)
+		return nil, MCPStatus{Name: p.Name, Status: "error", Error: err.Error()}
+	}
+	toolCount := len(g.Tools())
+	logger.Info("MCP guardian %q started (%d tools)", p.Name, toolCount)
+	return g, MCPStatus{Name: p.Name, Status: "running", ToolCount: toolCount}
 }
 
 // validateBinaryPath ensures the path resolves to an existing executable
