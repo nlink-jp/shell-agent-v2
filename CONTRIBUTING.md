@@ -136,7 +136,15 @@ Inside `docs/{en,ja}/`:
 
 **English and Japanese are mandatory mirrors.** Every `docs/en/X.md`
 has a paired `docs/ja/X.ja.md` with the same structure. README and
-CONTRIBUTING follow the same parity rule.
+CONTRIBUTING follow the same parity rule. Verify the structural
+pairing with:
+
+```sh
+./scripts/docs-mirror-check.sh
+```
+
+The script lists any unpaired files and exits non-zero on drift.
+Run it before opening a PR that touches `docs/`.
 
 `CHANGELOG.md` gets an entry for every behaviour change, in the same
 PR as the change itself.

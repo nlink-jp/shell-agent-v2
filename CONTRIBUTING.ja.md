@@ -146,7 +146,15 @@ shell-agent-v2/
 
 **英語 / 日本語は必須ミラー。** 各 `docs/en/X.md` には同構造の
 `docs/ja/X.ja.md` ペアが存在します。README と CONTRIBUTING も
-同様の parity ルールが適用されます。
+同様の parity ルールが適用されます。構造的ペアリングは以下の
+スクリプトで検証できます:
+
+```sh
+./scripts/docs-mirror-check.sh
+```
+
+ペアになっていないファイルを列挙し、drift があれば非ゼロで
+終了します。`docs/` を変更する PR を開く前に実行してください。
 
 `CHANGELOG.md` は挙動変化ごとに、変更と同一 PR でエントリを
 追加。
