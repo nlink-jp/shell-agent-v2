@@ -1,47 +1,27 @@
 # shell-agent-v2 Architecture
 
-This document is the canonical wider-system reference. The bones
-were laid down at **v0.2.0** and remain accurate; subsequent
-releases (v0.3.0–v0.4.2) added cross-cutting features that this
-doc inlines below as version-tagged subsections rather than
-splitting into separate architecture revisions:
+This document is the canonical wider-system reference. It describes
+**how the system fits together right now** — package boundaries,
+state machines, dispatch flows. The bones were laid down at v0.2.0;
+subsequent releases (v0.3.0 through v0.6.1) added cross-cutting
+features that are described in-line below as the corresponding
+subsystems evolved.
 
-- **v0.3.0** — private sessions + log-level privacy controls
-- **v0.4.0** — `.shellagent` session import / export
-- **v0.4.1** — `tool_progress` activity event for in-place
-  bubble updates
-- **v0.4.2** — session deletion under the agent state-machine
-- **v0.5.0** — Markdown attachments (text-bearing object type +
-  three text tools)
-- **v0.6.0** — tool registry refactor: `ToolDescriptor` is the
-  single source of truth that backs the LLM tool list, the
-  Settings → Tools UI, the MITL default, and the dispatcher
-  (replaces five hand-maintained parallel lists). See
-  [`tool-registry-refactor.md`](tool-registry-refactor.md).
-- **v0.6.1** — MCP tool calls become abortable. The agent's
-  Send context now propagates into `mcp.Guardian.CallToolContext`,
-  which kills the guardian's child process on cancellation to
-  unblock its in-flight `stdout.Scan`, and the dispatcher
-  asynchronously re-spawns just that guardian so the next user
-  turn is unaffected. MCP 2024-11-05 lacks a tool-call cancel
-  notification, so kill-and-respawn is the only reliable
-  interruption mechanism. See [`mcp-abort.md`](mcp-abort.md).
+The **why** behind those changes — design rationale, rejected
+alternatives, threat models for individual decisions — lives in the
+ADR catalogue: see [`../INDEX.md`](../INDEX.md) for the indexed list.
 
-For the evolution history of individual subsystems see
-[`history/`](history/). Each post-v0.2.0 feature also has its own
-design note linked from the README's "Recent design notes"
-section.
-
-Companion documents:
+Companion reference documents in this directory:
 
 - [`memory-model.md`](memory-model.md) — canonical reference for
   the 4-facility memory design.
 - [`data-analysis.md`](data-analysis.md) — the per-session DuckDB
   engine, the sliding-window analyze-data summarizer, and the
   Findings lifecycle.
+- [`privacy-controls.md`](privacy-controls.md) — private sessions,
+  log-level filter, audit entries.
 
-This file gives the wider system context and points into them
-where each subsystem is involved.
+For the pre-v0.2.0 audit trail see [`../history/`](../history/).
 
 ## 1. What it is
 
@@ -71,7 +51,8 @@ The project is a successor to shell-agent v1 (a Slack-driven
 agent) but shares no code. v1's heuristics about Hot/Warm/Cold
 memory tiers, /finding slash commands, and the global Pinned
 store have all been replaced — see the v0.2.0 entry in
-`CHANGELOG.md` for the breaking-change summary.
+[`../../CHANGELOG.md`](../../CHANGELOG.md) for the breaking-change
+summary.
 
 ## 2. Process model
 
@@ -99,7 +80,7 @@ return an error rather than queuing.
   binding layer with only an entry-time `IsBusy()` check; now
   routed through `agent.DeleteSession` which holds the slot for
   the operation's full duration. See
-  [`session-delete-ux.md`](session-delete-ux.md) §2 for the
+  [`ADR-0003`](../adr/0003-session-delete-ux.md) §2 for the
   failure modes the looser pre-v0.4.2 path allowed (active-
   session-deleted Send racing the dir RemoveAll, etc.).
 
@@ -123,7 +104,7 @@ buildMessages → backend.Chat → parse tool_calls
 
 Hard cap: `cfg.MaxToolRounds` (default 10). Loop-detection logic
 (repeated same-error stretches) trips earlier — see
-`history/agent-loop-resilience.md`.
+`../history/agent-loop-resilience.md`.
 
 The loop is **not** ReAct: tool results feed back into the next
 round verbatim, with no separate "Observation/Thought" framing.
@@ -289,7 +270,7 @@ parallel lists; the v0.5.0 → v0.5.1 manual smoke caught two
 drift bugs (Settings tab missing a tool, stale MITL map
 entry). Structural tests in `tool_descriptor_structural_test.go`
 now enforce the invariants mechanically. Full design rationale
-is in [`tool-registry-refactor.md`](tool-registry-refactor.md).
+is in [`ADR-0007`](../adr/0007-tool-registry-refactor.md).
 
 ### MITL (Man-In-The-Loop) gate
 
@@ -358,7 +339,7 @@ is re-stored with a fresh ID; references in `chat.json`
 `Record.Content`) and `summaries.json` (`SummaryEntry.Summary`)
 are rewritten through the same `agent.Mu`-gated state-machine
 slot. Privacy flag is preserved verbatim. Full design:
-[`session-import-export.md`](session-import-export.md).
+[`ADR-0001`](../adr/0001-session-import-export.md).
 
 ## 7. LLM backends
 
@@ -451,7 +432,7 @@ in-place — one bubble that updates from "analyze-data" →
 status flips on `tool_end`. Replaces the pre-v0.4.1 behaviour
 where each window emitted its own `tool_start` with no matching
 `tool_end`, leaving N permanent "running" pills (issue #5).
-Full design: [`tool-progress-events.md`](tool-progress-events.md).
+Full design: [`ADR-0002`](../adr/0002-tool-progress-events.md).
 
 ### Theming
 
@@ -527,9 +508,9 @@ launcher app — direct `.app` launch only.
 ## 11. Pointers into the history
 
 For "why was X done" / "what was the previous shape" questions,
-[`history/`](history/) preserves the original design notes. Some
-of them no longer reflect current code (notably the v1 Hot/Warm/
-Cold compaction notes and the original Pinned Memory design)
+[`../history/`](../history/) preserves the original design notes.
+Some of them no longer reflect current code (notably the v1 Hot/
+Warm/Cold compaction notes and the original Pinned Memory design)
 but are kept as the audit trail behind the v0.2.0 rewrite. When
 in doubt, prefer this document and `memory-model.md` for current
 behaviour.
@@ -537,38 +518,38 @@ behaviour.
 Notable history docs that still describe behaviour shipped in
 v0.2.0:
 
-- `history/agent-data-flow.md` — analysis tool dataflow, mostly
+- `../history/agent-data-flow.md` — analysis tool dataflow, mostly
   current.
-- `history/agent-loop-resilience.md` — loop guards (still in
+- `../history/agent-loop-resilience.md` — loop guards (still in
   effect).
-- `history/sandbox-execution.md` / `sandbox-image-build.md` —
+- `../history/sandbox-execution.md` / `sandbox-image-build.md` —
   current sandbox setup.
-- `history/security-hardening-2.md` — the canonical threat model
+- `../history/security-hardening-2.md` — the canonical threat model
   reference (this file's §9 summarises it).
-- `history/work-dir-shell-bridge.md` — current `$SHELL_AGENT_WORK_DIR`
+- `../history/work-dir-shell-bridge.md` — current `$SHELL_AGENT_WORK_DIR`
   contract.
-- `history/object-storage.md` — current objstore behaviour.
-- `history/tool-event-restore.md` — current session-restore tool
+- `../history/object-storage.md` — current objstore behaviour.
+- `../history/tool-event-restore.md` — current session-restore tool
   bubble shape.
-- `history/llm-abstraction.md` — current Backend interface.
-- `history/multi-image-handling.md` — current multimodal flow.
+- `../history/llm-abstraction.md` — current Backend interface.
+- `../history/multi-image-handling.md` — current multimodal flow.
 
 Notable history docs that describe v0.1.x and have been
 superseded:
 
-- `history/memory-architecture-v2.md` — v1's Hot/Warm/Cold +
+- `../history/memory-architecture-v2.md` — v1's Hot/Warm/Cold +
   contextbuild rationale. The non-destructive contextbuild path
   is current; the v1 destructive compaction it discusses is gone.
-- `history/memory-injection-hardening.md` — original
+- `../history/memory-injection-hardening.md` — original
   Pinned-Memory threat model. Still useful for the *defences*,
   but the storage design is superseded by `memory-model.md`.
-- `history/information-display-redesign.md` — Phase 2 of the UI
+- `../history/information-display-redesign.md` — Phase 2 of the UI
   layout, mostly still in effect; note that Findings moved out
   of the sidebar in v0.2.0 Phase 8.
-- `history/frontend-decomposition.md` — Phase 3 component split.
-- `history/background-task-indicator.md` — `pinned-extraction`
+- `../history/frontend-decomposition.md` — Phase 3 component split.
+- `../history/background-task-indicator.md` — `pinned-extraction`
   bg-task name was renamed to `memory-extraction` in v0.2.0.
-- `history/shell-agent-v2-architecture.md` /
+- `../history/shell-agent-v2-architecture.md` /
   `shell-agent-v2-rfp.md` — the original RFP and architecture
   doc that shaped the v0.1 baseline. This document supersedes
   them as the current source of truth.

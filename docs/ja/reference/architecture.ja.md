@@ -1,46 +1,27 @@
 # shell-agent-v2 アーキテクチャ
 
-本ドキュメントは正準のシステム全体リファレンス。骨格は
-**v0.2.0** で確立され今も有効、その後のリリース
-(v0.3.0–v0.4.2) で追加された横断的機能はこの本文中に
-バージョンタグ付きの subsection として inline に記述する
-(別アーキテクチャリビジョンとして分割しない):
+本ドキュメントは正準のシステム全体リファレンス。**現在
+どうシステムが組み合わさっているか** — パッケージ境界、
+ステートマシン、ディスパッチフロー — を記述する。骨格は
+v0.2.0 で確立、その後のリリース (v0.3.0–v0.6.1) で追加された
+横断的機能は対応するサブシステムが進化するに従って本文中に
+inline で記述する。
 
-- **v0.3.0** — プライベートセッション + ログレベルプライバシー制御
-- **v0.4.0** — `.shellagent` セッション import / export
-- **v0.4.1** — in-place バブル更新用の `tool_progress` activity event
-- **v0.4.2** — agent state-machine 配下のセッション削除
-- **v0.5.0** — Markdown 添付 (テキスト系オブジェクト型 +
-  3 つのテキストツール)
-- **v0.6.0** — ツールレジストリリファクタ: `ToolDescriptor`
-  が LLM ツールリスト・Settings → Tools UI・MITL デフォルト・
-  ディスパッチャの単一 source of truth (5 つの手作業並列
-  リストを置換)。詳細は
-  [`tool-registry-refactor.ja.md`](tool-registry-refactor.ja.md)。
-- **v0.6.1** — MCP ツール呼び出しが Abort 可能に。agent の
-  Send context が `mcp.Guardian.CallToolContext` まで伝播し、
-  キャンセル時に guardian の子プロセスを kill して in-flight
-  `stdout.Scan` を unblock する。ディスパッチャは該当 guardian
-  のみを非同期で再 spawn するので次のユーザーターンには影響
-  しない。MCP 2024-11-05 に tool-call キャンセル通知が存在
-  しないため、kill-and-respawn が唯一の確実な中断手段。
-  詳細は [`mcp-abort.ja.md`](mcp-abort.ja.md)。
+設計判断の **why** — 設計根拠・却下された代替案・個別判断の
+脅威モデル — は ADR カタログにあります:
+[`../INDEX.ja.md`](../INDEX.ja.md) を参照。
 
-各サブシステムの進化過程は [`history/`](history/) に保存。
-post-v0.2.0 機能は README の「最近の設計メモ」セクションから
-独立した設計ノートにもリンクされている。
-
-姉妹ドキュメント:
+同ディレクトリの姉妹リファレンスドキュメント:
 
 - [`memory-model.ja.md`](memory-model.ja.md) — 4-facility
   メモリモデル正準資料
 - [`data-analysis.ja.md`](data-analysis.ja.md) — per-session DuckDB
   エンジン、analyze-data の sliding-window summarizer、Findings
   ライフサイクル
+- [`privacy-controls.ja.md`](privacy-controls.ja.md) —
+  プライベートセッション、ログレベルフィルタ、audit エントリ
 
-本文書は両者を適宜参照します。詳細は英語版
-[`docs/en/architecture.md`](../en/architecture.md) も参照可能;
-本日本語版は post-v0.2.0 までの全主要セクションを反映しています。
+v0.2.0 以前の audit trail は [`../history/`](../history/) 参照。
 
 ## 1. 概要
 
@@ -63,7 +44,7 @@ shell-agent-v2 は Wails v2 (Go バックエンド + React + TypeScript
 
 v0.1.x の Hot/Warm/Cold メモリ階層、`/finding` slash command、
 グローバル Pinned ストアは v0.2.0 で全面置き換え。詳細は
-`CHANGELOG.md` の v0.2.0 entry 参照。
+[`../../CHANGELOG.md`](../../CHANGELOG.md) の v0.2.0 entry 参照。
 
 ## 2. プロセスモデル
 
@@ -89,7 +70,7 @@ frontend に通知。Busy ガードは backend 側でも binding entry-point
   経由でルーティングされ操作の全期間スロットを保持する。
   v0.4.2 以前のゆるい経路で許されていた失敗モード (アクティブ
   セッション削除中の Send が dir RemoveAll と race 等) について
-  は [`session-delete-ux.ja.md`](session-delete-ux.ja.md) §2 参照。
+  は [`ADR-0003`](../adr/0003-session-delete-ux.ja.md) §2 参照。
 
 アクティブセッション削除では `RemoveAll` 実行前に `a.session`、
 `a.sessionMemory`、`a.findings` を nil クリアし、analysis Engine
@@ -111,7 +92,7 @@ buildMessages → backend.Chat → tool_calls 解析
 
 ハードキャップ: `cfg.MaxToolRounds` (default 10)。
 ループ検出 (同一エラー連続) は早期に止める。
-詳細: `history/agent-loop-resilience.ja.md`。
+詳細: `../history/agent-loop-resilience.ja.md`。
 
 ReAct ではない: tool 結果を次ラウンドにそのまま戻す。
 ローカル LLM (ReAct grammar が苦手) との互換性を優先。
@@ -259,7 +240,7 @@ v0.6 以前の設計はこれら 4 つの surface を並列リストとして
 drift バグ (Settings タブにツールが欠落、stale な MITL マップ
 エントリ) を catch しており、v0.6 では `tool_descriptor_structural_test.go`
 の構造テストで invariant を機械的に enforce する。
-詳細な設計理由は [`tool-registry-refactor.ja.md`](tool-registry-refactor.ja.md)。
+詳細な設計理由は [`ADR-0007`](../adr/0007-tool-registry-refactor.ja.md)。
 
 ### MITL ゲート
 
@@ -327,7 +308,7 @@ session 削除は `sessions/<id>/` ディレクトリ全体に加え、その
 `Record.Content` 内の `object:ID` markdown) と `summaries.json`
 (`SummaryEntry.Summary`) は同じ `agent.mu` gated state-machine
 スロットを通じて書き換えられる。プライバシーフラグは逐語保持。
-詳細設計: [`session-import-export.ja.md`](session-import-export.ja.md)。
+詳細設計: [`ADR-0001`](../adr/0001-session-import-export.ja.md)。
 
 ## 7. LLM バックエンド
 
@@ -395,7 +376,7 @@ running バブルの content を in-place で上書き — 1 つのバブルが
 v0.4.1 以前は各 window が自身の `tool_start` を emit するが対応
 する `tool_end` がなく N 個の永続的 "running" pill を残していた
 (issue #5)。詳細設計:
-[`tool-progress-events.ja.md`](tool-progress-events.ja.md)。
+[`ADR-0002`](../adr/0002-tool-progress-events.ja.md)。
 
 ### テーマ
 
@@ -442,10 +423,10 @@ prompt-injection** で、ネットワーク露出ではない。
 ## 11. 履歴ドキュメントへのポインタ
 
 「なぜ X をしたか」「以前はどんな形だったか」は
-[`history/`](history/) に保存。一部は現在のコードを反映していない
+[`../history/`](../history/) に保存。一部は現在のコードを反映していない
 (特に v1 Hot/Warm/Cold compaction、original Pinned Memory) が、
 v0.2.0 rewrite の audit trail として保持。
 現在の挙動は本ドキュメントと `memory-model.ja.md` を優先。
 
-英語版 [`architecture.md`](../en/architecture.md) §11 に
+英語版 [`architecture.md`](../../en/reference/architecture.md) §11 に
 各 history doc の現状適用度を記載しています。
