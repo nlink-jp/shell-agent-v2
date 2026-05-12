@@ -164,6 +164,7 @@ Recent design notes (post-v0.2.0 features):
 - [**analyze-data row cap (v0.4.4)**](docs/en/analyze-data-row-cap.md) — split the chat-output 10k row cap from the sliding-window analyze cap so large tables stop short-circuiting `analyze-data`
 - [**Markdown attachments (v0.5.0)**](docs/en/markdown-attachments.md) — `TypeMarkdown` object type, `analyze-text` / `grep-text` / `get-text` tools, document anchor convention, drag-drop `.md` / `.txt` attach, lazy `Lines` / `Tokens` backfill for legacy reports
 - [**Tool registry refactor (v0.6.0)**](docs/en/tool-registry-refactor.md) — `ToolDescriptor` is the single source of truth backing the LLM tool list, the Settings → Tools UI, the MITL default, and the dispatcher; replaces five hand-maintained parallel lists. Adding a new analysis / builtin / sandbox tool now requires editing exactly one file. Structural tests enforce the invariants
+- [**MCP tool-call abort (v0.6.1)**](docs/en/mcp-abort.md) — chat Abort now interrupts in-flight MCP tool calls. `mcp.Guardian.CallToolContext` propagates the Send context and kills the guardian's child process on cancellation; the dispatcher asynchronously re-spawns just that guardian via `Agent.restartGuardian` so the next user turn is unaffected. Kill-and-respawn is the only reliable interruption mechanism because MCP 2024-11-05 lacks a tool-call cancel notification
 
 Past design notes are kept under [`docs/en/history/`](docs/en/history/)
 as the audit trail behind v0.2.0. Some no longer reflect current

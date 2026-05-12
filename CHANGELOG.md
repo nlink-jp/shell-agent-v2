@@ -5,6 +5,58 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.1] - 2026-05-12
+
+Bug fix: chat could not be aborted while an MCP tool call was in
+flight. Reported by a user — every other tool source (LLM
+streaming, analysis, sandbox, shell scripts) already honoured
+`Abort()`, but the MCP dispatch path waited for the upstream
+guardian to reply because `Guardian.CallTool` had no context
+parameter and the underlying `stdout.Scan` had no cancellation
+hook.
+
+### Fixed
+
+- **MCP tool calls now honour Abort.** The dispatcher passes the
+  per-Send context through to a new `mcp.Guardian.CallToolContext`,
+  which on cancellation kills the guardian's child process to
+  unblock the in-flight `stdout.Scan`. Returns
+  `(Cancelled by user)` to the LLM and flips the chat bubble to
+  error, matching every other tool source.
+
+### Added
+
+- **`mcp.Guardian.CallToolContext(ctx, name, args)`** — context-aware
+  wrapper around the existing `CallTool`. Spawns the call in a
+  goroutine with a buffered result channel, selects between the
+  response and `ctx.Done()`, fires `Stop()` on cancel.
+- **Per-guardian restart.** `Agent.restartGuardian(name)` re-spawns
+  just one guardian using the current config, in place of the
+  blunt `RestartGuardians` that resets every profile. Called
+  asynchronously after an aborted MCP call so the next user turn
+  uses a fresh process. Uses the new `spawnGuardian` helper
+  extracted from `startGuardians`.
+- **Design note:** [`docs/en/mcp-abort.md`](docs/en/mcp-abort.md) /
+  [`docs/ja/mcp-abort.ja.md`](docs/ja/mcp-abort.ja.md) covers the
+  rationale, the rejected alternatives (full restart, orphan-drain,
+  rewrite `call()`), and the protocol-level constraints.
+
+### Compatibility
+
+- LLM-observable: cancelled MCP tool calls now return the literal
+  string `(Cancelled by user)` instead of hanging until the
+  upstream replies. Bubble status flips to `error`. No
+  system-prompt or wire-format change.
+- API: `Guardian.CallTool` keeps its existing signature; the new
+  `CallToolContext` is purely additive.
+- Bindings / frontend: no changes.
+- **Upstream side effects:** killing the child process abandons
+  the result of any work the upstream MCP server had already
+  started (external API requests, DB queries, etc.); those run
+  to completion on the server side but their result is discarded
+  client-side. MCP 2024-11-05 has no in-protocol cancel
+  notification, so this is unavoidable.
+
 ## [0.6.0] - 2026-05-12
 
 Tool registry refactor. The four parallel-list drift bugs that

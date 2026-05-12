@@ -17,6 +17,14 @@
   ディスパッチャの単一 source of truth (5 つの手作業並列
   リストを置換)。詳細は
   [`tool-registry-refactor.ja.md`](tool-registry-refactor.ja.md)。
+- **v0.6.1** — MCP ツール呼び出しが Abort 可能に。agent の
+  Send context が `mcp.Guardian.CallToolContext` まで伝播し、
+  キャンセル時に guardian の子プロセスを kill して in-flight
+  `stdout.Scan` を unblock する。ディスパッチャは該当 guardian
+  のみを非同期で再 spawn するので次のユーザーターンには影響
+  しない。MCP 2024-11-05 に tool-call キャンセル通知が存在
+  しないため、kill-and-respawn が唯一の確実な中断手段。
+  詳細は [`mcp-abort.ja.md`](mcp-abort.ja.md)。
 
 各サブシステムの進化過程は [`history/`](history/) に保存。
 post-v0.2.0 機能は README の「最近の設計メモ」セクションから

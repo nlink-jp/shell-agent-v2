@@ -18,6 +18,14 @@ splitting into separate architecture revisions:
   Settings → Tools UI, the MITL default, and the dispatcher
   (replaces five hand-maintained parallel lists). See
   [`tool-registry-refactor.md`](tool-registry-refactor.md).
+- **v0.6.1** — MCP tool calls become abortable. The agent's
+  Send context now propagates into `mcp.Guardian.CallToolContext`,
+  which kills the guardian's child process on cancellation to
+  unblock its in-flight `stdout.Scan`, and the dispatcher
+  asynchronously re-spawns just that guardian so the next user
+  turn is unaffected. MCP 2024-11-05 lacks a tool-call cancel
+  notification, so kill-and-respawn is the only reliable
+  interruption mechanism. See [`mcp-abort.md`](mcp-abort.md).
 
 For the evolution history of individual subsystems see
 [`history/`](history/). Each post-v0.2.0 feature also has its own

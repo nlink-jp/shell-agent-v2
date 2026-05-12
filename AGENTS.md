@@ -200,6 +200,7 @@ All implementation must follow these design documents.
 - **docs/en/analyze-data-row-cap.md** — split chat-output 10k row cap from sliding-window analyze cap (`MaxAnalyzeRows`); rationale + memory math + LLM-time tables
 - **docs/en/markdown-attachments.md** — `TypeMarkdown` object type, analyze-text / grep-text / get-text tools, document anchor convention, lazy backfill for legacy report Lines/Tokens (v0.5.0)
 - **docs/en/tool-registry-refactor.md** — `ToolDescriptor` registry as single source of truth for analysis + builtin + sandbox tools; replaces five hand-maintained parallel lists. Structural tests enforce the invariants (v0.6.0)
+- **docs/en/mcp-abort.md** — abort path for in-flight MCP tool calls: `Guardian.CallToolContext` + per-guardian `Agent.restartGuardian`; kill-and-respawn because MCP 2024-11-05 has no tool-call cancel notification (v0.6.1)
 
 **History (audit trail behind v0.2.0):**
 - **agent-data-flow.md** — agent loop, context budget, MITL, events, tool confirmation
