@@ -871,6 +871,63 @@ func (a *Agent) RestartGuardians() {
 	a.startGuardians()
 }
 
+// restartGuardian re-spawns the named guardian using the current
+// config. Called after CallToolContext returns context.Canceled
+// (which kills the child process to break out of a hung Scan) so
+// the next user turn can use this guardian again. Safe to call
+// from a goroutine — guardiansMu serialises map mutation against
+// other readers/writers.
+//
+// Reading a.cfg.Tools.MCPProfiles here is safe under guardiansMu
+// because Settings-driven config edits funnel through bindings.go's
+// SaveConfig path, which eventually calls RestartGuardians (taking
+// the same lock); there is no other writer to MCPProfiles.
+func (a *Agent) restartGuardian(name string) {
+	a.guardiansMu.Lock()
+	defer a.guardiansMu.Unlock()
+
+	// Find the profile config for this name. If config no longer
+	// contains it (race with a Settings save), nothing to do — the
+	// dead map entry stays absent and the user's next attempt
+	// surfaces "guardian not found".
+	var profile *config.MCPProfileConfig
+	for i := range a.cfg.Tools.MCPProfiles {
+		if a.cfg.Tools.MCPProfiles[i].Name == name {
+			profile = &a.cfg.Tools.MCPProfiles[i]
+			break
+		}
+	}
+	if profile == nil {
+		delete(a.guardians, name)
+		logger.Info("MCP guardian %q removed: no longer in config", name)
+		return
+	}
+
+	// Drop the stale handle. The underlying process was already
+	// killed by Stop() inside CallToolContext, so no extra cleanup
+	// is needed here.
+	delete(a.guardians, name)
+
+	g, status := spawnGuardian(*profile)
+	if g != nil {
+		a.guardians[name] = g
+	}
+	// Replace the existing MCPStatus entry in place so the Settings
+	// UI sees the live state. Append if the entry vanished somehow.
+	replaced := false
+	for i := range a.mcpStatuses {
+		if a.mcpStatuses[i].Name == name {
+			a.mcpStatuses[i] = status
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		a.mcpStatuses = append(a.mcpStatuses, status)
+	}
+	logger.Info("MCP guardian %q restarted: status=%s", name, status.Status)
+}
+
 // LoadSession switches to the given session. Must be called in Idle state.
 func (a *Agent) LoadSession(session *memory.Session) error {
 	// Mirror SendWithImages: drain any in-flight post-response
@@ -1796,7 +1853,18 @@ func (a *Agent) executeTool(ctx context.Context, tc llm.ToolCall) (string, Activ
 			if g == nil {
 				return fmt.Sprintf("Error: MCP guardian %q not found", guardianName), ActivityStatusError
 			}
-			result, err := g.CallTool(toolName, json.RawMessage(tc.Arguments))
+			result, err := g.CallToolContext(ctx, toolName, json.RawMessage(tc.Arguments))
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				// CallToolContext killed the child process to
+				// unblock the in-flight stdout.Scan. MCP
+				// 2024-11-05 has no tool-call cancel notification,
+				// so kill-and-respawn is the only way to make
+				// Abort responsive. Re-spawn this guardian
+				// asynchronously so the next user turn can use it.
+				// See docs/en/mcp-abort.md.
+				go a.restartGuardian(guardianName)
+				return "(Cancelled by user)", ActivityStatusError
+			}
 			if errors.Is(err, mcp.ErrToolFailed) {
 				// Upstream MCP server signalled a tool-level
 				// failure via result.isError. The body still
