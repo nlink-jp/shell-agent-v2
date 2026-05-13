@@ -1,11 +1,5 @@
 # Documentation Index
 
-> **Status:** Documentation refactor in progress (2026-05-13). Links
-> below point to the planned `reference/` and `adr/` locations and
-> will be activated as the migration commits land. Until then, the
-> existing flat files in this directory (`architecture.md`,
-> `tool-registry-refactor.md`, etc.) remain authoritative.
-
 This is the entry point for shell-agent-v2's maintainer-facing
 documentation. For user-facing material see
 [`README.md`](../../README.md); for contributor onboarding see
@@ -50,6 +44,9 @@ release order.
   as single source of truth across the tool registry (v0.6.0)
 - [`ADR-0008`](adr/0008-mcp-abort.md) — MCP tool-call abort via
   `CallToolContext` + per-guardian restart (v0.6.1)
+- [`ADR-0009`](adr/0009-gemini-thought-signatures.md) — Gemini 3+
+  thought-signature capture and replay across tool-use turns
+  (v0.6.2)
 
 ## History
 

@@ -3,7 +3,7 @@
 This document is the canonical wider-system reference. It describes
 **how the system fits together right now** — package boundaries,
 state machines, dispatch flows. The bones were laid down at v0.2.0;
-subsequent releases (v0.3.0 through v0.6.1) added cross-cutting
+subsequent releases (v0.3.0 through v0.6.2) added cross-cutting
 features that are described in-line below as the corresponding
 subsystems evolved.
 

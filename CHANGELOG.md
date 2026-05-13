@@ -5,6 +5,60 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.2] - 2026-05-13
+
+Bug fix: Vertex AI tool-call loops fail on Gemini 3 family models
+with HTTP 400 INVALID_ARGUMENT ("function call ... is missing a
+thought_signature"). Reported by a user after switching the Vertex
+model setting to a Gemini 3 ID; tool use worked for one round and
+then 400'd on the follow-up request.
+
+### Fixed
+
+- **Gemini 3 thought-signature preservation.** Gemini 3 attaches
+  opaque continuation tokens to each response Part (thoughts,
+  text, function calls). The parse/rebuild round-trip used to
+  discard those tokens, breaking reasoning continuity on the next
+  request. The Vertex backend now captures every signature in
+  `parseResponse` and replays them in `buildContents` so multi-
+  step tool loops complete normally against Gemini 3 models.
+
+### Added
+
+- **`ToolCall.ThoughtSignature`** (llm) and the matching
+  `ToolCallRecord.ThoughtSignature` (memory) carry the per
+  function-call continuation token.
+- **`Message.{ThoughtPartSigs,TextPartSig}`** (llm) and the
+  matching `Record.{ThoughtPartSigs,TextPartSig}` (memory) carry
+  the per-turn signatures from thought and text parts. Stored on
+  disk via JSON base64 with `omitempty` so non-Gemini-3 sessions
+  add zero bytes to session files.
+- **Design note:** [`docs/en/adr/0009-gemini-thought-signatures.md`](docs/en/adr/0009-gemini-thought-signatures.md)
+  / [`docs/ja/adr/0009-gemini-thought-signatures.ja.md`](docs/ja/adr/0009-gemini-thought-signatures.ja.md)
+  documents the data-model choice (per-field over parts-array
+  snapshot), the rejected alternatives (function-call-only fix,
+  stay-on-2.5 pin, retry-without-tool-calls hack), and the
+  ordering-risk caveat.
+
+### Compatibility
+
+- LLM-observable: none. Signatures are opaque server-side state.
+- API: new optional fields on `llm.ToolCall`, `llm.Message`,
+  `llm.Response`, `memory.ToolCallRecord`, and `memory.Record`.
+  All carry `omitempty` JSON tags; legacy sessions and
+  `.shellagent` exports load and replay unchanged.
+- `Session.AddAssistantMessageWithToolCalls` gains two trailing
+  parameters (`thoughtPartSigs [][]byte`, `textPartSig []byte`).
+  Sole production caller updated; no downstream consumers in this
+  repo break.
+- Local OpenAI-compatible backend: no changes. Signature fields
+  pass through as empty bytes.
+- **Legacy session ↔ Gemini 3 caveat:** sessions recorded before
+  this fix have no stored signatures. Re-prompting against
+  Gemini 3 in such a session will still fail on its first multi-
+  call round. Start a fresh session for Gemini 3 work or restart
+  the conversation if 400s appear.
+
 ## [0.6.1] - 2026-05-12
 
 Bug fix: chat could not be aborted while an MCP tool call was in
