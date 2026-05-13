@@ -188,10 +188,31 @@ func (v *Vertex) buildContents(messages []Message) []*genai.Content {
 			// trip per ai.google.dev/gemini-api/docs/function-calling
 			// Step 4. Without this, the FunctionResponse becomes
 			// orphaned and Gemini can re-issue the same call.
+			//
+			// Gemini 3+ additionally requires that any opaque
+			// thought_signature tokens captured from the original
+			// response be replayed back on the same Part shapes.
+			// Order: thought parts → text part → function-call
+			// parts (matches typical Gemini 3 emission order; see
+			// ADR-0009 §6 for the ordering risk).
 			if len(m.ToolCalls) > 0 {
 				var parts []*genai.Part
+				for _, sig := range m.ThoughtPartSigs {
+					// Empty thought text is acceptable: the
+					// signature is the load-bearing payload, and
+					// we filtered the thought text out at parse
+					// time (privacy / IncludeThoughts=false).
+					parts = append(parts, &genai.Part{
+						Thought:          true,
+						ThoughtSignature: sig,
+					})
+				}
 				if m.Content != "" {
-					parts = append(parts, genai.NewPartFromText(m.Content))
+					p := genai.NewPartFromText(m.Content)
+					if len(m.TextPartSig) > 0 {
+						p.ThoughtSignature = m.TextPartSig
+					}
+					parts = append(parts, p)
 				}
 				for _, tc := range m.ToolCalls {
 					var args map[string]any
@@ -201,7 +222,11 @@ func (v *Vertex) buildContents(messages []Message) []*genai.Content {
 					if args == nil {
 						args = map[string]any{}
 					}
-					parts = append(parts, genai.NewPartFromFunctionCall(tc.Name, args))
+					p := genai.NewPartFromFunctionCall(tc.Name, args)
+					if len(tc.ThoughtSignature) > 0 {
+						p.ThoughtSignature = tc.ThoughtSignature
+					}
+					parts = append(parts, p)
 				}
 				contents = append(contents, &genai.Content{
 					Role:  genai.RoleModel,
@@ -297,14 +322,32 @@ func (v *Vertex) parseResponse(resp *genai.GenerateContentResponse) *Response {
 			head = head[:80]
 		}
 		hasFC := part.FunctionCall != nil
-		logger.Debug("vertex parseResponse part[%d]: thought=%v textLen=%d funcCall=%v textHead=%q",
-			i, part.Thought, len(part.Text), hasFC, head)
+		hasSig := len(part.ThoughtSignature) > 0
+		logger.Debug("vertex parseResponse part[%d]: thought=%v textLen=%d funcCall=%v sig=%v textHead=%q",
+			i, part.Thought, len(part.Text), hasFC, hasSig, head)
 
 		if part.Thought {
+			// Filter the thought text out of user-visible content
+			// (unchanged behaviour) but preserve the Gemini 3+
+			// signature so we can replay this part on subsequent
+			// requests. Missing signatures cause the next round to
+			// 400 with "function call ... is missing a
+			// thought_signature". See ADR-0009.
+			if len(part.ThoughtSignature) > 0 {
+				result.ThoughtPartSigs = append(result.ThoughtPartSigs, part.ThoughtSignature)
+			}
 			continue
 		}
 		if part.Text != "" {
 			textParts = append(textParts, part.Text)
+			// Multi-text-part responses are rare; we keep the
+			// last-seen signature. Promote to a slice if it turns
+			// out the model emits more than one signed text part
+			// per turn (ADR-0009 §4.1 lists this as a deferred
+			// escalation).
+			if len(part.ThoughtSignature) > 0 {
+				result.TextPartSig = part.ThoughtSignature
+			}
 		}
 		if part.FunctionCall != nil {
 			args, _ := json.Marshal(part.FunctionCall.Args)
@@ -321,9 +364,10 @@ func (v *Vertex) parseResponse(resp *genai.GenerateContentResponse) *Response {
 				}
 			}
 			result.ToolCalls = append(result.ToolCalls, ToolCall{
-				ID:        id,
-				Name:      part.FunctionCall.Name,
-				Arguments: string(args),
+				ID:               id,
+				Name:             part.FunctionCall.Name,
+				Arguments:        string(args),
+				ThoughtSignature: part.ThoughtSignature,
 			})
 		}
 	}
