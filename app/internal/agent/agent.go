@@ -1643,12 +1643,13 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 		callRecords := make([]memory.ToolCallRecord, len(resp.ToolCalls))
 		for i, tc := range resp.ToolCalls {
 			callRecords[i] = memory.ToolCallRecord{
-				ID:        tc.ID,
-				Name:      tc.Name,
-				Arguments: tc.Arguments,
+				ID:               tc.ID,
+				Name:             tc.Name,
+				Arguments:        tc.Arguments,
+				ThoughtSignature: tc.ThoughtSignature,
 			}
 		}
-		a.session.AddAssistantMessageWithToolCalls(resp.Content, callRecords)
+		a.session.AddAssistantMessageWithToolCalls(resp.Content, callRecords, resp.ThoughtPartSigs, resp.TextPartSig)
 
 		// Emit the LLM's tool-explanation text as a real chat
 		// message. The system prompt asks the model to include a

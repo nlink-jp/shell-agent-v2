@@ -27,7 +27,12 @@ func toLLMToolCalls(rec []memory.ToolCallRecord) []llm.ToolCall {
 	}
 	out := make([]llm.ToolCall, len(rec))
 	for i, r := range rec {
-		out[i] = llm.ToolCall{ID: r.ID, Name: r.Name, Arguments: r.Arguments}
+		out[i] = llm.ToolCall{
+			ID:               r.ID,
+			Name:             r.Name,
+			Arguments:        r.Arguments,
+			ThoughtSignature: r.ThoughtSignature,
+		}
 	}
 	return out
 }
@@ -82,15 +87,17 @@ func Build(ctx context.Context, session *memory.Session, cache *SummaryCache, op
 
 	// Walk newest → oldest, accumulate raw rendered records until budget.
 	type rendered struct {
-		idx        int
-		role       string
-		content    string
-		tokens     int
-		toolName   string
-		toolCallID string
-		toolCalls  []llm.ToolCall
-		imageURLs  []string
-		objectIDs  []string
+		idx             int
+		role            string
+		content         string
+		tokens          int
+		toolName        string
+		toolCallID      string
+		toolCalls       []llm.ToolCall
+		imageURLs       []string
+		objectIDs       []string
+		thoughtPartSigs [][]byte
+		textPartSig     []byte
 	}
 	var acc []rendered
 	used := 0
@@ -108,11 +115,13 @@ func Build(ctx context.Context, session *memory.Session, cache *SummaryCache, op
 		}
 		acc = append([]rendered{{
 			idx: i, role: raw[i].Role, content: content, tokens: t,
-			toolName:   raw[i].ToolName,
-			toolCallID: raw[i].ToolCallID,
-			toolCalls:  toLLMToolCalls(raw[i].ToolCalls),
-			imageURLs:  raw[i].ImageURLs,
-			objectIDs:  raw[i].ObjectIDs,
+			toolName:        raw[i].ToolName,
+			toolCallID:      raw[i].ToolCallID,
+			toolCalls:       toLLMToolCalls(raw[i].ToolCalls),
+			imageURLs:       raw[i].ImageURLs,
+			objectIDs:       raw[i].ObjectIDs,
+			thoughtPartSigs: raw[i].ThoughtPartSigs,
+			textPartSig:     raw[i].TextPartSig,
 		}}, acc...)
 		used += t
 		splitIdx = i
@@ -135,13 +144,15 @@ func Build(ctx context.Context, session *memory.Session, cache *SummaryCache, op
 
 	for _, a := range acc {
 		msgs = append(msgs, llm.Message{
-			Role:       llm.Role(a.role),
-			Content:    a.content,
-			ToolName:   a.toolName,
-			ToolCallID: a.toolCallID,
-			ToolCalls:  a.toolCalls,
-			ImageURLs:  a.imageURLs,
-			ObjectIDs:  a.objectIDs,
+			Role:            llm.Role(a.role),
+			Content:         a.content,
+			ToolName:        a.toolName,
+			ToolCallID:      a.toolCallID,
+			ToolCalls:       a.toolCalls,
+			ImageURLs:       a.imageURLs,
+			ObjectIDs:       a.objectIDs,
+			ThoughtPartSigs: a.thoughtPartSigs,
+			TextPartSig:     a.textPartSig,
 		})
 	}
 

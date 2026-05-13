@@ -33,7 +33,12 @@ func toLLMToolCalls(rec []memory.ToolCallRecord) []llm.ToolCall {
 	}
 	out := make([]llm.ToolCall, len(rec))
 	for i, r := range rec {
-		out[i] = llm.ToolCall{ID: r.ID, Name: r.Name, Arguments: r.Arguments}
+		out[i] = llm.ToolCall{
+			ID:               r.ID,
+			Name:             r.Name,
+			Arguments:        r.Arguments,
+			ThoughtSignature: r.ThoughtSignature,
+		}
 	}
 	return out
 }
@@ -220,13 +225,15 @@ func (e *Engine) BuildMessages(session *memory.Session, pinnedContext, findingsC
 			content = wrapped
 		}
 		messages = append(messages, llm.Message{
-			Role:       llm.Role(r.Role),
-			Content:    content,
-			ImageURLs:  r.ImageURLs,
-			ObjectIDs:  r.ObjectIDs,
-			ToolName:   r.ToolName,
-			ToolCallID: r.ToolCallID,
-			ToolCalls:  toLLMToolCalls(r.ToolCalls),
+			Role:            llm.Role(r.Role),
+			Content:         content,
+			ImageURLs:       r.ImageURLs,
+			ObjectIDs:       r.ObjectIDs,
+			ToolName:        r.ToolName,
+			ToolCallID:      r.ToolCallID,
+			ToolCalls:       toLLMToolCalls(r.ToolCalls),
+			ThoughtPartSigs: r.ThoughtPartSigs,
+			TextPartSig:     r.TextPartSig,
 		})
 	}
 

@@ -60,6 +60,14 @@ type Record struct {
 	// treated as "success" at restore time. Design:
 	// docs/en/history/tool-event-restore.md.
 	Status string `json:"status,omitempty"`
+	// ThoughtPartSigs and TextPartSig persist Gemini 3+ opaque
+	// continuation tokens captured from this assistant turn's
+	// thought and text parts. Replayed on subsequent Vertex
+	// requests by the contextbuild / chat builders. Vertex-only;
+	// empty for non-Gemini-3 conversations. encoding/json emits
+	// []byte as base64. See ADR-0009.
+	ThoughtPartSigs [][]byte `json:"thought_part_sigs,omitempty"`
+	TextPartSig     []byte   `json:"text_part_sig,omitempty"`
 }
 
 // ToolCallRecord persists one function call the assistant
@@ -67,10 +75,16 @@ type Record struct {
 // runs. Without this, Vertex's FunctionResponse and OpenAI's
 // `role:"tool"` end up "orphaned" — the spec requires the prior
 // assistant turn to carry the matching FunctionCall / tool_call.
+//
+// ThoughtSignature persists the Gemini 3+ opaque continuation
+// token attached to the function-call part. Replayed by the
+// Vertex backend when this record's parent Record is converted
+// back to an llm.Message. See ADR-0009.
 type ToolCallRecord struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Arguments string `json:"arguments"` // raw JSON string the LLM emitted
+	ID               string `json:"id"`
+	Name             string `json:"name"`
+	Arguments        string `json:"arguments"` // raw JSON string the LLM emitted
+	ThoughtSignature []byte `json:"thought_signature,omitempty"`
 }
 
 // TimeRange represents a time span for Warm/Cold summaries.
@@ -127,12 +141,18 @@ func (s *Session) AddAssistantMessage(content string) {
 // content + structured ToolCalls), and build pipelines reproduce
 // the proper FunctionCall / tool_calls wire format on the next
 // LLM turn.
-func (s *Session) AddAssistantMessageWithToolCalls(content string, calls []ToolCallRecord) {
+//
+// thoughtPartSigs / textPartSig are Gemini 3+ opaque continuation
+// tokens captured from the model response (ADR-0009). Both empty
+// for non-Vertex backends and for older Gemini families.
+func (s *Session) AddAssistantMessageWithToolCalls(content string, calls []ToolCallRecord, thoughtPartSigs [][]byte, textPartSig []byte) {
 	s.Records = append(s.Records, Record{
-		Timestamp: time.Now(),
-		Role:      "assistant",
-		Content:   content,
-		ToolCalls: calls,
+		Timestamp:       time.Now(),
+		Role:            "assistant",
+		Content:         content,
+		ToolCalls:       calls,
+		ThoughtPartSigs: thoughtPartSigs,
+		TextPartSig:     textPartSig,
 	})
 }
 

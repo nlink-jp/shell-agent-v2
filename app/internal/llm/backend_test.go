@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -230,5 +231,108 @@ func TestLocalBuildRequest(t *testing.T) {
 	}
 	if req.Stream {
 		t.Error("stream should be false")
+	}
+}
+
+// TestMessageJSONRoundTrip_PreservesSignatures verifies that
+// Gemini 3 thought signatures (ADR-0009) survive a JSON marshal /
+// unmarshal cycle. The signatures persist through memory.Record
+// (which embeds these same fields) on every session save and
+// .shellagent export bundle.
+func TestMessageJSONRoundTrip_PreservesSignatures(t *testing.T) {
+	original := Message{
+		Role:    RoleAssistant,
+		Content: "I'll check the weather.",
+		ToolCalls: []ToolCall{
+			{
+				ID:               "tc-1",
+				Name:             "weather",
+				Arguments:        `{"city":"tokyo"}`,
+				ThoughtSignature: []byte{0xde, 0xad, 0xbe, 0xef},
+			},
+			{
+				ID:               "tc-2",
+				Name:             "weather",
+				Arguments:        `{"city":"osaka"}`,
+				ThoughtSignature: []byte{0x01, 0x02},
+			},
+		},
+		ThoughtPartSigs: [][]byte{
+			{0xa0, 0xa1},
+			{0xb0, 0xb1, 0xb2},
+		},
+		TextPartSig: []byte{0xc0, 0xc1, 0xc2, 0xc3},
+	}
+
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+
+	var got Message
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+
+	if got.Content != original.Content {
+		t.Errorf("Content = %q, want %q", got.Content, original.Content)
+	}
+	if len(got.ToolCalls) != 2 {
+		t.Fatalf("ToolCalls length = %d, want 2", len(got.ToolCalls))
+	}
+	for i, want := range original.ToolCalls {
+		if !bytes.Equal(got.ToolCalls[i].ThoughtSignature, want.ThoughtSignature) {
+			t.Errorf("ToolCalls[%d].ThoughtSignature = %x, want %x",
+				i, got.ToolCalls[i].ThoughtSignature, want.ThoughtSignature)
+		}
+	}
+	if len(got.ThoughtPartSigs) != 2 {
+		t.Fatalf("ThoughtPartSigs length = %d, want 2", len(got.ThoughtPartSigs))
+	}
+	for i, want := range original.ThoughtPartSigs {
+		if !bytes.Equal(got.ThoughtPartSigs[i], want) {
+			t.Errorf("ThoughtPartSigs[%d] = %x, want %x", i, got.ThoughtPartSigs[i], want)
+		}
+	}
+	if !bytes.Equal(got.TextPartSig, original.TextPartSig) {
+		t.Errorf("TextPartSig = %x, want %x", got.TextPartSig, original.TextPartSig)
+	}
+}
+
+// TestMessageJSONRoundTrip_EmptySignaturesOmitted verifies that a
+// non-Gemini-3 message (no signatures) round-trips without adding
+// any signature-related keys to the on-disk JSON. Guards the
+// `omitempty` tag and the zero-value-skip behaviour that keeps
+// legacy session storage clean.
+func TestMessageJSONRoundTrip_EmptySignaturesOmitted(t *testing.T) {
+	original := Message{
+		Role:    RoleAssistant,
+		Content: "Plain response, no signatures.",
+		ToolCalls: []ToolCall{
+			{ID: "tc-1", Name: "echo", Arguments: `{}`},
+		},
+	}
+
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	js := string(data)
+
+	for _, key := range []string{"thought_part_sigs", "text_part_sig"} {
+		if strings.Contains(js, key) {
+			t.Errorf("JSON unexpectedly contains %q for zero-valued signatures: %s", key, js)
+		}
+	}
+
+	var got Message
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if len(got.ThoughtPartSigs) != 0 {
+		t.Errorf("ThoughtPartSigs unexpectedly non-empty: %v", got.ThoughtPartSigs)
+	}
+	if len(got.TextPartSig) != 0 {
+		t.Errorf("TextPartSig unexpectedly non-empty: %v", got.TextPartSig)
 	}
 }

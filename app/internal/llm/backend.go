@@ -31,6 +31,17 @@ type Message struct {
 	ToolName   string     `json:"tool_name,omitempty"`   // for RoleTool: which tool produced this
 	ToolCallID string     `json:"tool_call_id,omitempty"` // for RoleTool: id of the matching call
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`  // for RoleAssistant: function calls the model issued
+
+	// ThoughtPartSigs and TextPartSig preserve Gemini 3+ opaque
+	// continuation tokens that arrived on the model's thought
+	// and text parts respectively (see ADR-0009). Replayed on
+	// subsequent Vertex requests to maintain reasoning continuity;
+	// ignored by every other backend. Empty for older Gemini
+	// families and for non-Gemini models. encoding/json emits
+	// []byte as base64 automatically; omitempty keeps the on-disk
+	// record clean for the common non-Gemini-3 case.
+	ThoughtPartSigs [][]byte `json:"thought_part_sigs,omitempty"`
+	TextPartSig     []byte   `json:"text_part_sig,omitempty"`
 }
 
 // StreamCallback is called for each streaming token.
@@ -58,18 +69,34 @@ type ToolDef struct {
 }
 
 // Response is the complete response from an LLM call.
+//
+// ThoughtPartSigs and TextPartSig mirror the same-named fields
+// on Message; they carry Gemini 3+ continuation tokens captured
+// from thought and text parts of the response (ADR-0009). The
+// agent loop propagates them into the assistant Record so they
+// round-trip back to Vertex on the next request.
 type Response struct {
-	Content      string
-	ToolCalls    []ToolCall
-	PromptTokens int
-	OutputTokens int
+	Content         string
+	ToolCalls       []ToolCall
+	PromptTokens    int
+	OutputTokens    int
+	ThoughtPartSigs [][]byte
+	TextPartSig     []byte
 }
 
 // ToolCall represents a tool invocation requested by the LLM.
+//
+// ThoughtSignature is the opaque Gemini 3+ continuation token
+// attached to the function-call part. Sending the same call back
+// without replaying this signature triggers Vertex 400
+// INVALID_ARGUMENT ("function call ... is missing a
+// thought_signature"). See ADR-0009. Empty for non-Vertex
+// backends and for older Gemini families.
 type ToolCall struct {
-	ID        string
-	Name      string
-	Arguments string
+	ID               string
+	Name             string
+	Arguments        string
+	ThoughtSignature []byte
 }
 
 // imageIDPrefix returns the short text label that immediately
