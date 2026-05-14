@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.6] - 2026-05-14
+
+Bug-fix release: MITL rejection-reason input ate IME conversion
+confirmations. Reported by a user typing a rejection reason in
+Japanese — pressing Enter to accept a kanji conversion candidate
+submitted the dialog before the user had finished typing.
+
+### Fixed
+
+- **MITL rejection-reason input guards against IME composition.**
+  The dialog's `<input>` now tracks `composingRef` via
+  `onCompositionStart` / `onCompositionEnd` (with a 50 ms
+  deferred clear, since WebKit fires `compositionEnd` before the
+  conversion-confirm Enter keydown), and the Enter handler skips
+  submission while composition is active. Mirrors the pattern
+  already in use in `ChatInput.tsx` and `sidebar/Sidebar.tsx`.
+
+### Sweep result
+
+Audited every Enter key handler in the frontend after the report.
+Three sites total (`ChatInput.tsx:59`, `Sidebar.tsx:239`,
+`MITLDialog.tsx:133`); the first two were already guarded, the
+third is fixed here. No `<form>`/`onSubmit`, no `keyCode`/
+`onKeyPress`, no other global Enter listener. The MITL dialog
+was the only broken site.
+
+### Compatibility
+
+- No data, persistence, or API change.
+- UI-only fix; no model behaviour change.
+
 ## [0.6.5] - 2026-05-14
 
 Follow-up to v0.6.4: TIMESTAMPTZ columns now render in the
