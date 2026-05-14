@@ -5,7 +5,7 @@
 // calls go through props so the dialog has no direct
 // dependency on the bindings layer.
 
-import {useState} from 'react'
+import {useRef, useState} from 'react'
 import type {MITLRequest} from '../types'
 
 interface Props {
@@ -17,6 +17,12 @@ interface Props {
 
 export default function MITLDialog({request, onApprove, onReject, onRejectWithFeedback}: Props) {
     const [feedback, setFeedback] = useState('')
+    // IME composition guard. Same pattern as ChatInput: WebKit
+    // fires compositionEnd before the conversion-confirm Enter
+    // keydown, so a 50ms timeout defers the flag clear past
+    // that keydown and stops the dialog from submitting on
+    // every kanji conversion confirmation.
+    const composingRef = useRef(false)
 
     const submitReject = () => {
         const trimmed = feedback.trim()
@@ -124,11 +130,13 @@ export default function MITLDialog({request, onApprove, onReject, onRejectWithFe
                         value={feedback}
                         onChange={e => setFeedback(e.target.value)}
                         onKeyDown={e => {
-                            if (e.key === 'Enter' && feedback.trim()) {
+                            if (e.key === 'Enter' && !composingRef.current && feedback.trim()) {
                                 onRejectWithFeedback(feedback.trim())
                                 setFeedback('')
                             }
                         }}
+                        onCompositionStart={() => { composingRef.current = true }}
+                        onCompositionEnd={() => { setTimeout(() => { composingRef.current = false }, 50) }}
                     />
                 </div>
             </div>
