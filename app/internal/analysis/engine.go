@@ -3,6 +3,7 @@ package analysis
 
 import (
 	"database/sql"
+	"encoding/base64"
 	"encoding/csv"
 	"fmt"
 	"io"
@@ -336,6 +337,8 @@ func (e *Engine) QuerySQLToCSV(query string, w io.Writer) (columns []string, row
 		return nil, 0, err
 	}
 
+	dbTypeNames := columnTypeNames(rows)
+
 	cw := csv.NewWriter(w)
 	if err := cw.Write(columns); err != nil {
 		return columns, 0, err
@@ -355,7 +358,8 @@ func (e *Engine) QuerySQLToCSV(query string, w io.Writer) (columns []string, row
 		}
 		row := make([]string, len(columns))
 		for i := range columns {
-			row[i] = csvFormat(values[i])
+			rendered := renderScalar(values[i], dispatchName(dbTypeNames, i))
+			row[i] = csvFormat(rendered)
 		}
 		if err := cw.Write(row); err != nil {
 			return columns, rowCount, err
@@ -369,15 +373,20 @@ func (e *Engine) QuerySQLToCSV(query string, w io.Writer) (columns []string, row
 	return columns, rowCount, nil
 }
 
-// csvFormat renders a single SQL value as a CSV cell. Bytes treated
-// as UTF-8 strings; nil becomes empty.
+// csvFormat renders a single SQL value as a CSV cell. Callers
+// must pre-render values through renderScalar so that only true
+// BLOBs (DuckDB BLOB type) survive as []byte at this layer; those
+// are base64-encoded for round-trip safety inside encoding/csv's
+// quoted fields. Any other []byte (which would mean a code path
+// skipped renderScalar) is also base64'd to preserve bytes — the
+// previous lossy `string(x)` behaviour is what ADR-0010 fixes.
 func csvFormat(v any) string {
 	if v == nil {
 		return ""
 	}
 	switch x := v.(type) {
 	case []byte:
-		return string(x)
+		return base64.StdEncoding.EncodeToString(x)
 	case string:
 		return x
 	case time.Time:
@@ -435,6 +444,7 @@ func (e *Engine) PreviewTable(tableName string, limit int) (*TablePreview, error
 	if err != nil {
 		return nil, err
 	}
+	dbTypeNames := columnTypeNames(rows)
 
 	var data [][]any
 	for rows.Next() {
@@ -446,13 +456,12 @@ func (e *Engine) PreviewTable(tableName string, limit int) (*TablePreview, error
 		if err := rows.Scan(ptrs...); err != nil {
 			return nil, err
 		}
-		// Convert []byte -> string so JSON serialisation produces
-		// readable text instead of base64. DuckDB returns VARCHAR
-		// columns as []byte through database/sql.
+		// Type-dispatched rendering — UUID, BLOB, DECIMAL,
+		// INTERVAL, MAP, TIME each need their own conversion.
+		// See ADR-0010 for the rationale and the discovery
+		// sweep that found this bug class.
 		for i, v := range values {
-			if b, ok := v.([]byte); ok {
-				values[i] = string(b)
-			}
+			values[i] = renderScalar(v, dispatchName(dbTypeNames, i))
 		}
 		data = append(data, values)
 	}
@@ -523,6 +532,7 @@ func (e *Engine) querySQLBounded(query string, maxRows int, hint string) ([]map[
 	if err != nil {
 		return nil, err
 	}
+	dbTypeNames := columnTypeNames(rows)
 
 	var results []map[string]any
 	rowCount := 0
@@ -541,7 +551,7 @@ func (e *Engine) querySQLBounded(query string, maxRows int, hint string) ([]map[
 		}
 		row := make(map[string]any)
 		for i, col := range columns {
-			row[col] = values[i]
+			row[col] = renderScalar(values[i], dispatchName(dbTypeNames, i))
 		}
 		results = append(results, row)
 	}

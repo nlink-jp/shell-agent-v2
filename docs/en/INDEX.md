@@ -47,6 +47,10 @@ release order.
 - [`ADR-0009`](adr/0009-gemini-thought-signatures.md) — Gemini 3+
   thought-signature capture and replay across tool-use turns
   (v0.6.2)
+- [`ADR-0010`](adr/0010-duckdb-result-rendering.md) — DuckDB
+  result rendering: type-dispatched scalar conversion (UUID,
+  BLOB, DECIMAL, INTERVAL, MAP, TIME) across Preview / QuerySQL
+  / CSV paths (v0.6.4, Phase 1)
 
 ## History
 
