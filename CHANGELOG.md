@@ -5,6 +5,96 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.4] - 2026-05-14
+
+Bug-fix release: silent column corruption when reading DuckDB
+results that contain UUID, BLOB, DECIMAL, INTERVAL, MAP, or TIME
+columns. Reported by a user after `load-data` on a 17 MB JSON
+array showed a Data-panel summary where a GUID column rendered as
+unprintable bytes. A discovery sweep widened the scope to six
+data-correctness bugs across the three result-extraction paths
+(Preview / QuerySQL / QuerySQLToCSV).
+
+### Fixed
+
+- **UUID columns now render as canonical strings**
+  (`xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`) in the Data panel, in
+  CSV exports, and in LLM tool results. Previously
+  `read_json_auto`'s UUID type inference combined with go-duckdb
+  v1.8.5's binary-form return value and a blind
+  `[]byte → string(b)` cast in `internal/analysis/engine.go`
+  produced 16 raw bytes wrapped as a Go string — printable as
+  garbage in the UI and base64-of-binary in the LLM tool result.
+- **BLOB columns** are now base64-encoded in CSV (was raw bytes,
+  unsafe inside the cell) and continue to round-trip as base64 in
+  JSON (encoding/json default for `[]byte`).
+- **DECIMAL columns** render as canonical decimal strings
+  (`"123.456"`). Previously the `duckdb.Decimal` struct fields
+  (Width / Scale / Value) leaked through every path
+  (`{10 3 123456}` in Preview/CSV;
+  `{"Width":10,"Scale":3,"Value":123456}` in LLM tool result).
+- **INTERVAL columns** render as ISO-8601 duration strings
+  (`P1Y2M0DT0H0M0S`), preserving all three components
+  (months / days / micros) since DuckDB does not normalise across
+  them.
+- **MAP columns** render as JSON objects in LLM tool results.
+  Previously `duckdb.Map` had no `MarshalJSON`, so QuerySQL emitted
+  an empty string for the cell **and** silently broke whole-row
+  `json.Marshal` — the Wails event that ferries Preview rows to
+  React would carry an empty payload whenever any row contained a
+  MAP column.
+- **TIME columns** render as `12:34:56[.μs]` instead of
+  `0001-01-01T12:34:56Z` (Go zero-Date prefix that misleads
+  readers).
+
+### Added
+
+- **`internal/analysis/render.go`**: `renderScalar(v, dbTypeName)`
+  dispatches on `rows.ColumnTypes().DatabaseTypeName()` rather
+  than sniffing the runtime Go type — a value-shape heuristic
+  would misclassify any 16-byte VARCHAR or any binary that
+  happens to be valid UTF-8.
+- **`engine_typesweep_test.go`** covers every DuckDB scalar /
+  nested type we plausibly support across all three result paths
+  and asserts the canonical form for the six fixed types.
+  Display-quality issues for LIST / STRUCT / JSON-as-VARCHAR are
+  printed (not asserted) so future driver upgrades or DuckDB
+  version bumps surface drift visibly. The test is the permanent
+  retrofit gate for ADR-0010.
+- **`TestUUIDLoadedFromJSON_RendersCanonically`** pins the
+  user-reported symptom independently of the broader sweep.
+- **`TestPreviewRowMarshalsToJSON_AllSweepTypes`** pins the
+  whole-row marshal failure mode.
+- **Design note:**
+  [`docs/en/adr/0010-duckdb-result-rendering.md`](docs/en/adr/0010-duckdb-result-rendering.md)
+  / [`docs/ja/adr/0010-duckdb-result-rendering.ja.md`](docs/ja/adr/0010-duckdb-result-rendering.ja.md)
+  documents the discovery sweep matrix, the dispatch design, six
+  rejected alternatives (server-side `::VARCHAR` cast,
+  `utf8.Valid`-only heuristic, disabling DuckDB UUID inference,
+  unconditional hex / base64 of all bytes, upgrading go-duckdb to
+  v2 first, bundling Phase 2 polish), and what was deferred to
+  Phase 2 (LIST / STRUCT / JSON-as-VARCHAR display polish,
+  TIMESTAMPTZ original-TZ preservation).
+
+### Compatibility
+
+- Persistence format unchanged. ColumnType / dispatch info lives
+  only in the result-fetch path; on-disk session bytes are
+  identical.
+- LLM-observable: tool-result JSON for the six fixed types
+  changes from broken-or-base64-of-bytes to correct canonical
+  strings. This is a strict improvement (the LLM can now
+  recognise UUIDs etc.), but model behaviour on existing
+  pinned-context sessions may shift since the LLM sees the new,
+  correct values.
+- CSV-observable: existing pipelines that consumed raw garbage
+  bytes for UUID / BLOB / DECIMAL columns now receive correct
+  values. If any external script was somehow parsing the
+  garbage, that script breaks.
+- UI-observable: Data panel summaries that previously showed
+  mojibake for UUID columns now show the canonical form. No
+  frontend code change required.
+
 ## [0.6.3] - 2026-05-14
 
 Additive release: ships two optional shell-script examples that wrap the
