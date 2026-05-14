@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.3] - 2026-05-14
+
+Additive release: ships two optional shell-script examples that wrap the
+existing nlink-jp RAG CLIs (gem-rag for Vertex AI Gemini, lite-rag for
+local LLM via OpenAI-compatible API) so an agent session can ask
+questions against a pre-indexed knowledge base. No core code changes.
+
+### Added
+
+- **`examples/search-kb-gem.sh`** — wraps `gem-rag ask --json` and
+  surfaces it as the `search-kb-gem` agent tool. Requires
+  [gem-rag](https://github.com/nlink-jp/gem-rag) installed, Vertex AI
+  ADC, and a corpus pre-indexed via `gem-rag index --dir <docs>`.
+- **`examples/search-kb-lite.sh`** — wraps `lite-rag ask --json` and
+  surfaces it as the `search-kb-lite` agent tool. Requires
+  [lite-rag](https://github.com/nlink-jp/lite-rag) installed,
+  `~/.config/lite-rag/config.toml`, a running local LLM endpoint
+  (e.g. LM Studio), and a corpus pre-indexed via
+  `lite-rag index --dir <docs>`.
+- Both scripts use `@category: read`, `@timeout: 120` (RAG round-trips
+  routinely exceed the 30s default), pass the user `query` through
+  unchanged, and emit a structured JSON error when the backend CLI is
+  not on `PATH` so the agent can guide the user to install it.
+- `bundled_test.go`: `TestExamples_AreReadableAndHaveToolHeader`
+  guards all four examples (existing `web-search` / `generate-image`
+  plus the new pair) against header-stripping refactors.
+
+### Compatibility
+
+- Examples remain opt-in: `bundled.Install` skips the `examples/`
+  subdirectory, so existing users see no change until they manually
+  copy a script into their tool dir.
+- No persistence-format changes, no API changes, no behavioural
+  changes for sessions that don't enable the new tools.
+
 ## [0.6.2] - 2026-05-13
 
 Bug fix: Vertex AI tool-call loops fail on Gemini 3 family models
