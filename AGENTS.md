@@ -62,7 +62,7 @@ shell-agent-v2/
 │   ├── wails.json
 │   └── Makefile
 ├── tools/                   # Shell tool scripts (list-files, weather, write-note, etc.)
-│   └── examples/            # Optional tools (web-search, generate-image)
+│   └── examples/            # Optional tools (web-search, generate-image, search-kb-gem, search-kb-lite)
 ├── docs/
 │   ├── en/                  # Design documents (authoritative)
 │   │   ├── agent-data-flow.md   # Agent loop, context budget, MITL, events
@@ -138,9 +138,12 @@ shell-agent-v2/
   `get-location`, `write-note`.
 - Each script declares its execution timeout via `@timeout: N`
   (positive integer of seconds). Default is 30 if omitted; bundled
-  scripts spell out `30` for discoverability and `examples/web-search`
-  + `examples/generate-image` use `120` because `gem-search` /
-  `gem-image` round-trips routinely exceed 30s. See
+  scripts spell out `30` for discoverability and `examples/web-search`,
+  `examples/generate-image`, `examples/search-kb-gem`, and
+  `examples/search-kb-lite` use `120` because `gem-search` /
+  `gem-image` / `gem-rag` / `lite-rag` round-trips routinely exceed
+  30s (RAG ones are bottlenecked by embedding + LLM answer
+  generation). See
   [docs/en/history/tool-execution-timeout.md](docs/en/history/tool-execution-timeout.md).
 - Scripts can write artefacts to `$SHELL_AGENT_WORK_DIR` (the host
   path of the per-session work directory; same physical location

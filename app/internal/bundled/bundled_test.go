@@ -1,8 +1,10 @@
 package bundled
 
 import (
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -83,5 +85,30 @@ func TestInstall_SkipsExamplesDir(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "examples")); !os.IsNotExist(err) {
 		t.Errorf("examples/ should not be auto-installed; stat err=%v", err)
+	}
+}
+
+func TestExamples_AreReadableAndHaveToolHeader(t *testing.T) {
+	examples := []string{
+		"examples/web-search.sh",
+		"examples/generate-image.sh",
+		"examples/search-kb-gem.sh",
+		"examples/search-kb-lite.sh",
+	}
+	for _, name := range examples {
+		f, err := Open(name)
+		if err != nil {
+			t.Errorf("Open(%q): %v", name, err)
+			continue
+		}
+		data, err := io.ReadAll(f)
+		f.Close()
+		if err != nil {
+			t.Errorf("read %q: %v", name, err)
+			continue
+		}
+		if !strings.Contains(string(data), "@tool:") {
+			t.Errorf("%s: missing @tool: header", name)
+		}
 	}
 }
