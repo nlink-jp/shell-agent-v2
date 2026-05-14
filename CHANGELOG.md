@@ -5,6 +5,64 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.5] - 2026-05-14
+
+Follow-up to v0.6.4: TIMESTAMPTZ columns now render in the
+runtime's local timezone instead of forced UTC. Reported by a
+user who needed the wall-clock representation, not the
+UTC-normalised instant. Supersedes ADR-0010 §2's TIMESTAMPTZ
+deferral via ADR-0011.
+
+### Fixed
+
+- **TIMESTAMPTZ columns render in local TZ** with explicit
+  numeric offset (`2026-05-14T12:34:56+09:00`) across the
+  Data-panel preview, LLM tool result, and CSV export paths.
+  Previously v0.6.4 left them at the UTC-normalised form
+  (`2026-05-14T03:34:56Z`) that DuckDB stores internally,
+  losing the wall-clock representation even though the absolute
+  instant is correct.
+
+### Unchanged on purpose
+
+- **TIMESTAMP (no TZ) renders unchanged** as
+  `2026-05-14T12:34:56Z`. DuckDB intentionally distinguishes
+  wall-clock TIMESTAMP from instant TIMESTAMPTZ; the local-TZ
+  conversion only applies to the latter.
+
+### Added
+
+- **`renderScalar` TIMESTAMPTZ branch** that calls
+  `t.In(time.Local).Format(time.RFC3339Nano)`. The absolute
+  instant is preserved; only the display TZ changes.
+- **Test TZ override** in `engine_typesweep_test.go` forces
+  `time.Local = Asia/Tokyo` for the duration of the regression
+  guard so assertions are deterministic across CI hosts.
+- **Design note:**
+  [`docs/en/adr/0011-timestamptz-local-render.md`](docs/en/adr/0011-timestamptz-local-render.md)
+  / [`docs/ja/adr/0011-timestamptz-local-render.ja.md`](docs/ja/adr/0011-timestamptz-local-render.ja.md)
+  documents why source-TZ preservation is impossible at the
+  rendering layer (DuckDB normalises to UTC at storage), the
+  four rejected alternatives (DuckDB session `SET TimeZone`,
+  server-side `::VARCHAR` cast, configurable display TZ now,
+  source-TZ sidecar column), and the explicit non-goal of
+  multi-TZ source preservation.
+
+### Compatibility
+
+- Persistence format unchanged.
+- LLM-observable: tool-result JSON for TIMESTAMPTZ columns
+  changes from `2026-05-14T03:34:56Z` to
+  `2026-05-14T12:34:56+09:00` (or whatever the host's local TZ
+  produces). Absolute instant is identical. RFC 3339 parsers
+  handle both natively. Existing pinned-context sessions may
+  see slight behaviour shifts since the wall-clock string
+  differs.
+- CSV-observable: same change, same parser compatibility.
+- UI-observable: Data-panel summaries for TIMESTAMPTZ columns
+  show local-TZ wall clocks. Strict improvement when source
+  data and viewer share a TZ.
+
 ## [0.6.4] - 2026-05-14
 
 Bug-fix release: silent column corruption when reading DuckDB
