@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 )
 
 // TestTypeSweep_RegressionGuard is the permanent guard for the
@@ -24,6 +25,18 @@ import (
 // DuckDB types or driver upgrades that change the rendering of an
 // asserted type fail the test — that is the intended retrofit gate.
 func TestTypeSweep_RegressionGuard(t *testing.T) {
+	// Force a deterministic TZ for TIMESTAMPTZ assertions —
+	// CI may run in any TZ. Restore on exit. analysis tests
+	// run sequentially (no t.Parallel), so the package-level
+	// mutation is safe within this scope. See ADR-0011 §4.3.
+	tokyo, err := time.LoadLocation("Asia/Tokyo")
+	if err != nil {
+		t.Fatalf("LoadLocation Asia/Tokyo: %v", err)
+	}
+	prevLocal := time.Local
+	time.Local = tokyo
+	defer func() { time.Local = prevLocal }()
+
 	tmpDir := t.TempDir()
 	e := &Engine{
 		sessionID: "typesweep",
@@ -134,12 +147,14 @@ func TestTypeSweep_RegressionGuard(t *testing.T) {
 		csvCell     string
 	}
 	wants := map[string]want{
-		"uuid_col":     {`"550e8400-e29b-41d4-a716-446655440000"`, `"550e8400-e29b-41d4-a716-446655440000"`, "550e8400-e29b-41d4-a716-446655440000"},
-		"blob_col":     {`"3q2+7w=="`, `"3q2+7w=="`, "3q2+7w=="},
-		"decimal_col":  {`"123.456"`, `"123.456"`, "123.456"},
-		"interval_col": {`"P1Y2M0DT0H0M0S"`, `"P1Y2M0DT0H0M0S"`, "P1Y2M0DT0H0M0S"},
-		"map_col":      {`{"k1":"v1","k2":"v2"}`, `{"k1":"v1","k2":"v2"}`, "map[k1:v1 k2:v2]"}, // CSV uses Go fmt for maps; Phase 2.
-		"time_col":     {`"12:34:56"`, `"12:34:56"`, "12:34:56"},
+		"uuid_col":        {`"550e8400-e29b-41d4-a716-446655440000"`, `"550e8400-e29b-41d4-a716-446655440000"`, "550e8400-e29b-41d4-a716-446655440000"},
+		"blob_col":        {`"3q2+7w=="`, `"3q2+7w=="`, "3q2+7w=="},
+		"decimal_col":     {`"123.456"`, `"123.456"`, "123.456"},
+		"interval_col":    {`"P1Y2M0DT0H0M0S"`, `"P1Y2M0DT0H0M0S"`, "P1Y2M0DT0H0M0S"},
+		"map_col":         {`{"k1":"v1","k2":"v2"}`, `{"k1":"v1","k2":"v2"}`, "map[k1:v1 k2:v2]"}, // CSV uses Go fmt for maps; Phase 2.
+		"time_col":        {`"12:34:56"`, `"12:34:56"`, "12:34:56"},
+		"timestamptz_col": {`"2026-05-14T12:34:56+09:00"`, `"2026-05-14T12:34:56+09:00"`, "2026-05-14T12:34:56+09:00"}, // ADR-0011: in time.Local (forced to Asia/Tokyo above).
+		"timestamp_col":   {`"2026-05-14T12:34:56Z"`, `"2026-05-14T12:34:56Z"`, "2026-05-14T12:34:56Z"},                // unchanged; TIMESTAMP carries no TZ.
 	}
 	colIdx := map[string]int{}
 	for i, c := range prev.Columns {

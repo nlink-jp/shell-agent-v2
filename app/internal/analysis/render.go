@@ -53,6 +53,15 @@ func renderScalar(v any, dbTypeName string) any {
 		if t, ok := v.(time.Time); ok {
 			return t.Format("15:04:05.999999")
 		}
+	case dbTypeName == "TIMESTAMPTZ":
+		// DuckDB normalises TIMESTAMPTZ to UTC at storage time;
+		// go-duckdb returns it as time.Time in UTC. Display in
+		// the runtime's local TZ so the wall clock matches what
+		// users entered (overwhelming majority case for a
+		// local-first product). See ADR-0011.
+		if t, ok := v.(time.Time); ok {
+			return t.In(time.Local).Format(time.RFC3339Nano)
+		}
 	case strings.HasPrefix(dbTypeName, "DECIMAL"):
 		if d, ok := v.(duckdb.Decimal); ok {
 			return formatDecimal(d)

@@ -51,6 +51,9 @@ release order.
   result rendering: type-dispatched scalar conversion (UUID,
   BLOB, DECIMAL, INTERVAL, MAP, TIME) across Preview / QuerySQL
   / CSV paths (v0.6.4, Phase 1)
+- [`ADR-0011`](adr/0011-timestamptz-local-render.md) — TIMESTAMPTZ
+  rendering: convert to `time.Local` with explicit offset
+  (supersedes ADR-0010 §2 TIMESTAMPTZ deferral) (v0.6.5)
 
 ## History
 
