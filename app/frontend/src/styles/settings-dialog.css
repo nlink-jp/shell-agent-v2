@@ -19,7 +19,10 @@
     border-radius: 12px;
     width: 95%;
     max-width: 700px;
-    max-height: 90vh;
+    /* Pin the modal height so switching tabs doesn't make the
+     * dialog jump in size. The body's overflow-y: auto handles
+     * long tabs; short tabs just leave whitespace at the bottom. */
+    height: 90vh;
     display: flex;
     flex-direction: column;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);

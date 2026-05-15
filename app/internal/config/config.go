@@ -369,6 +369,12 @@ func ConfigPath() string {
 	return filepath.Join(DataDir(), "config.json")
 }
 
+// SystemRulesPath returns the path to the user-authored System
+// Rules Markdown file. See ADR-0012.
+func SystemRulesPath() string {
+	return filepath.Join(DataDir(), "system_rules.md")
+}
+
 // Load reads the config from disk, falling back to defaults.
 func Load() (*Config, error) {
 	cfg := Default()

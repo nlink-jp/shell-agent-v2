@@ -13,6 +13,14 @@ v0.2.0 design. This document is the single entry point: what
 each one is, how they're created, where they live, and how they
 get assembled into the LLM's system prompt.
 
+> Not in this document: **System Rules** (v0.7.0+). System Rules
+> is *configuration* — a user-authored Markdown file that the
+> agent treats as standing instructions. It also flows into the
+> system prompt, but it is not a memory facility (the four below
+> are runtime-learned; System Rules is declarative). See
+> [`system-rules.md`](system-rules.md) and
+> [ADR-0012](../adr/0012-system-rules.md).
+
 For deep design rationale see:
 
 - [memory-architecture-v2.md](memory-architecture-v2.md) — Records

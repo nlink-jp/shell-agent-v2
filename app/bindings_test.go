@@ -37,6 +37,43 @@ func newTestBindings(t *testing.T) (*Bindings, string) {
 	return b, home
 }
 
+func TestSystemRules_RoundTrip(t *testing.T) {
+	b, _ := newTestBindings(t)
+
+	// Fresh data dir: no rules file → empty.
+	if got := b.GetSystemRules(); got != "" {
+		t.Fatalf("fresh bindings: GetSystemRules = %q, want empty", got)
+	}
+
+	if err := b.SetSystemRules("be terse"); err != nil {
+		t.Fatalf("SetSystemRules: %v", err)
+	}
+
+	// Read-back via bindings reflects normalised content.
+	want := "be terse\n"
+	if got := b.GetSystemRules(); got != want {
+		t.Errorf("round-trip via bindings: got %q, want %q", got, want)
+	}
+
+	// On-disk file matches normalised content.
+	data, err := os.ReadFile(config.SystemRulesPath())
+	if err != nil {
+		t.Fatalf("read system_rules.md: %v", err)
+	}
+	if string(data) != want {
+		t.Errorf("disk content: got %q, want %q", string(data), want)
+	}
+
+	// Clearing rules: empty Save writes an empty file and the
+	// next read returns empty.
+	if err := b.SetSystemRules(""); err != nil {
+		t.Fatalf("SetSystemRules(empty): %v", err)
+	}
+	if got := b.GetSystemRules(); got != "" {
+		t.Errorf("after clear: GetSystemRules = %q, want empty", got)
+	}
+}
+
 func TestGetSessionObjects_FiltersBySession(t *testing.T) {
 	b, _ := newTestBindings(t)
 	idA := saveTestObject(t, b, objstore.TypeBlob, "text/plain", "from sess A", "sessA")

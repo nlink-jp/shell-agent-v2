@@ -33,6 +33,8 @@ declare global {
                     Abort(): Promise<void>;
                     GetState(): Promise<string>;
                     GetBackend(): Promise<string>;
+                    GetSystemRules(): Promise<string>;
+                    SetSystemRules(content: string): Promise<void>;
                     Version(): Promise<string>;
                     NewSession(): Promise<string>;
                     NewPrivateSession(): Promise<string>;

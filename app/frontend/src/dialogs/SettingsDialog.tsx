@@ -10,7 +10,19 @@ import {useState, useEffect, useRef} from 'react'
 import BackendBudgetEditor from '../components/BackendBudgetEditor'
 import type {MCPProfile, MCPStatus, Settings, ToolInfo, SandboxImageStatus, SandboxImageInfo} from '../types'
 
-type SettingsTab = 'general' | 'tools' | 'mcp' | 'sandbox'
+type SettingsTab = 'general' | 'rules' | 'tools' | 'mcp' | 'sandbox'
+
+// Local-only frontend approximation of memory.EstimateTokens.
+// max(chars/4, words*1.3) — close enough for the advisory display
+// without round-tripping every keystroke through Wails. See
+// feedback_token_estimation_json for why word-count alone
+// under-counts JSON/Markdown by 4-5×.
+function estimateTokens(s: string): number {
+    if (!s) return 0
+    const chars = s.length / 4
+    const words = s.trim().split(/\s+/).filter(Boolean).length * 1.3
+    return Math.max(Math.round(chars), Math.round(words))
+}
 
 interface Props {
     settings: Settings;
@@ -23,6 +35,60 @@ interface Props {
 
 export default function SettingsDialog({settings, tools, mcpStatus, onUpdate, onClose, onRestartMCP}: Props) {
     const [tab, setTab] = useState<SettingsTab>('general')
+
+    // System Rules tab state (ADR-0012). The rules file lives at
+    // <dataDir>/system_rules.md and is managed through dedicated
+    // bindings (Get/SetSystemRules) — not via the Settings object.
+    const [rules, setRules] = useState<string>('')
+    const [rulesSaved, setRulesSaved] = useState<string>('')
+    const [rulesStatus, setRulesStatus] = useState<string>('')
+    // Advisory shown after a Save that transitions rules from
+    // non-empty to empty. Existing chats keep mirroring earlier
+    // patterns from history even though the system prompt no
+    // longer carries the rule (in-context conditioning).
+    const [rulesClearedAdvisory, setRulesClearedAdvisory] = useState(false)
+    const reloadRules = () => {
+        if (!window.go) return
+        window.go.main.Bindings.GetSystemRules().then((s: string) => {
+            setRules(s)
+            setRulesSaved(s)
+        }).catch(() => {})
+    }
+    useEffect(() => {
+        if (tab === 'rules') {
+            reloadRules()
+            setRulesClearedAdvisory(false)
+        }
+    }, [tab])
+    const rulesDirty = rules !== rulesSaved
+    const rulesChars = rules.length
+    const rulesTokens = estimateTokens(rules)
+    const activeMaxTokens = settings.default_backend === 'vertex_ai'
+        ? (settings.vertex_budget?.max_context_tokens || 0)
+        : (settings.local_budget?.max_context_tokens || 0)
+    const rulesPct = activeMaxTokens > 0 ? (rulesTokens / activeMaxTokens) * 100 : 0
+    const rulesAdvisory: 'ok' | 'warn' | 'high' =
+        rulesPct >= 20 ? 'high' : rulesPct >= 5 ? 'warn' : 'ok'
+    const saveRules = async () => {
+        if (!window.go) return
+        try {
+            const wasNonEmpty = rulesSaved.trim() !== ''
+            await window.go.main.Bindings.SetSystemRules(rules)
+            // Backend normalises trailing newlines etc. — re-fetch
+            // so the editor reflects the canonical stored form.
+            const next = await window.go.main.Bindings.GetSystemRules()
+            setRules(next)
+            setRulesSaved(next)
+            setRulesStatus('Saved')
+            setTimeout(() => setRulesStatus(''), 2000)
+            // Advisory only when rules went from non-empty to empty;
+            // re-saving an empty form (or changing to other content)
+            // doesn't trip it.
+            setRulesClearedAdvisory(wasNonEmpty && next.trim() === '')
+        } catch (e: any) {
+            setRulesStatus(`Save failed: ${String(e?.message || e)}`)
+        }
+    }
 
     // Sandbox image build state — local to the dialog so the
     // build log doesn't survive close/reopen, but the
@@ -88,6 +154,7 @@ export default function SettingsDialog({settings, tools, mcpStatus, onUpdate, on
                 </div>
                 <div className="settings-tabs">
                     <button className={tab === 'general' ? 'active' : ''} onClick={() => setTab('general')}>General</button>
+                    <button className={tab === 'rules' ? 'active' : ''} onClick={() => setTab('rules')}>System Rules</button>
                     <button className={tab === 'tools' ? 'active' : ''} onClick={() => setTab('tools')}>Tools</button>
                     <button className={tab === 'mcp' ? 'active' : ''} onClick={() => setTab('mcp')}>MCP</button>
                     <button className={tab === 'sandbox' ? 'active' : ''} onClick={() => setTab('sandbox')}>Sandbox</button>
@@ -193,6 +260,53 @@ export default function SettingsDialog({settings, tools, mcpStatus, onUpdate, on
                                 <input type="number" min={1} max={10} value={settings.vertex_retry_max_attempts || 3} onChange={e => onUpdate({vertex_retry_max_attempts: parseInt(e.target.value, 10) || 3})} />
                             </label>
                             <p className="sidebar-hint">Total LLM call attempts including the first (1 = no retries). Defaults to 3. Backoff timing knobs (base / max / jitter) are config-only — see README.</p>
+                        </div>
+                    </>)}
+                    {tab === 'rules' && (<>
+                        <div className="settings-section">
+                            <h3>System Rules</h3>
+                            <p className="sidebar-hint">Standing instructions the agent follows in every session. Plain Markdown, injected near the top of the system prompt. See <code>docs/en/adr/0012-system-rules.md</code>.</p>
+                            <p className="sidebar-hint">Stored at <code>~/Library/Application Support/shell-agent-v2/system_rules.md</code>. Edits via external editor are picked up by <strong>Reload from disk</strong>.</p>
+                            <textarea
+                                className="system-rules-editor"
+                                style={{width: '100%', minHeight: '18em', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: '0.85em'}}
+                                placeholder="e.g. Always respond in Japanese. Prefer concise answers. When showing code, include a short rationale."
+                                value={rules}
+                                onChange={e => setRules(e.target.value)}
+                            />
+                            <div className="system-rules-footer" style={{display: 'flex', alignItems: 'center', gap: '1em', marginTop: '0.5em', fontSize: '0.85em'}}>
+                                <span style={{
+                                    color: rulesAdvisory === 'high' ? '#dc322f' : rulesAdvisory === 'warn' ? '#b58900' : '#859900',
+                                }}>
+                                    {rulesChars.toLocaleString()} chars · ~{rulesTokens.toLocaleString()} tokens
+                                    {activeMaxTokens > 0 && ` (${rulesPct.toFixed(1)}% of ${activeMaxTokens.toLocaleString()})`}
+                                </span>
+                                <span style={{flex: 1}}>{rulesStatus}</span>
+                                <button type="button" onClick={reloadRules}>Reload from disk</button>
+                                <button type="button" disabled={!rulesDirty} onClick={saveRules}>{rulesDirty ? 'Save' : 'Saved'}</button>
+                            </div>
+                            {rulesAdvisory === 'warn' && (
+                                <p className="sidebar-hint" style={{borderLeft: '3px solid #b58900', paddingLeft: '0.5em', marginTop: '0.5em'}}>
+                                    ⚠ System Rules consume a noticeable share of the active backend's context budget. Consider trimming.
+                                </p>
+                            )}
+                            {rulesAdvisory === 'high' && (
+                                <p className="sidebar-hint" style={{borderLeft: '3px solid #dc322f', paddingLeft: '0.5em', marginTop: '0.5em'}}>
+                                    ⚠ System Rules are using ≥ 20% of the active backend's context budget. This leaves little room for conversation history, tool results, and memory channels. Trim or split into shorter sections.
+                                </p>
+                            )}
+                            {rulesClearedAdvisory && (
+                                <p className="sidebar-hint" style={{borderLeft: '3px solid #b58900', paddingLeft: '0.5em', marginTop: '0.5em', display: 'flex', alignItems: 'flex-start', gap: '0.5em'}}>
+                                    <span style={{flex: 1}}>
+                                        ⚠ Rules cleared. Existing chats may continue mirroring earlier patterns because the LLM sees its previous responses in the conversation history (in-context conditioning). The system prompt no longer carries any rule. <strong>Start a new chat</strong> to verify the change.
+                                    </span>
+                                    <button
+                                        onClick={() => setRulesClearedAdvisory(false)}
+                                        style={{background: 'none', border: 'none', cursor: 'pointer', fontSize: '1em', color: 'inherit', padding: 0, lineHeight: 1}}
+                                        title="Dismiss"
+                                    >&#x2715;</button>
+                                </p>
+                            )}
                         </div>
                     </>)}
                     {tab === 'tools' && (<>

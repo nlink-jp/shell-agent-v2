@@ -51,6 +51,7 @@ shell-agent-v2/
 │   │   ├── sessionio/       # .shellagent bundle pack/unpack + reference rewriter (v0.4.0)
 │   │   ├── toolcall/        # Shell script registry, MITL categories
 │   │   ├── mcp/             # mcp-guardian stdio JSON-RPC 2.0
+│   │   ├── sysrules/        # User-authored standing instructions (v0.7.0, ADR-0012)
 │   │   ├── config/          # JSON config, path expansion
 │   │   └── logger/          # File-based logging
 │   ├── frontend/src/

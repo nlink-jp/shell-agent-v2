@@ -19,6 +19,9 @@ Current behaviour. Evergreen — updated in place as the code evolves.
   engine, analyze-data sliding window, findings lifecycle
 - [`reference/privacy-controls.md`](reference/privacy-controls.md) —
   private sessions, log-level filter
+- [`reference/system-rules.md`](reference/system-rules.md) —
+  user-authored standing instructions injected into the system
+  prompt (v0.7.0)
 
 ## ADRs (Architecture Decision Records)
 
@@ -54,6 +57,9 @@ release order.
 - [`ADR-0011`](adr/0011-timestamptz-local-render.md) — TIMESTAMPTZ
   rendering: convert to `time.Local` with explicit offset
   (supersedes ADR-0010 §2 TIMESTAMPTZ deferral) (v0.6.5)
+- [`ADR-0012`](adr/0012-system-rules.md) — System Rules: user-
+  authored Markdown file injected near the top of the system
+  prompt; separate from the four memory facilities (v0.7.0)
 
 ## History
 

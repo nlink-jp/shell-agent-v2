@@ -13,6 +13,14 @@ shell-agent-v2 v0.2.0 設計では **4 つの異なるメモリ機能** が
 作成され、どこに保存され、システムプロンプトにどう集約される
 かを示す。
 
+> 本ドキュメント外: **System Rules** (v0.7.0+)。System Rules は
+> *設定面* — エージェントが恒久指示として扱う、ユーザーが
+> オーサリングする Markdown ファイル。同じく system prompt に
+> 流れるが、メモリ施設ではない (下記 4 つはランタイム学習、
+> System Rules は宣言的)。
+> [`system-rules.ja.md`](system-rules.ja.md) と
+> [ADR-0012](../adr/0012-system-rules.ja.md) 参照。
+
 詳細な設計根拠:
 
 - [memory-architecture-v2.ja.md](memory-architecture-v2.ja.md) —

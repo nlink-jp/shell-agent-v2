@@ -27,6 +27,7 @@ import (
 	"github.com/nlink-jp/shell-agent-v2/internal/memory"
 	"github.com/nlink-jp/shell-agent-v2/internal/objstore"
 	"github.com/nlink-jp/shell-agent-v2/internal/sandbox"
+	"github.com/nlink-jp/shell-agent-v2/internal/sysrules"
 	"github.com/nlink-jp/shell-agent-v2/internal/toolcall"
 )
 
@@ -112,6 +113,7 @@ type Agent struct {
 	analysis      *analysis.Engine
 	globalMemory  *memory.GlobalMemoryStore   // v0.2.0: cross-session preference/decision facts
 	sessionMemory *memory.SessionMemoryStore  // v0.2.0: per-session fact/context
+	sysRules      *sysrules.Store             // v0.7.0: user-authored standing instructions (ADR-0012)
 	objects       *objstore.Store
 
 	streamHandler        StreamHandler
@@ -184,6 +186,7 @@ func New(cfg *config.Config) *Agent {
 		state:               StateIdle,
 		findings:            nil, // set by LoadSession
 		globalMemory:        globalStore,
+		sysRules:            sysrules.NewStore(),
 		chat:                chatEngine,
 		toolRegistry:        registry,
 		guardians:           make(map[string]*mcp.Guardian),
@@ -194,6 +197,7 @@ func New(cfg *config.Config) *Agent {
 	a.maybeStartSandbox()
 	a.setBackend(cfg.LLM.DefaultBackend)
 	_ = a.globalMemory.Load()
+	_ = a.sysRules.Load()
 	// v0.6: populate the tool-descriptor registry. Builtin
 	// tools first (resolve-date / list-objects / get-object /
 	// register-object) so the Settings UI lists them in a
@@ -506,6 +510,24 @@ func (a *Agent) CurrentBackend() string {
 	return a.backend.Name()
 }
 
+// SystemRules returns the user-authored standing instructions
+// currently in effect. See ADR-0012.
+func (a *Agent) SystemRules() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.sysRules.Get()
+}
+
+// SetSystemRules persists new standing instructions to disk and
+// updates the in-memory cache. The next turn's BuildSystemPrompt
+// will see the new content automatically (no engine field; the
+// snapshot is read fresh inside buildMessagesV2).
+func (a *Agent) SetSystemRules(content string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.sysRules.Save(content)
+}
+
 // buildMessagesV2 assembles the LLM messages via the contextbuild package
 // (memory-architecture-v2.md). Opt-in via Memory.UseV2.
 //
@@ -523,6 +545,7 @@ func (a *Agent) buildMessagesV2(ctx context.Context, budget config.ContextBudget
 		a.globalMemory.FormatForPrompt(),
 		a.sessionMemoryPrompt(),
 		a.findingsPrompt(),
+		a.sysRules.Get(),
 	)
 
 	summarize := func(c context.Context, records []memory.Record) (string, error) {

@@ -82,7 +82,7 @@ func TestBuildMessagesDoesNotGuardAssistant(t *testing.T) {
 // regression visible at PR time.
 func TestWrapUserToolContent_FailClosed(t *testing.T) {
 	e := New("base")
-	_ = e.BuildSystemPrompt("", "", "")
+	_ = e.BuildSystemPrompt("", "", "", "")
 	wrapped, err := e.WrapUserToolContent("payload")
 	if err != nil {
 		t.Fatalf("happy path should not error: %v", err)

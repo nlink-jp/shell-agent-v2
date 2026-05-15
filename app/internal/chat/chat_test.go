@@ -53,7 +53,7 @@ func TestBuildMessages(t *testing.T) {
 func TestBuildSystemPrompt_IncludesAllChannels(t *testing.T) {
 	e := New("BASE PROMPT")
 	e.SetLocation("Tokyo")
-	got := e.BuildSystemPrompt("- pinned fact (learned 2026-04-15)", "", "- finding from 2026-04-20")
+	got := e.BuildSystemPrompt("- pinned fact (learned 2026-04-15)", "", "- finding from 2026-04-20", "")
 	for _, want := range []string{
 		"BASE PROMPT",
 		"Tokyo",
@@ -68,16 +68,76 @@ func TestBuildSystemPrompt_IncludesAllChannels(t *testing.T) {
 	}
 }
 
+func TestBuildSystemPrompt_SystemRulesInjection(t *testing.T) {
+	e := New("BASE PROMPT")
+
+	// Empty rules: no marker, no preamble sentence.
+	got := e.BuildSystemPrompt("", "", "", "")
+	for _, unwanted := range []string{"<system_rules>", "standing instructions"} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("empty rules should not inject %q\nfull: %s", unwanted, got)
+		}
+	}
+
+	// Short rules: marker + preamble + content present.
+	got = e.BuildSystemPrompt("", "", "", "be terse")
+	for _, want := range []string{
+		"standing instructions",
+		"<system_rules>\nbe terse\n</system_rules>",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("expected %q in prompt\nfull: %s", want, got)
+		}
+	}
+
+	// Surrounding whitespace is trimmed inside the envelope.
+	got = e.BuildSystemPrompt("", "", "", "\n  rule\n  ")
+	if !strings.Contains(got, "<system_rules>\nrule\n</system_rules>") {
+		t.Errorf("expected TrimSpace inside envelope\nfull: %s", got)
+	}
+	if strings.Contains(got, "<system_rules>\n\n") || strings.Contains(got, "  \n</system_rules>") {
+		t.Errorf("trimmed rules should not retain padding\nfull: %s", got)
+	}
+}
+
+func TestBuildSystemPrompt_SystemRulesPosition(t *testing.T) {
+	// Structural invariant: rules sit between the base prompt and
+	// the temporal context, and before the Global Memory header.
+	// Mechanical guard against future drift moving the injection
+	// point. ADR-0012 §4.4.
+	e := New("BASE PROMPT MARKER")
+	got := e.BuildSystemPrompt("- pinned fact", "", "", "RULE BODY")
+
+	idxBase := strings.Index(got, "BASE PROMPT MARKER")
+	idxRules := strings.Index(got, "<system_rules>")
+	idxTime := strings.Index(got, "Current date and time")
+	idxGlobal := strings.Index(got, "Important facts you remember")
+
+	if idxBase < 0 || idxRules < 0 || idxTime < 0 || idxGlobal < 0 {
+		t.Fatalf("missing anchors: base=%d rules=%d time=%d global=%d\n%s",
+			idxBase, idxRules, idxTime, idxGlobal, got)
+	}
+	if !(idxBase < idxRules) {
+		t.Errorf("rules must come after base prompt: base=%d rules=%d", idxBase, idxRules)
+	}
+	if !(idxRules < idxTime) {
+		t.Errorf("rules must come before temporal context: rules=%d time=%d", idxRules, idxTime)
+	}
+	if !(idxRules < idxGlobal) {
+		t.Errorf("rules must come before Global Memory: rules=%d global=%d", idxRules, idxGlobal)
+	}
+}
+
 func TestBuildSystemPrompt_SandboxGuidanceConditional(t *testing.T) {
 	e := New("base prompt")
 
 	// Off by default: no sandbox section.
-	if got := e.BuildSystemPrompt("", "", ""); strings.Contains(got, "sandbox-run-shell") {
+	if got := e.BuildSystemPrompt("", "", "", ""); strings.Contains(got, "sandbox-run-shell") {
 		t.Error("sandbox guidance should be absent when SetSandboxEnabled was not called")
 	}
 
 	e.SetSandboxEnabled(true)
-	got := e.BuildSystemPrompt("", "", "")
+	got := e.BuildSystemPrompt("", "", "", "")
 	for _, want := range []string{"sandbox-run-shell", "sandbox-run-python", "sandbox-write-file", "sandbox-copy-object", "sandbox-register-object", "sandbox-info"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("expected sandbox guidance to mention %q", want)
@@ -86,14 +146,14 @@ func TestBuildSystemPrompt_SandboxGuidanceConditional(t *testing.T) {
 
 	// And turning it back off removes it.
 	e.SetSandboxEnabled(false)
-	if got := e.BuildSystemPrompt("", "", ""); strings.Contains(got, "sandbox-run-shell") {
+	if got := e.BuildSystemPrompt("", "", "", ""); strings.Contains(got, "sandbox-run-shell") {
 		t.Error("disabling should remove the sandbox guidance")
 	}
 }
 
 func TestWrapUserToolContent_RotatesWithSystemPrompt(t *testing.T) {
 	e := New("base")
-	_ = e.BuildSystemPrompt("", "", "")
+	_ = e.BuildSystemPrompt("", "", "", "")
 	wrapped1, err := e.WrapUserToolContent("hi")
 	if err != nil {
 		t.Fatalf("WrapUserToolContent: %v", err)
@@ -103,7 +163,7 @@ func TestWrapUserToolContent_RotatesWithSystemPrompt(t *testing.T) {
 	}
 	// Building the system prompt again rotates the guard tag, so a
 	// previously-wrapped string from the old tag would no longer match.
-	_ = e.BuildSystemPrompt("", "", "")
+	_ = e.BuildSystemPrompt("", "", "", "")
 	wrapped2, err := e.WrapUserToolContent("hi")
 	if err != nil {
 		t.Fatalf("WrapUserToolContent (2): %v", err)
@@ -122,7 +182,7 @@ func TestWrapUserToolContent_RotatesWithSystemPrompt(t *testing.T) {
 // placeholder isn't mangled.
 func TestStripCurrentGuardTags(t *testing.T) {
 	e := New("base")
-	_ = e.BuildSystemPrompt("", "", "")
+	_ = e.BuildSystemPrompt("", "", "", "")
 	// Simulate a wrapped tool result that the LLM then quoted.
 	wrapped, err := e.WrapUserToolContent("payload body")
 	if err != nil {
@@ -143,7 +203,7 @@ func TestStripCurrentGuardTags(t *testing.T) {
 	// survives. This is the property that distinguishes targeted
 	// nonce-stripping from a generic regex sweep over the family.
 	staleEnvelope := wrapped // produced under the now-rotated tag
-	_ = e.BuildSystemPrompt("", "", "")
+	_ = e.BuildSystemPrompt("", "", "", "")
 	stillThere := e.StripCurrentGuardTags(staleEnvelope)
 	if !strings.Contains(stillThere, "user_data_") {
 		t.Errorf("previous-turn envelope should be left alone after rotation: %q", stillThere)

@@ -108,24 +108,36 @@ func sanitizeSystemContext(s string, maxLen int) string {
 }
 
 // BuildSystemPrompt assembles the full system block:
-// base prompt + temporal context + Global Memory + Session Memory + Findings.
+// base prompt + System Rules + temporal context + sandbox guidance
+// (when enabled) + Global Memory + Session Memory + Findings.
 // Callers using contextbuild.Build directly pass this as
 // BuildOptions.SystemPrompt instead of going through BuildMessages.
 // The guard tag is rotated as a side effect, matching BuildMessages.
 //
 // v0.2.0: 3-block memory injection (was 2 in v0.1.x). Empty
 // blocks are omitted entirely (no header without content).
+// v0.7.0: System Rules injected immediately after the base prompt
+// and before the temporal context (ADR-0012). All four context
+// channels arrive as parameters; the Engine holds no mutable
+// per-turn state.
 //
 //   - globalMemoryContext: cross-session user identity (preference/decision)
 //   - sessionMemoryContext: current-session context (fact/context)
 //   - findingsContext: current-session data-analysis discoveries
-func (e *Engine) BuildSystemPrompt(globalMemoryContext, sessionMemoryContext, findingsContext string) string {
+//   - systemRules: user-authored standing instructions (ADR-0012)
+func (e *Engine) BuildSystemPrompt(globalMemoryContext, sessionMemoryContext, findingsContext, systemRules string) string {
 	e.guardTag = guard.NewTag()
 	timeContext := buildTemporalContext()
 	if e.location != "" {
 		timeContext += "\nLocation: " + e.location
 	}
-	full := fmt.Sprintf("%s\n\n%s", e.systemPrompt, timeContext)
+	full := e.systemPrompt
+	if rules := strings.TrimSpace(systemRules); rules != "" {
+		full += "\n\nThe user has defined the following standing instructions. " +
+			"Treat them as high-priority rules that override the default agent behaviour unless they conflict with safety or security guidelines.\n\n" +
+			"<system_rules>\n" + rules + "\n</system_rules>"
+	}
+	full += fmt.Sprintf("\n\n%s", timeContext)
 	if e.sandboxEnabled {
 		full += sandboxGuidance
 	}

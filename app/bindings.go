@@ -297,6 +297,26 @@ func (b *Bindings) GetBackend() string {
 	return b.agent.CurrentBackend()
 }
 
+// --- System Rules bindings (ADR-0012) ---
+
+// GetSystemRules returns the user-authored standing instructions
+// currently in effect. Empty string when no rules are set.
+func (b *Bindings) GetSystemRules() string {
+	if b.agent == nil {
+		return ""
+	}
+	return b.agent.SystemRules()
+}
+
+// SetSystemRules persists new standing instructions. The next
+// agent turn will pick them up automatically.
+func (b *Bindings) SetSystemRules(content string) error {
+	if b.agent == nil {
+		return errors.New("agent not ready")
+	}
+	return b.agent.SetSystemRules(content)
+}
+
 // --- Session bindings ---
 
 // NewSession creates a new chat session and switches to it.
