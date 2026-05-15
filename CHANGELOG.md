@@ -5,6 +5,77 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.8.0] - 2026-05-15
+
+Adds **`save-query`** — a one-tool path from "I want a filter" to
+`analyze-data` running over just the filtered rows. Closes the
+gap between the existing whole-table `analyze-data` and the
+filter-capable but one-shot `quick-summary` / `query-sql`. See
+ADR-0013.
+
+### Added
+
+- **`save-query` tool.** Runs a `SELECT` statement (validated as
+  read-only via the existing `isReadOnlySQL` gate) and writes
+  the result as a fresh derived base table via
+  `CREATE TABLE "<name>" AS <sql>`. The derived table shows up
+  in `list-tables`, `describe-data`, and every other analysis
+  tool that accepts a table name — including `analyze-data`, so
+  the LLM chains `save-query` → `analyze-data` to deep-analyse
+  just the filtered subset (last 24 h, errors only, one
+  customer's events, …). Parameters: `sql` (required SELECT),
+  `name` (required identifier — alphanumeric and underscores,
+  starting with a letter or underscore), `description`
+  (optional). MITL-gated as `sql_preview` (matches `query-sql`'s
+  approval-dialog rendering). Errors on name collision with an
+  existing table to avoid accidentally overwriting a loaded
+  table — pick a fresh name with a suffix like `_v2` /
+  `_filtered` / `_derived`. Returns a markdown summary with the
+  row count and column list; when the derived table exceeds
+  `MaxAnalyzeRows` (1,000,000) a warning steers the LLM to
+  narrow the filter before chaining `analyze-data`.
+- **`analyze-data` description pointer.** The tool's LLM-facing
+  description now ends with: "For filtered analysis, use
+  `save-query` first to materialise a SELECT result as a derived
+  table, then pass that table's name here." Makes the workflow
+  discoverable from a single descriptor read.
+- **ADR-0013** (`docs/{en,ja}/adr/0013-saved-query-tables.md`).
+  Records the CTAS-via-`save-query` design rationale and the
+  alternatives rejected (DuckDB VIEW, `where` parameter on
+  `analyze-data`, inline-`sql` parameter, drop-table sibling
+  tool, silent CREATE OR REPLACE).
+
+### Compatibility
+
+- **No engine schema changes.** `TableMeta` is unchanged.
+  Derived tables look exactly like loaded ones to the engine
+  and to every consumer.
+- **No bundle-format changes.** `analysis.duckdb` already
+  carries every CREATE TABLE the session has produced; derived
+  tables travel inside the existing artifact. Export and import
+  round-trip identically. SchemaVersion stays at 1.
+- **Existing analyses byte-identical.** `analyze-data` on a
+  loaded table runs exactly the same code path as before.
+
+### Internal
+
+- New `analysis.Engine.CreateFromQuery(name, sql, description)`
+  method. Mirrors the `LoadCSV` pattern: identifier regex check,
+  `isReadOnlySQL` validation, lock + `Exec` + `refreshTableMeta`,
+  optional `COMMENT ON TABLE` for the description. Returns the
+  fresh `*TableMeta`.
+- New `agent.toolSaveQuery` handler. Delegates to
+  `CreateFromQuery` and formats via the existing
+  `formatTableMeta`. Surfaces a `MaxAnalyzeRows` advisory when
+  the derived row count exceeds the cap.
+- New `identifierRegex` (`^[A-Za-z_][A-Za-z0-9_]*$`) added to
+  `internal/analysis/engine.go`. The codebase previously
+  delegated identifier handling entirely to `sanitizeIdentifier`
+  (DuckDB-quote escaping), which would happily accept names
+  with embedded whitespace, hyphens, or SQL keywords — fine for
+  loaded tables (where the user typed the name) but not for
+  LLM-supplied derived-table names. The regex is the new gate.
+
 ## [0.7.0] - 2026-05-15
 
 Adds **System Rules** — a user-authored Markdown file that
