@@ -29,6 +29,7 @@ for weaker local backends.
 | `query-preview` | Natural language → SQL → run | SQL preview |
 | `quick-summary` | SELECT + one-shot natural-language summary in one step | SQL preview |
 | `suggest-analysis` | Brainstorm 3-5 analysis angles + sample SQL (no execution) | auto |
+| `save-query` | Run a SELECT and materialise the result as a new derived base table | SQL preview |
 | `analyze-data` | Deep sliding-window analysis with accumulated findings | analysis-plan dialog |
 | `promote-finding` | Push an LLM-discovered insight into the per-session findings store | required |
 | `create-report` | Build a markdown report rendered as a chat-pane bubble | required |
@@ -131,6 +132,54 @@ through `Engine.QuerySQL` and share two guards:
 "what does this say?" rather than "give me the rows". It does
 **one** LLM round; for multi-window deep analysis use
 `analyze-data` instead.
+
+### Filtered analysis via save-query (v0.8.0)
+
+`analyze-data` runs `SELECT * FROM "<table>"` against a single
+table name. To analyse a filtered subset (last 24 hours, errors
+only, one customer's events, …), chain `save-query` first:
+
+```
+LLM: save-query(
+       sql="SELECT * FROM events WHERE status = 'failed' AND ts >= '2026-05-01'",
+       name="failed_recent"
+     )
+     → Table: failed_recent  Rows: 1247  Columns: [id, ts, status, ...]
+
+LLM: analyze-data(prompt="characterise the failure modes", table="failed_recent")
+     → sliding-window analysis runs on 1247 rows, not 27k
+```
+
+`save-query` materialises the SELECT result as a fresh DuckDB
+base table via `CREATE TABLE "<name>" AS <sql>`. The derived
+table:
+
+- Appears in `list-tables` alongside loaded ones (no Type-column
+  distinction — it *is* a base table).
+- Can be `describe-data`'d, `query-sql`'d, `quick-summary`'d, or
+  fed into another `save-query` to chain filters.
+- Carries an optional `description` (third parameter; stored via
+  the same `COMMENT ON TABLE` path `describe-data` reads).
+- Persists in `analysis.duckdb` like any other table — including
+  through session export / import.
+- Is dropped by `reset-analysis` along with everything else.
+
+**Name collision is a hard error.** If the requested name
+matches an existing loaded table, `save-query` refuses with
+suggested suffixes (`_v2`, `_filtered`, `_derived`) rather than
+silently overwriting. This protects a `load-data`-loaded table
+from being clobbered by an accidental derived-table name
+collision; the LLM picks a fresh name and retries.
+
+**The row-count cap still applies.** A derived table with more
+than `MaxAnalyzeRows` (1,000,000) rows triggers an advisory in
+`save-query`'s output and `analyze-data` will refuse — narrow
+the filter further before chaining. See §4 for `analyze-data`'s
+cap behaviour.
+
+See `docs/en/adr/0013-saved-query-tables.md` for the design
+rationale and the alternatives rejected (DuckDB VIEW,
+`where`-parameter on `analyze-data`, inline-SQL parameter).
 
 ## 5. Sliding-window analysis (analyze-data)
 

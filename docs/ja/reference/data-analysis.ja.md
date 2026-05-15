@@ -23,6 +23,7 @@ Findings のメモリ側 (per-session vs Global Memory): [`memory-model.ja.md`](
 | `query-preview` | 自然言語 → SQL → 実行 | SQL preview |
 | `quick-summary` | SELECT + 一発自然言語サマリ (1ステップ) | SQL preview |
 | `suggest-analysis` | 3-5 件の分析切り口 + サンプル SQL を提案 (実行なし) | 自動 |
+| `save-query` | SELECT を実行し結果を新規派生ベーステーブルとしてマテリアライズ | SQL preview |
 | `analyze-data` | sliding-window 深掘り分析、findings 蓄積 | analysis-plan dialog |
 | `promote-finding` | LLM 発見の知見を per-session findings store に登録 | 必要 |
 | `create-report` | チャットバブルとして表示される markdown レポート生成 | 必要 |
@@ -104,6 +105,54 @@ Findings のメモリ側 (per-session vs Global Memory): [`memory-model.ja.md`](
 
 `quick-summary` は「これは何を語ってるか」が欲しい時用。
 1 LLM ラウンドのみ。複数ウィンドウの深い分析は `analyze-data`。
+
+### save-query による絞り込み解析 (v0.8.0)
+
+`analyze-data` は単一テーブル名に対して `SELECT * FROM "<table>"`
+を実行する。絞り込みサブセット (直近 24 時間、エラーのみ、
+特定顧客のイベント等) を解析するには、まず `save-query` を
+チェインする:
+
+```
+LLM: save-query(
+       sql="SELECT * FROM events WHERE status = 'failed' AND ts >= '2026-05-01'",
+       name="failed_recent"
+     )
+     → Table: failed_recent  Rows: 1247  Columns: [id, ts, status, ...]
+
+LLM: analyze-data(prompt="失敗パターンを特徴づけて", table="failed_recent")
+     → sliding-window 解析が 27k 行ではなく 1247 行に対して走る
+```
+
+`save-query` は SELECT 結果を `CREATE TABLE "<name>" AS <sql>`
+で新規 DuckDB ベーステーブルとしてマテリアライズする。派生テーブル
+の挙動:
+
+- `list-tables` にロード済みテーブルと並んで現れる (Type 列の
+  区別なし — 派生テーブルもベーステーブル *である*)。
+- `describe-data` / `query-sql` / `quick-summary` の対象になる、
+  別の `save-query` の入力にしてフィルタチェイン可能。
+- オプションの `description` (第 3 引数) を持つ;
+  `describe-data` が読む `COMMENT ON TABLE` 経路で保存される。
+- 他のテーブルと同様 `analysis.duckdb` に永続化される —
+  セッション export / import でも移動する。
+- `reset-analysis` で他のテーブルと一緒に drop される。
+
+**名前衝突は hard error。** 要求された名前が既存のロード済み
+テーブルと衝突する場合、`save-query` はサフィックス候補
+(`_v2`、`_filtered`、`_derived`) とともにエラーを返し、
+silent な上書きはしない。これは `load-data` でロードされた
+テーブルが偶発的な派生テーブル名衝突で破壊されるのを防ぐ;
+LLM は別名を選んで再試行する。
+
+**行数上限は引き続き適用。** 派生テーブルが `MaxAnalyzeRows`
+(1,000,000) を超える行数を持つ場合、`save-query` の出力に
+警告が表示され `analyze-data` は拒否する — chain 前に更に
+絞り込む。`analyze-data` の上限挙動は §4 参照。
+
+設計判断および棄却された代替案 (DuckDB VIEW、`analyze-data`
+への `where` パラメータ、inline-SQL パラメータ) については
+`docs/ja/adr/0013-saved-query-tables.ja.md` 参照。
 
 ## 5. スライディングウィンドウ分析 (analyze-data)
 

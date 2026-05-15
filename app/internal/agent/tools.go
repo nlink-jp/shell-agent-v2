@@ -154,6 +154,50 @@ func (a *Agent) toolResetAnalysis() (string, error) {
 	return "All tables dropped. Analysis data cleared.", nil
 }
 
+// toolSaveQuery materialises a SELECT result as a new derived
+// base table via Engine.CreateFromQuery. The derived table is
+// then queryable / describable / analyzable through every
+// existing analysis tool because the engine treats it
+// identically to a load-data loaded table. See
+// docs/en/adr/0013-saved-query-tables.md.
+func (a *Agent) toolSaveQuery(argsJSON string) (string, error) {
+	var args struct {
+		SQL         string `json:"sql"`
+		Name        string `json:"name"`
+		Description string `json:"description"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return "", fmt.Errorf("invalid arguments: %w", err)
+	}
+	if args.SQL == "" {
+		return "", fmt.Errorf("sql is required")
+	}
+	if args.Name == "" {
+		return "", fmt.Errorf("name is required")
+	}
+	if a.analysis == nil {
+		return "", fmt.Errorf("no analysis engine")
+	}
+
+	meta, err := a.analysis.CreateFromQuery(args.Name, args.SQL, args.Description)
+	if err != nil {
+		return "", err
+	}
+
+	out := formatTableMeta(meta)
+	// Surface a warning when the derived table exceeds the
+	// analyze-data backstop so the LLM knows to narrow the
+	// filter before chaining analyze-data. The CREATE itself
+	// succeeded — query-sql / describe-data on a >1M-row table
+	// still work — so this is advisory, not an error.
+	if meta.RowCount > int64(analysis.MaxAnalyzeRows) {
+		out += fmt.Sprintf("\n\nNote: %d rows exceeds the analyze-data cap (%d). "+
+			"Narrow the filter further before running analyze-data on %q.",
+			meta.RowCount, analysis.MaxAnalyzeRows, meta.Name)
+	}
+	return out, nil
+}
+
 func (a *Agent) toolPromoteFinding(argsJSON string) (string, error) {
 	var args struct {
 		Content string   `json:"content"`

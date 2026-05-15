@@ -60,6 +60,12 @@ release order.
 - [`ADR-0012`](adr/0012-system-rules.md) — System Rules: user-
   authored Markdown file injected near the top of the system
   prompt; separate from the four memory facilities (v0.7.0)
+- [`ADR-0013`](adr/0013-saved-query-tables.md) — Saved-query
+  derived tables: single `save-query` tool that materialises a
+  SELECT result as a new DuckDB base table; `analyze-data` runs
+  sliding-window analysis on the filtered slice via its existing
+  `table` parameter; no engine schema or bundle-format changes
+  (v0.8.0)
 
 ## History
 

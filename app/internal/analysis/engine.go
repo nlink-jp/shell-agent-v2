@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -18,6 +19,13 @@ import (
 	"github.com/nlink-jp/shell-agent-v2/internal/config"
 	"github.com/nlink-jp/shell-agent-v2/internal/memory"
 )
+
+// identifierRegex matches DuckDB-safe table identifiers: a letter
+// or underscore followed by alphanumerics or underscores. Used by
+// CreateFromQuery to reject names that would force quoting at
+// every reference downstream and could be confused with SQL
+// keywords on the LLM side.
+var identifierRegex = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // TableMeta holds metadata about a loaded table.
 type TableMeta struct {
@@ -222,6 +230,65 @@ func (e *Engine) LoadJSONL(tableName, filePath string) error {
 	}
 
 	return e.refreshTableMeta(tableName)
+}
+
+// CreateFromQuery materialises a SELECT query as a new derived
+// base table. It is the engine-side primitive behind the
+// save-query tool: the LLM provides a filter / projection
+// SELECT and a name, and this method writes the result rows
+// into a fresh CREATE TABLE under that name. See
+// docs/en/adr/0013-saved-query-tables.md.
+//
+// Errors on name collision rather than silent CREATE OR
+// REPLACE: a derived-table name accidentally matching a
+// load-data-loaded table should not destroy the loaded data
+// (ADR §3.1, §6.6). The caller (toolSaveQuery) surfaces three
+// suggested alternative names so the LLM can retry.
+//
+// The body SQL is gated by isReadOnlySQL — only SELECT-shaped
+// statements pass. DDL prefixes that could mutate the schema
+// or load external data are rejected here, the same gate
+// query-sql / quick-summary use.
+func (e *Engine) CreateFromQuery(name, query, description string) (*TableMeta, error) {
+	if !identifierRegex.MatchString(name) {
+		return nil, fmt.Errorf("table name must be alphanumeric and underscores only (starting with a letter or underscore); got: %q", name)
+	}
+	if !isReadOnlySQL(query) {
+		return nil, fmt.Errorf("query must be a SELECT statement; INSERT/UPDATE/DELETE/DROP/etc. are rejected")
+	}
+	if err := e.Open(); err != nil {
+		return nil, err
+	}
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if _, exists := e.tables[name]; exists {
+		return nil, fmt.Errorf("name %q is already in use; try %s_v2, %s_filtered, or %s_derived instead", name, name, name, name)
+	}
+
+	ddl := fmt.Sprintf("CREATE TABLE %s AS %s", sanitizeIdentifier(name), query)
+	if _, err := e.db.Exec(ddl); err != nil {
+		return nil, fmt.Errorf("save query: %w", err)
+	}
+
+	if err := e.refreshTableMeta(name); err != nil {
+		return nil, fmt.Errorf("refresh meta: %w", err)
+	}
+
+	if description != "" {
+		commentSQL := fmt.Sprintf("COMMENT ON TABLE %s IS '%s'",
+			sanitizeIdentifier(name),
+			strings.ReplaceAll(description, "'", "''"))
+		if _, err := e.db.Exec(commentSQL); err != nil {
+			return nil, fmt.Errorf("set description: %w", err)
+		}
+		if meta, ok := e.tables[name]; ok {
+			meta.Description = description
+		}
+	}
+
+	return e.tables[name], nil
 }
 
 // validateFilePath ensures the path exists, is a regular file, and contains

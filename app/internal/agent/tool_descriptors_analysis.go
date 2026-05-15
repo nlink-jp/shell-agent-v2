@@ -346,8 +346,38 @@ func (a *Agent) analysisDescriptors() []ToolDescriptor {
 			}),
 		},
 		{
+			Name:        "save-query",
+			Description: "Run a SELECT query and save its result as a new derived table for further analysis. Use this when you want to analyze-data over a filtered subset (e.g. WHERE status='failed' AND ts >= '2026-05-01') — save-query the filter, then pass the new table name to analyze-data. The derived table appears in list-tables alongside loaded tables. Errors on name collision to avoid accidentally overwriting a loaded table; if collision happens, pick a fresh name with a suffix like _v2, _filtered, or _derived.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"sql": map[string]any{
+						"type":        "string",
+						"description": "SELECT statement defining the rows to save",
+					},
+					"name": map[string]any{
+						"type":        "string",
+						"description": "Name for the new table (alphanumeric and underscores only, starts with a letter or underscore)",
+					},
+					"description": map[string]any{
+						"type":        "string",
+						"description": "Optional purpose description, shown in describe-data later",
+					},
+				},
+				"required": []string{"sql", "name"},
+			},
+			Category:             "write",
+			Source:               "analysis",
+			MITLDefault:          true,
+			MITLCategoryOverride: "sql_preview",
+			HideUntilDataLoaded:  true,
+			Handle: wrapErrHandler(func(_ context.Context, args string) (string, error) {
+				return a.toolSaveQuery(args)
+			}),
+		},
+		{
 			Name:        "analyze-data",
-			Description: "Run deep sliding-window analysis on a loaded table — the agent processes data in chunks, asking the LLM to surface findings on each window, accumulating them, and building a comprehensive summary grouped by severity. Returns a markdown report. Heaviest of the analysis tools (multiple LLM calls). Use this when the user wants a thorough audit-style review (e.g. 'find anomalies', 'summarise this dataset's risks'); for a one-shot SQL + summary, use quick-summary; for brainstorming angles only, use suggest-analysis.",
+			Description: "Run deep sliding-window analysis on a loaded table — the agent processes data in chunks, asking the LLM to surface findings on each window, accumulating them, and building a comprehensive summary grouped by severity. Returns a markdown report. Heaviest of the analysis tools (multiple LLM calls). Use this when the user wants a thorough audit-style review (e.g. 'find anomalies', 'summarise this dataset's risks'); for a one-shot SQL + summary, use quick-summary; for brainstorming angles only, use suggest-analysis. For filtered analysis, use `save-query` first to materialise a SELECT result as a derived table, then pass that table's name here.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
