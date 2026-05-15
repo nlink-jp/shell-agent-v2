@@ -5,6 +5,48 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.7.0] - 2026-05-15
+
+Adds **System Rules** — a user-authored Markdown file that
+injects standing instructions into every session's system
+prompt. Separate from the four memory facilities; the
+`AGENTS.md` / `CLAUDE.md` analogue for shell-agent-v2.
+
+### Added
+
+- **System Rules.** New **Settings → System Rules** section with
+  a Markdown textarea, live `chars · ~tokens` counter, and a
+  colour-coded advisory (green / yellow / red) when the rules
+  consume `< 5%`, `5–20%`, or `≥ 20%` of the active backend's
+  context budget. Stored at
+  `~/Library/Application Support/shell-agent-v2/system_rules.md`
+  as plain UTF-8 Markdown — no frontmatter, no schema — and
+  written atomically via `internal/atomicio`. Hot-reloaded on
+  Save (the next turn picks up the new content automatically);
+  external editor edits are picked up by **Reload from disk** or
+  by the next chat message. Injected near the top of the system
+  prompt, between the base prompt and the temporal context,
+  wrapped in `<system_rules>…</system_rules>`. Empty / missing
+  rules → byte-identical system prompt to v0.6.6. Saving an
+  edit that clears the rules also surfaces an advisory in the
+  Settings panel: existing chats may keep mirroring earlier
+  response patterns due to in-context history conditioning even
+  though the system prompt no longer carries the rule — start a
+  new chat to verify the change. See
+  [`docs/en/adr/0012-system-rules.md`](docs/en/adr/0012-system-rules.md)
+  and
+  [`docs/en/reference/system-rules.md`](docs/en/reference/system-rules.md).
+
+### Changed
+
+- `chat.Engine.BuildSystemPrompt` gains a fourth parameter
+  `systemRules` (internal API; not user-facing). System Rules
+  flow into the system prompt the same way the three memory
+  channels already do — as a function parameter snapshotted by
+  the agent under `a.mu`, not as a shared engine field. This
+  matches the existing pattern and keeps the engine race-free
+  under live Settings updates.
+
 ## [0.6.6] - 2026-05-14
 
 Bug-fix release: MITL rejection-reason input ate IME conversion
