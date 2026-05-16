@@ -247,4 +247,6 @@ export interface ObjectInfo {
     created_at: string;
     session_id: string;
     size: number;
+    lines?: number;
+    tokens?: number;
 }

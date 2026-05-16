@@ -54,6 +54,7 @@ declare global {
                     DeleteObjects(ids: string[]): Promise<number>;
                     ExportObject(id: string): Promise<void>;
                     GetObjectText(id: string): Promise<string>;
+                    GetObjectMeta(id: string): Promise<ObjectInfo>;
                     GetSettings(): Promise<Settings>;
                     SaveSettings(s: Settings): Promise<void>;
                     GetSandboxImageStatus(): Promise<SandboxImageStatus>;

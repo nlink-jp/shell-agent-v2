@@ -6,6 +6,7 @@ import rehypeHighlight from 'rehype-highlight'
 import rehypeKatex from 'rehype-katex'
 import ChatInput, {type PendingAttachment} from './ChatInput'
 import ObjectImage, {clearObjectCache} from './ObjectImage'
+import {clearObjectMetaCache} from './markdown/objectMarkdown'
 import DataDisclosure from './DataDisclosure'
 import FindingsDisclosure from './FindingsDisclosure'
 import MessageItem from './components/MessageItem'
@@ -509,7 +510,8 @@ function App() {
 
     const handleLoadSession = useCallback(async (id: string) => {
         if (window.go && state === 'idle' && bgTasks.length === 0) {
-            clearObjectCache() // clear image cache on session switch
+            clearObjectCache()      // image data URLs
+            clearObjectMetaCache()  // object metadata (ADR-0014)
             const msgs = await window.go.main.Bindings.LoadSession(id)
             setCurrentSessionId(id)
             setMessages(restoredMessages(msgs))
