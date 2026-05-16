@@ -6,8 +6,11 @@
 // This means new bundled tools added in a release ship to existing users,
 // while their edits are preserved.
 //
-// The "examples/" subdirectory is intentionally not auto-installed —
-// example scripts are reference material the user copies in deliberately.
+// Optional example scripts (web-search, generate-image, search-kb-*)
+// live under examples/shell_tools/ at the repo root rather than here.
+// They are not embedded in the binary on purpose — users who want them
+// copy from the repository into their own tools/ directory, the same
+// way they'd write a new shell tool of their own.
 package bundled
 
 import (
@@ -36,9 +39,6 @@ func Install(targetDir string) ([]string, error) {
 	}
 	var installed []string
 	for _, e := range entries {
-		if e.IsDir() {
-			continue // skip examples/
-		}
 		name := e.Name()
 		if !strings.HasSuffix(name, ".sh") {
 			continue
@@ -69,9 +69,6 @@ func List() []string {
 	}
 	var out []string
 	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
 		if strings.HasSuffix(e.Name(), ".sh") {
 			out = append(out, e.Name())
 		}

@@ -46,3 +46,10 @@ A good example:
    lines.
 
 Open a PR adding the new file plus a row in the table above.
+
+---
+
+Sibling library: [`../shell_tools/`](../shell_tools/) — same
+pattern, but for opt-in shell-tool scripts that go into
+`<dataDir>/tools/` instead of `system_rules.md`. Parent
+catalogue: [`../README.md`](../README.md).

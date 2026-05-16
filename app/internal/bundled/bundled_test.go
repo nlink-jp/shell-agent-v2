@@ -1,7 +1,6 @@
 package bundled
 
 import (
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -78,37 +77,46 @@ func TestInstall_PreservesUserEdits(t *testing.T) {
 	}
 }
 
-func TestInstall_SkipsExamplesDir(t *testing.T) {
-	dir := t.TempDir()
-	if _, err := Install(dir); err != nil {
-		t.Fatalf("Install: %v", err)
+// TestRepoRootExamples_HaveToolHeader scans the optional shell-tool
+// examples shipped at examples/shell_tools/ in the repository root
+// (out-of-binary on purpose; see package doc). Each script must
+// carry the @tool: header that the agent's tool-loader recognises,
+// otherwise a user who copies it into <dataDir>/tools/ would end up
+// with a script the registry can't surface.
+//
+// Skipped when run outside a repo checkout (the binary itself
+// doesn't carry these files).
+func TestRepoRootExamples_HaveToolHeader(t *testing.T) {
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "examples")); !os.IsNotExist(err) {
-		t.Errorf("examples/ should not be auto-installed; stat err=%v", err)
+	// The test file lives at app/internal/bundled/; the repo root
+	// is three levels up.
+	exDir := filepath.Join(wd, "..", "..", "..", "examples", "shell_tools")
+	if _, err := os.Stat(exDir); err != nil {
+		t.Skipf("examples/shell_tools/ not found at %s — skipping (running outside repo?)", exDir)
 	}
-}
-
-func TestExamples_AreReadableAndHaveToolHeader(t *testing.T) {
-	examples := []string{
-		"examples/web-search.sh",
-		"examples/generate-image.sh",
-		"examples/search-kb-gem.sh",
-		"examples/search-kb-lite.sh",
+	entries, err := os.ReadDir(exDir)
+	if err != nil {
+		t.Fatalf("read examples dir: %v", err)
 	}
-	for _, name := range examples {
-		f, err := Open(name)
-		if err != nil {
-			t.Errorf("Open(%q): %v", name, err)
+	count := 0
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".sh") {
 			continue
 		}
-		data, err := io.ReadAll(f)
-		f.Close()
+		count++
+		data, err := os.ReadFile(filepath.Join(exDir, e.Name()))
 		if err != nil {
-			t.Errorf("read %q: %v", name, err)
+			t.Errorf("read %s: %v", e.Name(), err)
 			continue
 		}
 		if !strings.Contains(string(data), "@tool:") {
-			t.Errorf("%s: missing @tool: header", name)
+			t.Errorf("%s: missing @tool: header", e.Name())
 		}
+	}
+	if count == 0 {
+		t.Error("examples/shell_tools/ contained no .sh files — expected at least the four bundled examples")
 	}
 }

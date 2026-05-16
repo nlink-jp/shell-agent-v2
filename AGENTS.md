@@ -62,8 +62,9 @@ shell-agent-v2/
 │   ├── build/               # macOS app assets
 │   ├── wails.json
 │   └── Makefile
-├── tools/                   # Shell tool scripts (list-files, weather, write-note, etc.)
-│   └── examples/            # Optional tools (web-search, generate-image, search-kb-gem, search-kb-lite)
+├── examples/                # Opt-in templates / scripts (not embedded in binary)
+│   ├── system_rules/        # Standing-instruction templates for <dataDir>/system_rules.md
+│   └── shell_tools/         # Optional shell tools (web-search, generate-image, search-kb-gem, search-kb-lite)
 ├── docs/
 │   ├── en/                  # Design documents (authoritative)
 │   │   ├── agent-data-flow.md   # Agent loop, context budget, MITL, events
@@ -133,15 +134,22 @@ shell-agent-v2/
   embedded via `go:embed`. `bundled.Install` copies any missing
   file into `cfg.Tools.ScriptDir` on startup so new bundled
   scripts ship to existing users automatically; user-edited
-  files are never overwritten. `examples/` is intentionally
-  excluded.
+  files are never overwritten.
 - Defaults: `file-info`, `preview-file`, `list-files`, `weather`,
   `get-location`, `write-note`.
+- Optional shell-tool examples live at the repo root under
+  [`examples/shell_tools/`](examples/shell_tools/) — out of the
+  binary on purpose. They wrap companion CLIs that the user must
+  install separately (`gem-search`, `gem-image`, `gem-rag`,
+  `lite-rag`), so auto-installing would clutter
+  Settings → Tools with permanent errors for users who haven't
+  installed the companion. The structural test
+  `internal/bundled.TestRepoRootExamples_HaveToolHeader` keeps
+  every example syntactically valid.
 - Each script declares its execution timeout via `@timeout: N`
   (positive integer of seconds). Default is 30 if omitted; bundled
-  scripts spell out `30` for discoverability and `examples/web-search`,
-  `examples/generate-image`, `examples/search-kb-gem`, and
-  `examples/search-kb-lite` use `120` because `gem-search` /
+  scripts spell out `30` for discoverability and the four
+  `examples/shell_tools/` scripts use `120` because `gem-search` /
   `gem-image` / `gem-rag` / `lite-rag` round-trips routinely exceed
   30s (RAG ones are bottlenecked by embedding + LLM answer
   generation). See
