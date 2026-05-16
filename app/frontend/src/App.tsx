@@ -1,12 +1,12 @@
-import {useState, useEffect, useRef, useCallback} from 'react'
-import ReactMarkdown, {defaultUrlTransform} from 'react-markdown'
+import {useState, useEffect, useRef, useCallback, useMemo} from 'react'
+import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import rehypeHighlight from 'rehype-highlight'
 import rehypeKatex from 'rehype-katex'
 import ChatInput, {type PendingAttachment} from './ChatInput'
 import ObjectImage, {clearObjectCache} from './ObjectImage'
-import {clearObjectMetaCache} from './markdown/objectMarkdown'
+import {urlTransform, objectComponents, clearObjectMetaCache} from './markdown/objectMarkdown'
 import DataDisclosure from './DataDisclosure'
 import FindingsDisclosure from './FindingsDisclosure'
 import MessageItem from './components/MessageItem'
@@ -41,19 +41,13 @@ import type {
 } from './types'
 
 // Module-scope stable references avoid re-instantiating plugin
-// arrays on every render — used by the report-viewer overlay's
-// ReactMarkdown. MessageItem keeps its own copy.
+// arrays on every render — used by the streaming markdown block
+// and the cmd-popup overlay. Both pull urlTransform +
+// objectComponents from the shared markdown/objectMarkdown
+// module (ADR-0014) so object: rendering is consistent with
+// MessageItem and ReportViewer.
 const MD_REMARK_PLUGINS = [remarkGfm, remarkMath]
 const MD_REHYPE_PLUGINS = [rehypeHighlight, rehypeKatex]
-
-// Allow object: protocol through ReactMarkdown URL sanitization.
-// MessageItem has its own copy because it lives in a separate
-// module; this one is for App-internal markdown blocks (cmd-popup,
-// report-viewer overlay).
-function urlTransform(url: string): string {
-    if (url.startsWith('object:')) return url
-    return defaultUrlTransform(url)
-}
 
 function nowTime(): string {
     return new Date().toLocaleTimeString('en-GB', {hour: '2-digit', minute: '2-digit', second: '2-digit'})
@@ -108,6 +102,15 @@ function App() {
     const [lightboxImage, setLightboxImage] = useState<string | null>(null)
     const [blobPreview, setBlobPreview] = useState<BlobPreviewData | null>(null)
     const [expandedReport, setExpandedReport] = useState<ExpandedReport | null>(null)
+    // Shared object-aware ReactMarkdown components map used by the
+    // streaming bubble and the cmd-popup. MessageItem and
+    // ReportViewer assemble their own (the callbacks live there);
+    // all three call sites delegate to objectMarkdown.tsx so the
+    // override surface stays in one place (ADR-0014).
+    const markdownComponents = useMemo(
+        () => objectComponents({onLightbox: setLightboxImage, onExpandReport: setExpandedReport}),
+        [],
+    )
     // Tool-event detail overlay: holds the tool_call_id for the
     // bubble the user just clicked. The dialog itself fetches the
     // args + result via GetToolCallDetails, so App only needs the id.
@@ -869,7 +872,7 @@ function App() {
                                 <span className="message-role">assistant</span>
                             </div>
                             <div className="message-content">
-                                <ReactMarkdown remarkPlugins={MD_REMARK_PLUGINS} rehypePlugins={MD_REHYPE_PLUGINS} urlTransform={urlTransform}>
+                                <ReactMarkdown remarkPlugins={MD_REMARK_PLUGINS} rehypePlugins={MD_REHYPE_PLUGINS} urlTransform={urlTransform} components={markdownComponents}>
                                     {streaming}
                                 </ReactMarkdown>
                             </div>
@@ -884,7 +887,7 @@ function App() {
                             <button onClick={() => setCmdResult(null)}>&#x2715;</button>
                         </div>
                         <div className="cmd-popup-body">
-                            <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeHighlight, rehypeKatex]}>
+                            <ReactMarkdown remarkPlugins={MD_REMARK_PLUGINS} rehypePlugins={MD_REHYPE_PLUGINS} urlTransform={urlTransform} components={markdownComponents}>
                                 {cmdResult}
                             </ReactMarkdown>
                         </div>
@@ -984,6 +987,7 @@ function App() {
                     report={expandedReport}
                     onClose={() => setExpandedReport(null)}
                     onLightbox={setLightboxImage}
+                    onExpandReport={setExpandedReport}
                     onSaveReport={(content, filename) => window.go?.main.Bindings.SaveReport(content, filename)}
                 />
             )}

@@ -13,7 +13,11 @@
 // Design: docs/en/adr/0014-object-link-rendering.md §3.1
 
 import {useEffect, useRef, useState} from 'react'
+import type {ReactNode} from 'react'
 import {defaultUrlTransform} from 'react-markdown'
+import type {Components} from 'react-markdown'
+import ObjectImage from '../ObjectImage'
+import ObjectLink from '../ObjectLink'
 import type {ObjectInfo} from '../types'
 
 // urlTransform passes `object:` URLs through ReactMarkdown's
@@ -102,4 +106,108 @@ export function useObjectMeta(id: string): {
     }, [id])
 
     return {meta, loading: !meta && !error, error}
+}
+
+// FactoryOpts captures the callbacks the override components
+// need. The factory is invoked from every ReactMarkdown site
+// inside a useMemo so the components reference is stable across
+// renders, otherwise ReactMarkdown would re-parse the message
+// on every parent re-render.
+interface FactoryOpts {
+    onLightbox: (src: string) => void;
+    onExpandReport: (r: {title: string; content: string}) => void;
+}
+
+// objectComponents builds the ReactMarkdown components map with
+// object:-aware img and a overrides. Both forms normalise to the
+// referenced object's actual type: an `![alt](object:ID)` where
+// ID is a markdown document renders as a chip (not a broken-image
+// glyph), and a `[label](object:ID)` where ID is an image renders
+// inline (not a dead anchor). The LLM-supplied label / alt is
+// preserved as the visible text in either case.
+//
+// Design: docs/en/adr/0014-object-link-rendering.md §3.1.2 / §3.1.3
+export function objectComponents(opts: FactoryOpts): Components {
+    const {onLightbox, onExpandReport} = opts
+    return {
+        img: ({src, alt}) => {
+            if (typeof src === 'string' && src.startsWith('object:')) {
+                return (
+                    <ObjectRef
+                        id={src.slice(7)}
+                        label={alt || ''}
+                        onLightbox={onLightbox}
+                        onExpandReport={onExpandReport}
+                    />
+                )
+            }
+            return (
+                <img
+                    src={src}
+                    alt={alt || ''}
+                    className="message-image"
+                    onClick={() => { if (typeof src === 'string') onLightbox(src) }}
+                />
+            )
+        },
+        a: ({href, children}) => {
+            if (typeof href === 'string' && href.startsWith('object:')) {
+                return (
+                    <ObjectRef
+                        id={href.slice(7)}
+                        label={children}
+                        onLightbox={onLightbox}
+                        onExpandReport={onExpandReport}
+                    />
+                )
+            }
+            return <a href={href} target="_blank" rel="noreferrer">{children}</a>
+        },
+    }
+}
+
+// ObjectRef is the shared dispatch point for an `object:` URL —
+// the same logic backs the `img` and `a` overrides. Resolves
+// the meta once, then renders ObjectImage for image-type IDs
+// (data URL → inline <img> + lightbox affordance) or
+// ObjectLink for everything else (markdown / report / blob chip
+// with a type-appropriate click handler).
+//
+// Type-mismatched LLM input is normalised here: `![…](object:ID)`
+// where ID is a markdown document falls through to the chip
+// branch, and `[…](object:ID)` where ID is an image falls through
+// to the inline-image branch. Either way, the LLM's `alt` /
+// link-children text is preserved as the visible label.
+function ObjectRef({id, label, onLightbox, onExpandReport}: {
+    id: string;
+    label: ReactNode;
+    onLightbox: (src: string) => void;
+    onExpandReport: (r: {title: string; content: string}) => void;
+}) {
+    const {meta, loading, error} = useObjectMeta(id)
+
+    if (loading) {
+        return <span className="object-loading">Loading…</span>
+    }
+    if (error || !meta) {
+        const labelText = typeof label === 'string' && label.trim()
+            ? label
+            : id.slice(0, 8)
+        return (
+            <span className="object-error object-link-missing" title={`Object ${id} not found`}>
+                {labelText}
+            </span>
+        )
+    }
+    if (meta.type === 'image') {
+        const alt = typeof label === 'string' ? label : ''
+        return <ObjectImage id={id} alt={alt} onClick={onLightbox} />
+    }
+    return (
+        <ObjectLink
+            meta={meta}
+            label={label}
+            onExpandReport={onExpandReport}
+        />
+    )
 }

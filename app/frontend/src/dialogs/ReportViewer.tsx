@@ -1,31 +1,37 @@
 // ReportViewer is the full-screen markdown overlay for a stored
 // report. Renders the same content the inline report card shows,
 // but with more space and a sticky header for Copy / Save / Close.
+//
+// onExpandReport is invoked when the user clicks an inline
+// [name](object:ID) chip whose target is a markdown / report —
+// the current view is replaced (intentional v0.9.0 behaviour;
+// ADR-0014 §4.3 documents the no-back-stack decision).
 
-import ReactMarkdown, {defaultUrlTransform} from 'react-markdown'
+import {useMemo} from 'react'
+import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import rehypeHighlight from 'rehype-highlight'
 import rehypeKatex from 'rehype-katex'
-import ObjectImage from '../ObjectImage'
+import {urlTransform, objectComponents} from '../markdown/objectMarkdown'
 import type {ExpandedReport} from '../types'
 
 const REMARK_PLUGINS = [remarkGfm, remarkMath]
 const REHYPE_PLUGINS = [rehypeHighlight, rehypeKatex]
 
-function urlTransform(url: string): string {
-    if (url.startsWith('object:')) return url
-    return defaultUrlTransform(url)
-}
-
 interface Props {
     report: ExpandedReport;
     onClose: () => void;
-    onLightbox: (url: string) => void;
+    onLightbox: (src: string) => void;
+    onExpandReport: (r: {title: string; content: string}) => void;
     onSaveReport: (content: string, filename: string) => void;
 }
 
-export default function ReportViewer({report, onClose, onLightbox, onSaveReport}: Props) {
+export default function ReportViewer({report, onClose, onLightbox, onExpandReport, onSaveReport}: Props) {
+    const components = useMemo(
+        () => objectComponents({onLightbox, onExpandReport}),
+        [onLightbox, onExpandReport],
+    )
     return (
         <div className="report-overlay" onClick={onClose}>
             <div className="report-fullscreen" onClick={e => e.stopPropagation()}>
@@ -42,13 +48,7 @@ export default function ReportViewer({report, onClose, onLightbox, onSaveReport}
                         remarkPlugins={REMARK_PLUGINS}
                         rehypePlugins={REHYPE_PLUGINS}
                         urlTransform={urlTransform}
-                        components={{img: ({src, alt}) => {
-                            if (src?.startsWith('object:')) {
-                                const id = src.slice(7)
-                                return <ObjectImage id={id} alt={alt || ''} onClick={onLightbox} />
-                            }
-                            return <img src={src} alt={alt || ''} className="message-image" onClick={() => src && onLightbox(src)} />
-                        }}}
+                        components={components}
                     >
                         {report.content}
                     </ReactMarkdown>

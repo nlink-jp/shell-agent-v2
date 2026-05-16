@@ -62,3 +62,55 @@
     background: #2f4054;
 }
 
+/* ADR-0014: inline chip rendered when markdown contains a
+   non-image object reference, i.e. [label](object:ID) where the
+   ID resolves to TypeMarkdown / TypeReport / TypeBlob. The chip
+   flows inline within the surrounding paragraph (vertical-align
+   keeps it on the text baseline) and click dispatches to the
+   ReportViewer (markdown / report) or save dialog (blob). */
+.object-link-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 8px;
+    margin: 0 2px;
+    background: #2a3a4a;
+    border: 1px solid #3a4a5a;
+    border-radius: 4px;
+    font-size: 13px;
+    color: #cccccc;
+    cursor: pointer;
+    font-family: inherit;
+    vertical-align: baseline;
+    line-height: 1.4;
+    max-width: 280px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.object-link-chip:hover {
+    border-color: #5a8abf;
+    background: #2f4054;
+}
+
+.object-link-icon {
+    font-size: 12px;
+    flex-shrink: 0;
+}
+
+.object-link-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Muted variant for chips whose object id no longer resolves
+   (deleted, foreign-session, or otherwise missing). The chip
+   stays visible so the report's structure isn't disrupted, but
+   the muted styling signals "click does nothing useful". */
+.object-link-missing {
+    opacity: 0.6;
+    cursor: default;
+}
+

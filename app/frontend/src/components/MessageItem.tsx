@@ -4,22 +4,14 @@
 // huge ReactMarkdown blocks that are slow to re-parse.
 
 import {memo, useMemo} from 'react'
-import ReactMarkdown, {defaultUrlTransform} from 'react-markdown'
+import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import rehypeHighlight from 'rehype-highlight'
 import rehypeKatex from 'rehype-katex'
 import ObjectImage from '../ObjectImage'
+import {urlTransform, objectComponents} from '../markdown/objectMarkdown'
 import type {ChatMessage} from '../types'
-
-// Allow object: protocol through ReactMarkdown URL sanitization.
-// ReactMarkdown v10 defaultUrlTransform strips non-http/https/mailto
-// protocols. object: URLs are resolved by ObjectImage component via
-// img component override.
-function urlTransform(url: string): string {
-    if (url.startsWith('object:')) return url
-    return defaultUrlTransform(url)
-}
 
 // Module-scope stable references avoid re-instantiating plugin
 // arrays on every render — otherwise ReactMarkdown sees new props
@@ -75,15 +67,13 @@ async function openDocumentAttachment(
 }
 
 const MessageItem = memo(function MessageItem({msg, onLightbox, onExpandReport, onToolEventClick}: MessageItemProps) {
-    const components = useMemo(() => ({
-        img: ({src, alt}: {src?: string; alt?: string}) => {
-            if (src?.startsWith('object:')) {
-                const id = src.slice(7)
-                return <ObjectImage id={id} alt={alt || ''} onClick={onLightbox} />
-            }
-            return <img src={src} alt={alt || ''} className="message-image" onClick={() => src && onLightbox(src)} />
-        },
-    }), [onLightbox])
+    // Single object-aware override surface shared with every other
+    // ReactMarkdown site (ADR-0014). useMemo keeps the reference
+    // stable so ReactMarkdown doesn't re-parse on each render.
+    const components = useMemo(
+        () => objectComponents({onLightbox, onExpandReport}),
+        [onLightbox, onExpandReport],
+    )
 
     if (msg.role === 'tool-event') {
         const cls = msg.status === 'running' ? 'running'
