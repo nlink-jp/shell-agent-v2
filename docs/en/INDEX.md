@@ -74,6 +74,14 @@ release order.
   object-aware markdown defaults to retire 3-site parallel-list
   drift; codifies the `Image`/`Document` anchor input-only rule
   (v0.9.0)
+- [`ADR-0015`](adr/0015-deferred-extraction-send.md) — Deferred
+  extraction + single-slot send queue: UI unlocks immediately
+  after the response is delivered while `extractMemories` keeps
+  running in background; a SEND issued during background
+  extraction is queued single-slot and auto-fires once
+  extraction completes, so the next turn's `BuildSystemPrompt`
+  always sees the prior turn's facts. Zero fact loss, no
+  abort — only the UI gate changes (v0.11.0)
 
 ## History
 
