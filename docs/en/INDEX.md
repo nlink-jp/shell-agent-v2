@@ -66,6 +66,14 @@ release order.
   sliding-window analysis on the filtered slice via its existing
   `table` parameter; no engine schema or bundle-format changes
   (v0.8.0)
+- [`ADR-0014`](adr/0014-object-link-rendering.md) — Object-link
+  rendering: symmetric `a`-component override for
+  `[name](object:ID)` previews matching the existing `img`
+  override; new `ObjectLink` component + `GetObjectMeta` binding;
+  type-aware `resolveObjectRefsForExport`; centralised
+  object-aware markdown defaults to retire 3-site parallel-list
+  drift; codifies the `Image`/`Document` anchor input-only rule
+  (v0.9.0)
 
 ## History
 

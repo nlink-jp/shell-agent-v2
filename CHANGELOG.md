@@ -5,6 +5,108 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.9.0] - 2026-05-16
+
+Teaches the renderer that `[title](object:ID)` is a first-class
+reference shape — alongside the existing `![alt](object:ID)` —
+so the LLM can cite markdown / report / blob objects in chat
+and in reports and get a clickable preview chip instead of a
+dead anchor. Also collapses six parallel-list ReactMarkdown
+override sites into a single source of truth, and stops the
+export resolver from inlining non-image objects as broken
+`data:text/markdown` URLs. See ADR-0014.
+
+### Added
+
+- **`[title](object:ID)` rendering.** Markdown links pointing at
+  `TypeMarkdown` / `TypeReport` / `TypeBlob` objects now render
+  as inline chips. Click on a markdown / report chip opens the
+  linked content in the existing ReportViewer; click on a blob
+  chip surfaces the OS save-as dialog (existing
+  `Bindings.ExportObject` path). LLM-supplied link text is
+  preserved as the chip label, falling back to the object's
+  `OrigName` and finally to a short ID prefix. The same chip
+  acts as a graceful fallback for type-mismatched LLM input
+  (e.g. `![alt](object:markdownID)` no longer shows a
+  broken-image glyph).
+- **`Bindings.GetObjectMeta(id)`** Wails binding returns one
+  object's `ObjectInfo` (or an error if unknown). Used by the
+  frontend to discriminate type at render time. Shares the new
+  `objectInfoFromMeta` helper with `ListObjects` /
+  `GetSessionObjects` so all three surfaces agree on field
+  mapping and `CreatedAt` format.
+- **`ObjectLink` component** (`frontend/src/ObjectLink.tsx`) —
+  sibling of `ObjectImage`. Holds the chip rendering and the
+  per-type click dispatch.
+- **Centralised markdown defaults** (`frontend/src/markdown/
+  objectMarkdown.tsx`) — `urlTransform`, `useObjectMeta` hook
+  (with shared in-memory cache + concurrent-fetch dedupe),
+  `clearObjectMetaCache`, and the `objectComponents` factory
+  consumed by every ReactMarkdown site. Six prior parallel-list
+  sites (MessageItem ×3, App.tsx ×2, ReportViewer ×1) now
+  import from this module; adding future overrides is a single
+  edit.
+- **Object reference conventions section** in
+  `docs/{en,ja}/reference/architecture.md` codifies the five
+  rules (Image / Document anchors are INPUT-only; the LLM cites
+  images with `![alt](object:ID)`, documents with
+  `[title](object:ID)`; reports never gain document anchors
+  retroactively).
+- **ADR-0014** (`docs/{en,ja}/adr/0014-object-link-rendering.md`)
+  records the rationale, the five rejected alternatives (notably
+  the `{{embed:object:ID}}` transclusion directive), the
+  behaviour matrix, and the per-commit phasing.
+
+### Fixed
+
+- **Export resolver type-blindness** (`bindings.go:
+  resolveObjectRefsForExport`). Pre-fix, exporting a report
+  containing `[name](object:markdownID)` rewrote the link's
+  `href` to a kilobyte-long `data:text/markdown;base64,…` blob
+  that no external markdown reader can dereference. Post-fix,
+  only `TypeImage` IDs are inlined as `data:` URLs — markdown /
+  report / blob refs keep their `object:` href, which
+  re-resolves cleanly on re-import.
+- **`(object:ID)` scan loop hazard.** The prior implementation
+  rescanned from index zero on every iteration; non-image
+  matches no longer mutate the slice, so a forward-walking
+  cursor is now used. Unknown IDs still get the `missing-object:`
+  annotation but advance the cursor explicitly to guarantee
+  termination.
+
+### Changed
+
+- **`Bindings.ListObjects` / `Bindings.GetSessionObjects`** now
+  delegate field mapping to the new `objectInfoFromMeta` helper.
+  No external behaviour change.
+- **`ReportViewer` accepts `onExpandReport`.** Required so a
+  nested `[name](object:ID)` chip click inside a viewed report
+  replaces the visible report content. No back-stack — clicking
+  a chain deep into report ↔ document references simply replays
+  through `App.tsx`'s `expandedReport` state.
+- **`create-report` tool description** ends with one new
+  sentence telling the LLM the new reference syntax.
+- **System prompt** (`internal/agent/agent.go:defaultSystemPrompt`)
+  gains a fourth item under "To reference objects" covering
+  `[title](object:ID)`, and the long-standing input-only
+  prohibition on `Image (object ID: …):` is extended to cover
+  the symmetric `Document (object ID: …, name: …, N tokens):`
+  anchor.
+
+### Compatibility
+
+- **No breaking changes.** Existing stored reports render
+  identically; the change only affects markdown forms previously
+  unsupported by the renderer.
+- **No migration scripts.** No schema changes. The `.shellagent`
+  export / import bundle format is unchanged (the objstore is
+  carried verbatim; refs in `chat.json` resolve through the same
+  rewriting pass).
+- **Exported `.md` files from older versions** that contain
+  `[name](data:text/markdown;base64,…)` (the v0.8.0 broken
+  output) are not retroactively repaired — future exports
+  produce the clean form.
+
 ## [0.8.0] - 2026-05-15
 
 Adds **`save-query`** — a one-tool path from "I want a filter" to

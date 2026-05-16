@@ -310,6 +310,53 @@ session 削除は `sessions/<id>/` ディレクトリ全体に加え、その
 スロットを通じて書き換えられる。プライバシーフラグは逐語保持。
 詳細設計: [`ADR-0001`](../adr/0001-session-import-export.ja.md)。
 
+### オブジェクト参照規約
+
+オブジェクトは 2 方向で参照される — LLM の入力と LLM の出力。
+両者は別シェイプを使うべきで、混同するのが ADR-0014 が
+コードベースから一掃したバグ。規約:
+
+1. **`Image (object ID: ID):`** — ユーザー添付画像の入力専用
+   アンカー。`llm.imageIDPrefix` が user メッセージテキストに
+   prepend、モデルが ID と画像パートを隣接して見られるように
+   する。LLM は自分の出力で決してこの形を emit してはいけない
+   — 画像として描画されない。チャットやレポートで画像を引用
+   するには規約 3。
+2. **`Document (object ID: ID, name: NAME, N tokens):`** —
+   ユーザー添付 markdown / テキストの入力専用アンカー。
+   `llm.PrependDocumentAnchors`
+   (`internal/contextbuild/render.go:85`) が user メッセージ
+   テキストに prepend する。規約 1 と同じく入力専用; ドキュメント
+   を出力で引用するには規約 4。
+3. **`![alt](object:ID)`** — インライン画像用 LLM 出力。
+   `<ObjectImage>` (データ URL → `<img>` + lightbox) として
+   描画される。ID が非画像型に解決される場合、レンダラは規約 4
+   のチップに退化する — 壊れた画像アイコンは出さない。
+4. **`[title](object:ID)`** — インラインドキュメント /
+   レポート / blob 参照用 LLM 出力。`ObjectLink` コンポーネント
+   経由でクリック可能なチップとして描画される。クリックで
+   markdown / report は `GetObjectText` → `ReportViewer`、
+   blob は `ExportObject` 保存ダイアログ。ID が画像型に解決
+   される場合、レンダラはインライン `<ObjectImage>` に退化する
+   — 死んだリンクは出さない。
+5. **レポートに遡って document anchor を付与しない。**
+   `Role: "report"` レコードはレポート本文を完全インライン化
+   して持つ (`tools.go:374-382` の pending-report append)。
+   アンカーは LLM がメッセージテキストで見られないコンテンツの
+   代理 — レポートは可視なので代理は不要。`Role: "report"`
+   レコードに `DocumentIDs` を追加するコードパスは無いし、今後も
+   作らない。
+
+規約 1 / 2 は `internal/llm.imageIDPrefix` と
+`internal/llm.PrependDocumentAnchors` が生成。規約 3 / 4 は
+`frontend/src/markdown/objectMarkdown.tsx` (`objectComponents`
+factory) と兄弟 `ObjectLink` / `ObjectImage` コンポーネントが
+honour する。エクスポートリゾルバ
+(`bindings.go:resolveObjectRefsForExport`) も型認識で対応 —
+画像は `data:` URL で self-contained エクスポート、非画像は
+`object:` href のまま残し、再インポート時にクリーンに解決する。
+詳細設計: [`ADR-0014`](../adr/0014-object-link-rendering.ja.md)。
+
 ## 7. LLM バックエンド
 
 `internal/llm.Backend` 共通インタフェース実装:

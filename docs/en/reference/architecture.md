@@ -341,6 +341,55 @@ are rewritten through the same `agent.Mu`-gated state-machine
 slot. Privacy flag is preserved verbatim. Full design:
 [`ADR-0001`](../adr/0001-session-import-export.md).
 
+### Object reference conventions
+
+Objects are referenced in two directions — into the LLM's input
+and out of the LLM's output. The two surfaces use distinct
+shapes; collapsing them is the bug ADR-0014 codified out of the
+codebase. The rules:
+
+1. **`Image (object ID: ID):`** — input-only anchor for
+   user-attached images, prepended to the user-message text by
+   `llm.imageIDPrefix` so the model sees the ID adjacent to the
+   image part. The LLM must never emit this form in its own
+   output — it does not render as an image. To cite or surface
+   an image in chat or in a report, use rule 3 below.
+2. **`Document (object ID: ID, name: NAME, N tokens):`** —
+   input-only anchor for user-attached markdown / text,
+   prepended to a user-message text by
+   `llm.PrependDocumentAnchors`
+   (`internal/contextbuild/render.go:85`). Like rule 1, this is
+   an INPUT shape only; cite a document in output via rule 4.
+3. **`![alt](object:ID)`** — LLM output for inline images.
+   Rendered as `<ObjectImage>` (data URL → `<img>` + lightbox).
+   If the ID resolves to a non-image type the renderer
+   degrades to the chip from rule 4 — no broken-image glyph.
+4. **`[title](object:ID)`** — LLM output for inline
+   document / report / blob references. Rendered as a clickable
+   chip via the `ObjectLink` component. Click dispatches to
+   `GetObjectText` → `ReportViewer` for markdown / report, or
+   `ExportObject` save-as for blob. If the ID resolves to an
+   image type the renderer degrades to inline `<ObjectImage>` —
+   no dead anchor.
+5. **Reports do not gain document anchors retroactively.** A
+   `Role: "report"` record carries the full report body inline
+   (`tools.go:374-382` pending-report append). Anchors are a
+   surrogate for content the LLM cannot see in the message
+   text — reports are visible, so they need no surrogate. No
+   code path adds `DocumentIDs` to a `Role: "report"` record,
+   and no future path should.
+
+Rules 1 / 2 are produced by `internal/llm.imageIDPrefix` and
+`internal/llm.PrependDocumentAnchors`. Rules 3 / 4 are honoured
+by `frontend/src/markdown/objectMarkdown.tsx` (`objectComponents`
+factory) and its companion `ObjectLink` /  `ObjectImage`
+components. The export resolver
+(`bindings.go:resolveObjectRefsForExport`) is type-aware to match:
+images are inlined as `data:` URLs for self-contained exports,
+non-images keep their `object:` href so re-import resolves
+cleanly. Full design:
+[`ADR-0014`](../adr/0014-object-link-rendering.md).
+
 ## 7. LLM backends
 
 `internal/llm.Backend` is the common interface:
