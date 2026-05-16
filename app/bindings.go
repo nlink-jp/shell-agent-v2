@@ -1604,29 +1604,70 @@ func (b *Bindings) SaveReport(content, filename string) error {
 	return os.WriteFile(path, []byte(resolved), 0644)
 }
 
-// resolveObjectRefsForExport replaces object:ID image refs with data URLs.
+// resolveObjectRefsForExport replaces `(object:ID)` references
+// inside an exported markdown document. Only TypeImage IDs are
+// inlined as base64 data URLs — the export format is self-
+// contained for images, but other types (TypeMarkdown,
+// TypeReport, TypeBlob) keep their `object:` href untouched so
+// the link re-resolves on re-import; an external markdown
+// reader sees an unrendered link, which is no worse than a
+// missing internal URL and far better than a kilobyte-long
+// `data:text/markdown` blob.
+//
+// A forward-walking cursor avoids the prior implementation's
+// rescan-from-zero behaviour: non-image matches no longer
+// mutate the slice, so we must advance past them explicitly to
+// terminate. Unknown IDs are marked as `missing-object:` and
+// also advance the cursor (same rule for the same reason).
+//
+// Design: docs/en/adr/0014-object-link-rendering.md §3.2.2
 func (b *Bindings) resolveObjectRefsForExport(content string) string {
 	if b.objects == nil || !strings.Contains(content, "object:") {
 		return content
 	}
+	const openTag = "(object:"
 	result := content
+	pos := 0
 	for {
-		idx := strings.Index(result, "(object:")
-		if idx < 0 {
+		rel := strings.Index(result[pos:], openTag)
+		if rel < 0 {
 			break
 		}
-		end := strings.Index(result[idx:], ")")
-		if end < 0 {
+		absIdx := pos + rel
+		// Look only inside the current "(...)" group so a stray
+		// "(object:foo" followed by an unrelated ")" elsewhere
+		// doesn't pull in a giant span.
+		endRel := strings.Index(result[absIdx:], ")")
+		if endRel < 0 {
 			break
 		}
-		id := result[idx+8 : idx+end]
+		end := absIdx + endRel
+		id := result[absIdx+len(openTag) : end]
+		meta, ok := b.objects.Get(id)
+		if !ok {
+			// Unknown ID → annotate so the exported file still
+			// shows that something was referenced here, and step
+			// past so the loop terminates.
+			result = result[:absIdx] + "(missing-object:" + result[absIdx+len(openTag):]
+			pos = absIdx + len("(missing-object:") + len(id) + 1
+			continue
+		}
+		if meta.Type != objstore.TypeImage {
+			// Non-image: leave the href untouched. Move past
+			// the closing paren so the next iteration scans
+			// fresh content.
+			pos = end + 1
+			continue
+		}
 		du, err := b.objects.LoadAsDataURL(id)
-		if err == nil && du != "" {
-			result = result[:idx+1] + du + result[idx+end:]
-		} else {
-			// Skip unresolvable reference to avoid infinite loop
-			result = result[:idx] + "(missing-object:" + result[idx+8:]
+		if err != nil || du == "" {
+			pos = end + 1
+			continue
 		}
+		// Splice the data URL in place of the id and continue
+		// scanning after the replacement.
+		result = result[:absIdx+1] + du + result[end:]
+		pos = absIdx + 1 + len(du) + 1
 	}
 	return result
 }

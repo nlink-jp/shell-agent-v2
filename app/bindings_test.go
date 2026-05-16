@@ -337,6 +337,89 @@ func TestBindings_GetObjectMeta_NotFound(t *testing.T) {
 	}
 }
 
+// TestResolveObjectRefsForExport_ImageOnly is the regression
+// guard for the v0.8.0 behaviour: a report whose only object:
+// references are images must still serialise to data: URLs so
+// the exported .md is self-contained.
+func TestResolveObjectRefsForExport_ImageOnly(t *testing.T) {
+	b, _ := newTestBindings(t)
+	imgID := saveTestObject(t, b, objstore.TypeImage, "image/png", "\x89PNG-stub", "")
+	in := "Look at this: ![chart](object:" + imgID + ")\n"
+	out := b.resolveObjectRefsForExport(in)
+	if strings.Contains(out, "object:"+imgID) {
+		t.Errorf("image ref should have been rewritten:\n%s", out)
+	}
+	if !strings.Contains(out, "data:image/png;base64,") {
+		t.Errorf("expected data:image/... in output, got:\n%s", out)
+	}
+}
+
+// TestResolveObjectRefsForExport_Mixed verifies the ADR-0014
+// fix: non-image refs (markdown / report / blob) keep their
+// `object:` href intact, only image refs get inlined.
+func TestResolveObjectRefsForExport_Mixed(t *testing.T) {
+	b, _ := newTestBindings(t)
+	imgID := saveTestObject(t, b, objstore.TypeImage, "image/png", "\x89PNG-stub", "")
+	mdID := saveTestObject(t, b, objstore.TypeMarkdown, "text/markdown", "# doc\nbody", "")
+	rptID := saveTestObject(t, b, objstore.TypeReport, "text/markdown", "# report\nbody", "")
+	blobID := saveTestObject(t, b, objstore.TypeBlob, "application/octet-stream", "binary", "")
+
+	in := "![pic](object:" + imgID + ") and " +
+		"[doc](object:" + mdID + ") and " +
+		"[earlier](object:" + rptID + ") and " +
+		"[file](object:" + blobID + ")\n"
+	out := b.resolveObjectRefsForExport(in)
+
+	if !strings.Contains(out, "data:image/png;base64,") {
+		t.Errorf("image ref not inlined as data URL:\n%s", out)
+	}
+	for _, id := range []string{mdID, rptID, blobID} {
+		if !strings.Contains(out, "(object:"+id+")") {
+			t.Errorf("non-image object:%s should remain as object: href, got:\n%s", id, out)
+		}
+		if strings.Contains(out, "data:text/markdown;base64,") {
+			t.Errorf("non-image rewritten to data: URL (regression of v0.8.0 bug):\n%s", out)
+		}
+	}
+}
+
+// TestResolveObjectRefsForExport_UnknownIDsNoLoop guards against
+// the infinite-loop hazard that motivated the forward-walking
+// cursor. Two consecutive unknown IDs must both get annotated
+// without the loop spinning forever.
+func TestResolveObjectRefsForExport_UnknownIDsNoLoop(t *testing.T) {
+	b, _ := newTestBindings(t)
+	in := "first [a](object:nope1) then [b](object:nope2) done\n"
+
+	done := make(chan string, 1)
+	go func() { done <- b.resolveObjectRefsForExport(in) }()
+	var out string
+	select {
+	case out = <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("resolveObjectRefsForExport hung — forward-walk cursor regression")
+	}
+
+	if strings.Count(out, "missing-object:nope1") != 1 {
+		t.Errorf("first unknown should annotate exactly once:\n%s", out)
+	}
+	if strings.Count(out, "missing-object:nope2") != 1 {
+		t.Errorf("second unknown should annotate exactly once:\n%s", out)
+	}
+}
+
+// TestResolveObjectRefsForExport_NoObjects guards the early-
+// return fast path for the common case where the report has no
+// object references at all.
+func TestResolveObjectRefsForExport_NoObjects(t *testing.T) {
+	b, _ := newTestBindings(t)
+	in := "Plain markdown with [external](https://example.org) link.\n"
+	out := b.resolveObjectRefsForExport(in)
+	if out != in {
+		t.Errorf("content without object: should pass through verbatim\nin: %q\nout: %q", in, out)
+	}
+}
+
 func TestBindings_DeleteObject_AndDeleteObjects(t *testing.T) {
 	b, _ := newTestBindings(t)
 	id1 := saveTestObject(t, b, objstore.TypeBlob, "text/plain", "a", "")
