@@ -9,6 +9,7 @@ import (
 
 	"github.com/nlink-jp/shell-agent-v2/internal/pathfix"
 	"github.com/wailsapp/wails/v2"
+	"github.com/wailsapp/wails/v2/pkg/menu"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"github.com/wailsapp/wails/v2/pkg/options/mac"
@@ -20,6 +21,13 @@ var version = "dev"
 
 //go:embed all:frontend/dist
 var assets embed.FS
+
+//go:embed build/appicon.png
+var appIcon []byte
+
+// repoURL is the source repository — shown in the About panel and
+// opened by the Help → View on GitHub menu item.
+const repoURL = "https://github.com/nlink-jp/shell-agent-v2"
 
 func main() {
 	// Finder/launchd-launched .app bundles inherit a minimal PATH
@@ -42,11 +50,33 @@ func main() {
 		os.Exit(0)
 	}()
 
+	// Application menu. The standard macOS structure (App / Edit /
+	// Window) was missing entirely pre-v0.10 — the OS would render
+	// a barebones default and there was no About panel exposing
+	// the version. AppMenu picks up the mac.AboutInfo configured
+	// below for the standard "About Shell Agent v2" item.
+	//
+	// Help → View on GitHub uses bindings.ctx (captured in
+	// bindings.startup) rather than the wails.Run-scope context,
+	// so the open happens against the live runtime once the app
+	// is up.
+	appMenu := menu.NewMenu()
+	appMenu.Append(menu.AppMenu())
+	appMenu.Append(menu.EditMenu())
+	appMenu.Append(menu.WindowMenu())
+	helpMenu := appMenu.AddSubmenu("Help")
+	helpMenu.AddText("View on GitHub", nil, func(_ *menu.CallbackData) {
+		if bindings.ctx != nil {
+			wailsRuntime.BrowserOpenURL(bindings.ctx, repoURL)
+		}
+	})
+
 	err := wails.Run(&options.App{
 		Title:                    "Shell Agent v2",
 		Width:                    1024,
 		Height:                   768,
 		EnableDefaultContextMenu: true,
+		Menu:                     appMenu,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
@@ -84,6 +114,11 @@ func main() {
 			// inside still uses rgba on top of an opaque base.
 			WebviewIsTransparent: false,
 			WindowIsTranslucent:  false,
+			About: &mac.AboutInfo{
+				Title:   "Shell Agent v2",
+				Message: "Version " + version + "\n\nmacOS-native LLM chat and agent.\n© 2026 nlink-jp\n" + repoURL,
+				Icon:    appIcon,
+			},
 		},
 	})
 
