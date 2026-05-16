@@ -5,6 +5,96 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.10.0] - 2026-05-16
+
+Restores standard macOS app-citizenship — the application menu
+and About panel were absent in every prior release — and adds a
+discoverable `examples/` library at the repo root for the
+opt-in artefacts users were expected to copy into their data
+dir (shell-tool examples + new system-rules templates).
+
+### Added
+
+- **macOS application menu.** `wails.Run` now configures
+  `Menu:` with the standard structure: app menu (with the new
+  About item), Edit menu (Undo / Redo / Cut / Copy / Paste /
+  Select All — `Cmd+C/V/Z` etc. work natively in chat input),
+  Window menu (Minimize / Zoom / window list), and Help → View
+  on GitHub.
+- **About panel.** `Mac.About` is set with the app title, the
+  version derived from the build-time ldflags, a one-line
+  description, copyright, and the source-repo URL. The embedded
+  `build/appicon.png` is used as the dialog icon. Solves the
+  "no GUI way to find the version" gap — the App menu →
+  About Shell Agent v2 now displays it.
+- **`examples/` library at repo root** (out of the binary on
+  purpose). Two sub-libraries:
+  - **`examples/system_rules/`** — copy-paste templates for
+    `<dataDir>/system_rules.md`. First entry:
+    `activity-log-audit.md`, counters the LLM's strong prior
+    to invent dramatic attack narratives ("spy",
+    "compromised", "cyberattack") when summarising terminal
+    activity logs. Hard rules: evidence-citation requirement,
+    forbidden-vocabulary list gated on ≥3 corroborating rows,
+    calibration ladder (Observed / Possible / Likely;
+    "Confirmed" disallowed — no ground truth), enumerate ≥2
+    benign alternatives before any malicious one. Also
+    documents the `analyze-data` perspective-parameter
+    discipline (the summariser is a separate LLM call that
+    does not see System Rules — your perspective string is
+    the only knob).
+  - **`examples/shell_tools/`** — optional shell tools that
+    wrap companion CLIs from the `nlink-jp` org: `web-search`
+    (gem-search), `generate-image` (gem-image), `search-kb-gem`
+    (gem-rag), `search-kb-lite` (lite-rag). Moved from
+    `app/internal/bundled/tools/examples/` for discoverability
+    (the prior location was four directories deep — github
+    browsers consistently missed them).
+
+### Changed
+
+- **`bundled.Install` simplified.** With the optional examples
+  no longer sharing the embedded tools tree, the
+  `// skip examples/` branch is gone. One less special case
+  in `internal/bundled/bundled.go`.
+- **README.md / README.ja.md** point at the new
+  `examples/shell_tools/` path instead of the buried
+  `app/internal/bundled/tools/examples/`.
+- **AGENTS.md** directory tree updated to show
+  `examples/{system_rules,shell_tools}/` at the repo root and
+  reflects the embedding-vs-not split.
+- **`docs/{en,ja}/reference/system-rules.md`** cross-links to
+  the new system_rules examples library.
+
+### Removed
+
+- **Embedded example shell scripts** (`app/internal/bundled/
+  tools/examples/*.sh`). Out-of-binary now; users who want
+  them copy from `examples/shell_tools/` in the source tree.
+  No regression for production users — these scripts were
+  never reachable from the running app anyway, only via
+  source-tree access.
+
+### Test infrastructure
+
+- **`TestRepoRootExamples_HaveToolHeader`** replaces the
+  former `TestExamples_AreReadableAndHaveToolHeader`. Scans
+  `examples/shell_tools/` from the repo root and validates
+  the `@tool:` header on every script. Skipped automatically
+  when running outside a repo checkout.
+- **`TestInstall_SkipsExamplesDir`** removed (the precondition
+  it guarded — embedded `examples/` subdir under bundled tools
+  — no longer exists).
+
+### Compatibility
+
+- **No breaking changes.** Pre-v0.10 users who had copied
+  scripts manually from the old path keep their working
+  copies in `<dataDir>/tools/` untouched.
+- **Existing keyboard shortcuts unchanged.** The new Edit
+  menu adds the standard system shortcuts on top of whatever
+  was already working via the WebView's built-in handling.
+
 ## [0.9.0] - 2026-05-16
 
 Teaches the renderer that `[title](object:ID)` is a first-class
