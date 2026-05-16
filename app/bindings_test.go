@@ -279,6 +279,64 @@ func TestBindings_GetObjectText(t *testing.T) {
 	}
 }
 
+func TestBindings_GetObjectMeta_HappyPath(t *testing.T) {
+	b, _ := newTestBindings(t)
+
+	cases := []struct {
+		name    string
+		objType objstore.ObjectType
+		mime    string
+		content string
+	}{
+		{"image", objstore.TypeImage, "image/png", "\x89PNG..."},
+		{"markdown", objstore.TypeMarkdown, "text/markdown", "# heading\nbody"},
+		{"report", objstore.TypeReport, "text/markdown", "# title\nreport body"},
+		{"blob", objstore.TypeBlob, "application/octet-stream", "binary"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			id := saveTestObject(t, b, tc.objType, tc.mime, tc.content, "sess-x")
+			got, err := b.GetObjectMeta(id)
+			if err != nil {
+				t.Fatalf("GetObjectMeta(%s): %v", tc.name, err)
+			}
+			if got.ID != id {
+				t.Errorf("id = %q, want %q", got.ID, id)
+			}
+			if got.Type != string(tc.objType) {
+				t.Errorf("type = %q, want %q", got.Type, string(tc.objType))
+			}
+			if got.MimeType != tc.mime {
+				t.Errorf("mime = %q, want %q", got.MimeType, tc.mime)
+			}
+			if got.SessionID != "sess-x" {
+				t.Errorf("session = %q, want sess-x", got.SessionID)
+			}
+			if got.Size == 0 {
+				t.Errorf("size = 0, want non-zero")
+			}
+			if got.CreatedAt == "" {
+				t.Errorf("created_at empty")
+			}
+			// text types populate Lines/Tokens via objstore auto-fill;
+			// binary types should not.
+			if tc.objType == objstore.TypeMarkdown || tc.objType == objstore.TypeReport {
+				if got.Lines == 0 {
+					t.Errorf("text type %s: Lines = 0, want non-zero", tc.name)
+				}
+			}
+		})
+	}
+}
+
+func TestBindings_GetObjectMeta_NotFound(t *testing.T) {
+	b, _ := newTestBindings(t)
+	_, err := b.GetObjectMeta("does-not-exist")
+	if err == nil {
+		t.Fatal("expected error for missing id")
+	}
+}
+
 func TestBindings_DeleteObject_AndDeleteObjects(t *testing.T) {
 	b, _ := newTestBindings(t)
 	id1 := saveTestObject(t, b, objstore.TypeBlob, "text/plain", "a", "")

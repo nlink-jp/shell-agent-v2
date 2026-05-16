@@ -1336,29 +1336,52 @@ type ObjectInfo struct {
 	Tokens    int    `json:"tokens,omitempty"`
 }
 
+// objectInfoFromMeta converts an objstore.ObjectMeta to the
+// JSON-serializable ObjectInfo surfaced to the frontend. Single
+// source of truth so ListObjects / GetSessionObjects /
+// GetObjectMeta all agree on field mapping and CreatedAt format.
+func objectInfoFromMeta(m *objstore.ObjectMeta) ObjectInfo {
+	return ObjectInfo{
+		ID:        m.ID,
+		Type:      string(m.Type),
+		MimeType:  m.MimeType,
+		OrigName:  m.OrigName,
+		CreatedAt: m.CreatedAt.Format("2006-01-02 15:04:05"),
+		SessionID: m.SessionID,
+		Size:      m.Size,
+		Lines:     m.Lines,
+		Tokens:    m.Tokens,
+	}
+}
+
 // ListObjects returns metadata for every object in the central repository,
 // newest-first.
 func (b *Bindings) ListObjects() []ObjectInfo {
 	all := b.objects.All()
 	result := make([]ObjectInfo, 0, len(all))
 	for _, m := range all {
-		result = append(result, ObjectInfo{
-			ID:        m.ID,
-			Type:      string(m.Type),
-			MimeType:  m.MimeType,
-			OrigName:  m.OrigName,
-			CreatedAt: m.CreatedAt.Format("2006-01-02 15:04:05"),
-			SessionID: m.SessionID,
-			Size:      m.Size,
-			Lines:     m.Lines,
-			Tokens:    m.Tokens,
-		})
+		result = append(result, objectInfoFromMeta(m))
 	}
 	// Newest first.
 	sort.SliceStable(result, func(i, j int) bool {
 		return result[i].CreatedAt > result[j].CreatedAt
 	})
 	return result
+}
+
+// GetObjectMeta returns one object's metadata, or an error if the
+// id is unknown. Used by the frontend ObjectLink component to
+// decide how to render an object:ID reference (image inline vs.
+// document chip vs. download chip). See ADR-0014.
+func (b *Bindings) GetObjectMeta(id string) (ObjectInfo, error) {
+	if b.objects == nil {
+		return ObjectInfo{}, fmt.Errorf("object store unavailable")
+	}
+	m, ok := b.objects.Get(id)
+	if !ok {
+		return ObjectInfo{}, fmt.Errorf("object %s not found", id)
+	}
+	return objectInfoFromMeta(m), nil
 }
 
 // GetSessionObjects returns the objects belonging to the given
@@ -1372,17 +1395,7 @@ func (b *Bindings) GetSessionObjects(sessionID string) []ObjectInfo {
 	objs := b.objects.ListBySession(sessionID)
 	result := make([]ObjectInfo, 0, len(objs))
 	for _, m := range objs {
-		result = append(result, ObjectInfo{
-			ID:        m.ID,
-			Type:      string(m.Type),
-			MimeType:  m.MimeType,
-			OrigName:  m.OrigName,
-			CreatedAt: m.CreatedAt.Format("2006-01-02 15:04:05"),
-			SessionID: m.SessionID,
-			Size:      m.Size,
-			Lines:     m.Lines,
-			Tokens:    m.Tokens,
-		})
+		result = append(result, objectInfoFromMeta(m))
 	}
 	sort.SliceStable(result, func(i, j int) bool {
 		return result[i].CreatedAt > result[j].CreatedAt
