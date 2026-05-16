@@ -762,11 +762,77 @@ require an internal switch that obscures both code paths.
 ### 6.3 Structural
 
 - `objectMarkdown.tsx` is the only file that imports
-  `defaultUrlTransform` from `react-markdown` (a lint or
-  grep-based invariant test). If a fourth site springs up and
-  duplicates the override, the test catches it before merge.
-- `bindings.go` has exactly one `LoadAsDataURL` call inside the
-  export resolver (the type-aware switch). Grep-test invariant.
+  `defaultUrlTransform` from `react-markdown`. Implemented as
+  `TestDefaultUrlTransformIsCentralised` in
+  `internal/frontendlint/check_test.go`: walks the frontend
+  source tree and fails if any other file imports it. If a
+  fourth site springs up and duplicates the override, the test
+  catches it before merge.
+
+### 6.4 Manual smoke (pre-release)
+
+Run after `make build` finishes, against the produced macOS
+binary. The repo's `{reference,adr,history}/` three-layer doc
+rule precludes a `testing/` directory; the checklist lives here
+in the ADR instead.
+
+Setup — fresh data dir:
+```
+mv ~/Library/Application\ Support/shell-agent-v2 ~/Library/Application\ Support/shell-agent-v2.bak
+```
+(restore at the end if you want your own data back.)
+
+Then in the running app:
+
+1. **Image happy path.** Drag an image into the chat → ask for
+   a report citing it → confirm `![alt](object:ID)` renders as
+   inline image, click opens the lightbox.
+2. **Markdown chip from `![alt]`.** Drag a `.md` into the chat
+   → ask "use the same markdown image syntax to point at the
+   document I just attached" → confirm the broken-image glyph
+   is replaced with a clickable `📝` chip whose click opens
+   `ReportViewer`.
+3. **Markdown chip from `[title]`.** Same `.md`, this time
+   ask "in your reply, link to the document using
+   `[name](object:ID)`" → confirm the chip renders inline in
+   the assistant bubble, click opens `ReportViewer`.
+4. **Image inline from `[title]`.** Same image as step 1, this
+   time ask the model to write `[my-image](object:imgID)` → the
+   renderer should honour the implied intent and render the
+   image inline (not a chip).
+5. **Blob save-as.** Use `register-object` on a non-text file →
+   ask the model to reference it via `[zip](object:ID)` → click
+   surfaces the OS save-as dialog.
+6. **Missing object.** Delete an object via the data panel
+   while a report still references it → reopen the session →
+   confirm the chip renders muted ("missing object" via the
+   `object-link-missing` modifier) and click is a no-op.
+7. **Nested chip in `ReportViewer`.** Have the model write a
+   report that links to a second report; open the first via
+   the inline report card; click the chip inside it →
+   `ReportViewer` content replaces (intentional — §4.3).
+8. **Streaming render.** While the model is still streaming
+   a reply containing `[name](object:ID)`, confirm the chip
+   appears as soon as the closing paren is in the stream
+   (App.tsx:streaming uses the same components map now).
+9. **Cmd popup render.** Trigger a chat command that surfaces
+   markdown in the cmd-popup panel (`/whoami` or similar) →
+   confirm any `object:` references in that output render
+   correctly (App.tsx:cmd-popup uses the same components map
+   now).
+10. **Export self-containment.** From a report that mixes one
+    image ref and one markdown ref, click **Save** → open the
+    resulting `.md` in an external editor (VS Code, Marked) →
+    confirm the image is inlined as `data:image/...;base64,…`
+    and the markdown ref is left as `(object:ID)` (no
+    `data:text/markdown` blob).
+11. **Cache cleanup on session switch.** With session A open,
+    note the meta-cache (DevTools → memory) has entries.
+    Switch to session B → confirm the cache is empty (the
+    `clearObjectMetaCache` wiring in `App.tsx:handleLoadSession`
+    ran).
+
+If any step fails, do not tag the release.
 
 ---
 

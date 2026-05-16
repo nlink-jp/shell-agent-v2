@@ -118,3 +118,56 @@ func TestPackageJSONDoesNotDependOnRehypeRaw(t *testing.T) {
 		}
 	}
 }
+
+// TestDefaultUrlTransformIsCentralised guards ADR-0014 §2 / §3.1
+// goal: only `markdown/objectMarkdown.tsx` should import
+// `defaultUrlTransform` from react-markdown. The previous code
+// duplicated the urlTransform wrapper across six ReactMarkdown
+// sites, and adding the new a-component override on top would
+// have multiplied the drift surface (ADR-0014 §1 item 5).
+// Centralising imports also locks down the sole entry point for
+// URL sanitisation — important now that the wrapper has to know
+// the full set of permitted schemes (currently only `object:`).
+//
+// If this test ever fires, the right fix is to add the new
+// import inside markdown/objectMarkdown.tsx, not to inline it
+// at the call site.
+func TestDefaultUrlTransformIsCentralised(t *testing.T) {
+	srcRoot := frontendSrcRoot(t)
+	expectedPath := filepath.Join(srcRoot, "markdown", "objectMarkdown.tsx")
+
+	var importers []string
+	err := filepath.Walk(srcRoot, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		ext := filepath.Ext(path)
+		if ext != ".ts" && ext != ".tsx" {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if strings.Contains(string(data), "defaultUrlTransform") {
+			importers = append(importers, path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk: %v", err)
+	}
+
+	if len(importers) != 1 || importers[0] != expectedPath {
+		rels := make([]string, len(importers))
+		for i, p := range importers {
+			rel, _ := filepath.Rel(srcRoot, p)
+			rels[i] = rel
+		}
+		t.Fatalf("defaultUrlTransform should be imported only by markdown/objectMarkdown.tsx (ADR-0014). Importers found:\n  - %s",
+			strings.Join(rels, "\n  - "))
+	}
+}
