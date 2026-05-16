@@ -37,6 +37,15 @@ Not a good fit (use Global Memory instead):
 The split: **System Rules tells the agent how to behave; Global
 Memory remembers who the user is.**
 
+### Ready-made examples
+
+The repository ships a small library of copy-paste templates in
+[`examples/system_rules/`](../../../examples/system_rules/), each
+targeting a specific recurring agent-bias or workflow problem.
+Pick one, open `Settings → System Rules`, paste, save, start a
+new chat. See the [examples README](../../../examples/system_rules/README.md)
+for the catalogue and contribution guidelines.
+
 ---
 
 ## 2. Where it lives

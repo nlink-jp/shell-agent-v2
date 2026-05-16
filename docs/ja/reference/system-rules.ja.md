@@ -37,6 +37,17 @@ System Rules に向いている内容の例:
 切り分け: **System Rules はエージェントの「どう振る舞うか」、
 Global Memory は「ユーザーは誰か」を扱う。**
 
+### すぐに使えるサンプル
+
+リポジトリには
+[`examples/system_rules/`](../../../examples/system_rules/) に
+コピー&ペースト用テンプレートを同梱している。それぞれ特定の
+繰り返し発生するエージェントバイアスや作業上の問題に焦点を当てた
+もの。1 つ選んで `Settings → System Rules` を開き、貼り付け、
+保存、新しいチャットを開始する。カタログと貢献ガイドラインは
+[examples README](../../../examples/system_rules/README.md)
+を参照。
+
 ---
 
 ## 2. 保存先
