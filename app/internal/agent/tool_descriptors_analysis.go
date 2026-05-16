@@ -85,7 +85,7 @@ func (a *Agent) analysisDescriptors() []ToolDescriptor {
 		},
 		{
 			Name:        "create-report",
-			Description: "Create a structured markdown report. Use this when the user asks for a report, summary document, or formatted output. Write GitHub-flavored Markdown only — do NOT emit raw HTML tags (`<br>`, `<table>`, `<details>`, `<sub>`, etc.); the renderer escapes them and they appear as plain text. Use markdown tables, lists, fenced code blocks, and headings instead. Reference images with `![alt](object:ID)`.",
+			Description: "Create a structured markdown report. Use this when the user asks for a report, summary document, or formatted output. Write GitHub-flavored Markdown only — do NOT emit raw HTML tags (`<br>`, `<table>`, `<details>`, `<sub>`, etc.); the renderer escapes them and they appear as plain text. Use markdown tables, lists, fenced code blocks, and headings instead. Reference images with `![alt](object:ID)`. Reference other documents (markdown / reports) with `[title](object:ID)` — they render as clickable preview chips that open the linked content in the report viewer.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{

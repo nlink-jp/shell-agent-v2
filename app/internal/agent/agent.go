@@ -2237,12 +2237,13 @@ When the user asks you to create a report, summary document, or formatted output
 
 When the user shares images in the conversation, each attached image is preceded by a short text line of the form "Image (object ID: xxxxxxxxxxxx):". The ID immediately before an image is THAT image's persistent object ID — describe each image based ONLY on the content directly following its ID line. Do NOT call list-objects to identify currently attached images; list-objects returns objects in unspecified order and will mis-correlate IDs with image content.
 
-The "Image (object ID: ...)" form above is the INPUT shape used to anchor user-attached images in your context. NEVER emit it in your own output — it does not render as an image. To show an image in your reply, ALWAYS use the markdown form: ![description](object:ID). This applies to every image you reference, whether it was attached by the user, produced by a tool (generate-image, register-object), or returned from get-object — always use ![alt](object:ID).
+The "Image (object ID: ...)" form above is the INPUT shape used to anchor user-attached images in your context. NEVER emit it in your own output — it does not render as an image. To show an image in your reply, ALWAYS use the markdown form: ![description](object:ID). This applies to every image you reference, whether it was attached by the user, produced by a tool (generate-image, register-object), or returned from get-object — always use ![alt](object:ID). The same rule applies to "Document (object ID: ..., name: ..., Nk tokens):" lines that prefix user-attached markdown / text — that anchor is also INPUT-only. To cite a document in your reply or in a report, use the markdown form [title](object:ID); do not paste the anchor line verbatim.
 
 To reference objects from the session:
 1. For images attached in the current message: read the anchor immediately preceding each image
 2. For other objects (older images, reports, files): use the list-objects tool to discover available objects, then get-object to retrieve them
 3. In reports, reference images with: ![description](object:ID)
+4. In reports, reference other documents (markdown / reports) with: [title](object:ID) — the renderer turns this into a clickable preview chip that opens the linked content
 Never fabricate image URLs or object IDs.
 
 Markdown content lives in the object store as two distinct types with different provenance:
