@@ -90,6 +90,11 @@ func (b *Bindings) startup(ctx context.Context) {
 
 	b.agent = agent.New(cfg)
 	b.agent.SetObjects(b.objects)
+	// Hand the bindings-scope ctx to the agent so the ADR-0015
+	// queue auto-dispatch path can fire deferred SENDs after
+	// extraction completes (the ctx that queued the SEND is
+	// already cancelled by then).
+	b.agent.SetBaseContext(b.ctx)
 	b.agent.SetStreamHandler(func(token string, done bool) {
 		wailsRuntime.EventsEmit(b.ctx, "agent:stream", map[string]any{
 			"token": token,

@@ -162,6 +162,44 @@ type Agent struct {
 	// See docs/en/adr/0007-tool-registry-refactor.md.
 	toolDescriptors     []ToolDescriptor
 	toolDescriptorIndex map[string]int
+
+	// ADR-0015 (deferred extraction + send queue).
+	//
+	// extractionInFlight is true between the moment a turn's
+	// response has been delivered and the moment that turn's
+	// extractMemories goroutine returns. While set, the agent
+	// is in StateIdle (UI unlocked) but a SEND is held in
+	// queuedSend rather than starting immediately, so the next
+	// turn's BuildSystemPrompt always sees the prior turn's
+	// extracted facts. trackBg still wraps the extraction
+	// goroutine, so it stays visible in bgTasks and the
+	// frontend session-management gates (LoadSession et al.)
+	// continue to block during this window.
+	extractionInFlight bool
+
+	// queuedSend, if non-nil, is the most recent SEND received
+	// while extractionInFlight was true. Single-slot,
+	// most-recent-wins — a second SEND overwrites this field.
+	// Fires automatically as soon as the in-flight extraction
+	// completes. Cleared by Abort or by the auto-dispatch path.
+	queuedSend *queuedSend
+
+	// baseCtx is the long-lived context captured at startup
+	// (Bindings.ctx). Used by the queue auto-dispatch path,
+	// which needs a context that outlives the turn that
+	// queued the message. Set via SetBaseContext from the
+	// bindings layer right after Wails calls startup.
+	baseCtx context.Context
+}
+
+// queuedSend holds the parameters of a SEND that arrived while a
+// prior turn's memory extraction was still running. ADR-0015 §3.1.
+type queuedSend struct {
+	Message            string
+	ImageObjectIDs     []string
+	ImageDataURLs      []string
+	DocumentObjectIDs  []string
+	QueuedAt           time.Time
 }
 
 // New creates a new Agent with the given configuration.
@@ -456,6 +494,18 @@ func (a *Agent) SetBgTaskHandler(h BgTaskHandler) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.bgTaskHandler = h
+}
+
+// SetBaseContext captures the long-lived bindings-scope context so
+// the ADR-0015 queue auto-dispatch path can hand a still-live ctx
+// to the SendWithAttachments it kicks off after extraction
+// completes. Per-turn cancellable contexts derived from this base
+// continue to live in a.cancel — the base itself is never cancelled
+// inside the agent.
+func (a *Agent) SetBaseContext(ctx context.Context) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.baseCtx = ctx
 }
 
 // notifyBg invokes the registered BgTaskHandler if any. The handler
