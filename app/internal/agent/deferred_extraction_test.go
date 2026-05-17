@@ -216,6 +216,107 @@ func TestQueuedSend_OverwriteMostRecentWins(t *testing.T) {
 	close(release)
 }
 
+// TestAbortClearsQueue verifies Abort drops both the in-flight
+// extraction and any pending queued SEND (ADR-0015 §3.4).
+func TestAbortClearsQueue(t *testing.T) {
+	a := New(config.Default())
+	a.baseCtx = context.Background()
+
+	released := make(chan struct{})
+	a.extractMemoriesOverride = func(ctx context.Context) error {
+		<-ctx.Done() // wait for Abort to cancel us
+		close(released)
+		return ctx.Err()
+	}
+
+	a.mu.Lock()
+	a.state = StateBusy
+	a.mu.Unlock()
+	a.postResponseTasks(context.Background())
+
+	// Wait for extraction in flight.
+	if !waitFor(20*time.Millisecond, 2*time.Second, func() bool {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		return a.extractionInFlight
+	}) {
+		t.Fatal("extraction never entered in-flight window")
+	}
+
+	// Queue a SEND under the lock (production path is
+	// SendWithAttachments, but that's exercised elsewhere; here
+	// we want to verify Abort clears whatever's in the slot).
+	a.mu.Lock()
+	a.queuedSend = &queuedSend{Message: "should-be-cleared", QueuedAt: time.Now()}
+	a.mu.Unlock()
+
+	a.Abort()
+
+	// Abort should:
+	//   1. Cancel the extraction goroutine's ctx (released channel closes)
+	//   2. Clear queuedSend immediately
+	select {
+	case <-released:
+	case <-time.After(2 * time.Second):
+		t.Fatal("extraction goroutine did not see ctx cancellation within 2s")
+	}
+
+	a.mu.Lock()
+	q := a.queuedSend
+	a.mu.Unlock()
+	if q != nil {
+		t.Errorf("queuedSend should be nil after Abort, got %+v", q)
+	}
+}
+
+// TestIsBusyDuringExtraction verifies the agent reports busy
+// (via IsExtractionInFlight / HasQueuedSend getters) while
+// extraction is in flight even though state == StateIdle.
+// Bindings.IsBusy ORs these together to gate app-quit, so this
+// is the load-bearing invariant for the OnBeforeClose path.
+func TestIsBusyDuringExtraction(t *testing.T) {
+	a := New(config.Default())
+	a.baseCtx = context.Background()
+
+	release := make(chan struct{})
+	a.extractMemoriesOverride = func(ctx context.Context) error {
+		<-release
+		return nil
+	}
+
+	a.mu.Lock()
+	a.state = StateBusy
+	a.mu.Unlock()
+	a.postResponseTasks(context.Background())
+
+	// Wait until state has settled to Idle with extraction
+	// in flight.
+	if !waitFor(20*time.Millisecond, 2*time.Second, func() bool {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		return a.state == StateIdle && a.extractionInFlight
+	}) {
+		t.Fatal("extraction never entered in-flight window")
+	}
+
+	if !a.IsExtractionInFlight() {
+		t.Error("IsExtractionInFlight reports false during the in-flight window")
+	}
+	if a.HasQueuedSend() {
+		t.Error("HasQueuedSend reports true with empty queue")
+	}
+
+	// Add a queued SEND and confirm HasQueuedSend flips.
+	a.mu.Lock()
+	a.queuedSend = &queuedSend{Message: "x", QueuedAt: time.Now()}
+	a.mu.Unlock()
+	if !a.HasQueuedSend() {
+		t.Error("HasQueuedSend should report true with non-nil queuedSend")
+	}
+
+	close(release)
+}
+
 // TestQueuedSend_ExtractionErrorStillDispatches asserts that a
 // failure in extractMemories does not prevent the queued SEND
 // from auto-dispatching once the extraction goroutine returns.

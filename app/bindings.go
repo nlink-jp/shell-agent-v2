@@ -212,12 +212,22 @@ func parseLogLevel(s string) logger.Level {
 
 // --- Agent bindings ---
 
-// IsBusy reports whether the agent is currently processing.
+// IsBusy reports whether the agent has any work in flight that
+// should gate a quit confirmation or other "wait for me" UX.
+//
+// As of ADR-0015 this is not strictly the same as State() ==
+// StateBusy: a post-response memory-extraction goroutine can be
+// running with the agent in StateIdle, and a SEND can be queued
+// waiting on that extraction. OnBeforeClose (main.go) uses this
+// to block app quit until extraction is done so we don't lose
+// in-flight fact-extraction writes.
 func (b *Bindings) IsBusy() bool {
 	if b.agent == nil {
 		return false
 	}
-	return b.agent.State() == agent.StateBusy
+	return b.agent.State() == agent.StateBusy ||
+		b.agent.IsExtractionInFlight() ||
+		b.agent.HasQueuedSend()
 }
 
 // Send sends a user message to the agent.

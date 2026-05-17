@@ -797,21 +797,47 @@ func (a *Agent) SendWithAttachments(ctx context.Context, message string, imageOb
 }
 
 // Abort cancels the current task and any in-flight post-response
-// goroutines. Cancel funcs are safe to call repeatedly and on
-// already-finished contexts, so we don't bother clearing them.
+// goroutines, and drops any pending queued SEND.
+// Cancel funcs are safe to call repeatedly and on already-finished
+// contexts, so we don't bother clearing them. ADR-0015 §3.4:
+// extracting facts mid-write are discarded — explicit Abort is a
+// stronger user signal than implicit "I want speed", so losing
+// the partial facts is acceptable.
 func (a *Agent) Abort() {
 	a.mu.Lock()
 	cancel := a.cancel
 	postCancel := a.postCancel
 	state := a.state
+	hadQueued := a.queuedSend != nil
+	a.queuedSend = nil
 	a.mu.Unlock()
-	logger.Info("Agent.Abort: state=%s cancel=%v postCancel=%v", state, cancel != nil, postCancel != nil)
+	logger.Info("Agent.Abort: state=%s cancel=%v postCancel=%v queued=%v", state, cancel != nil, postCancel != nil, hadQueued)
 	if cancel != nil {
 		cancel()
 	}
 	if postCancel != nil {
 		postCancel()
 	}
+}
+
+// IsExtractionInFlight reports whether the agent is currently
+// running a post-response memory-extraction goroutine (ADR-0015).
+// The frontend can be StateIdle and still have extraction running
+// — this getter exists so Bindings.IsBusy can OR it into the
+// app-quit and session-management gates.
+func (a *Agent) IsExtractionInFlight() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.extractionInFlight
+}
+
+// HasQueuedSend reports whether a SEND is currently waiting in
+// the single-slot queue for the in-flight extraction to finish.
+// Companion to IsExtractionInFlight for the IsBusy gate.
+func (a *Agent) HasQueuedSend() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.queuedSend != nil
 }
 
 // Close releases all resources held by the agent.
