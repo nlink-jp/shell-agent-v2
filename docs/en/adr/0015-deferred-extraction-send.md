@@ -1,6 +1,6 @@
 # Deferred extraction + single-slot send queue — Design Note
 
-**Status:** Approved (2026-05-16); implementing in v0.11.0.
+**Status:** Implemented in v0.11.0 (2026-05-18).
 **Target:** v0.11.0 (minor bump — user-visible state-machine change,
 new Wails events, no breaking API changes).
 **Reported by:** User — "chat response is very slow, even with

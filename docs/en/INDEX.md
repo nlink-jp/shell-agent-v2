@@ -81,7 +81,7 @@ release order.
   extraction is queued single-slot and auto-fires once
   extraction completes, so the next turn's `BuildSystemPrompt`
   always sees the prior turn's facts. Zero fact loss, no
-  abort — only the UI gate changes (v0.11.0)
+  abort — only the UI gate changes (v0.11.0, implemented)
 
 ## History
 

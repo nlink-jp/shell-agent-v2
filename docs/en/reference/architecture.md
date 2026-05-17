@@ -60,17 +60,42 @@ summary.
 
 The agent occupies the active session exclusively while it works:
 
-- **Idle** — accepts user input, can switch sessions freely.
-- **Busy** — input field disabled, session switch requires explicit
-  abort. Background tasks (title generation, memory extraction)
-  count as Busy until they finish, so the next user message can't
-  race them.
+- **Idle** — accepts user input. May still have an in-flight
+  memory extraction (`a.extractionInFlight == true`); see below.
+- **Busy** — agentLoop in progress. Input field disabled, session
+  switch requires explicit abort.
+
+**v0.11.0 deferred extraction** (ADR-0015): memory extraction no
+longer gates the Busy→Idle transition. Title generation still
+does, but it's first-turn-only and fast. While extraction runs in
+the background:
+
+- `state == Idle` — the input bar re-enables so the user can
+  compose the next message.
+- `a.extractionInFlight == true` — visible via `IsExtractionInFlight()`.
+- A SEND received during this window lands in `a.queuedSend`
+  (single-slot, most-recent-wins) and auto-fires when extraction
+  completes. The frontend surfaces this as a "Queued" pill above
+  the input bar.
+- Session-management operations (`LoadSession`, `DeleteSession`,
+  `ExportSession`, `ImportSession`, `RenameSession`, `NewSession`)
+  remain blocked through the extraction window because the
+  extraction goroutine continues to register via `trackBg` and the
+  existing frontend gate checks `bgTasks.length === 0`. This
+  prevents the extraction from writing into a session it no
+  longer owns.
 
 State transitions are owned by `internal/agent.Agent` and surfaced
 to the frontend via the `agent:state` Wails event plus the
 `GetState` binding. The Busy guard is also enforced backend-side:
 binding entry-points that would mutate session state during Busy
 return an error rather than queuing.
+
+`Bindings.IsBusy()` (used by `OnBeforeClose` in `main.go` to
+gate app quit) returns true for `state == Busy`, for
+`IsExtractionInFlight()`, and for `HasQueuedSend()`. Quitting
+mid-extraction could lose facts mid-write, so the OS confirmation
+fires until extraction completes.
 
 **Operations gated by the Busy guard** (by introduction date):
 

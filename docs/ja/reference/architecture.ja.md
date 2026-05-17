@@ -52,14 +52,36 @@ v0.1.x の Hot/Warm/Cold メモリ階層、`/finding` slash command、
 
 agent は作業中、active session を排他的に占有する:
 
-- **Idle** — ユーザー入力受付可、session 切替自由
-- **Busy** — 入力 disable、session 切替は明示的 abort 必要。
-  バックグラウンドタスク (タイトル生成、メモリ抽出) も完了まで
-  Busy 扱いで、次の user message と競合しない。
+- **Idle** — ユーザー入力受付可。バックグラウンドのメモリ抽出
+  は in-flight の可能性あり (`a.extractionInFlight == true`)、下記参照。
+- **Busy** — agentLoop 進行中。入力 disable、session 切替は明示的
+  abort 必要。
+
+**v0.11.0 抽出遅延化** (ADR-0015): メモリ抽出は Busy→Idle 遷移を
+gate しなくなった。タイトル生成は引き続き gate するが、初回ターン
+のみで高速。抽出がバックグラウンドで走っている間:
+
+- `state == Idle` — 入力バーは再 enable され、ユーザーは次の
+  メッセージを作文できる。
+- `a.extractionInFlight == true` — `IsExtractionInFlight()` で参照可。
+- このウィンドウで受信した SEND は `a.queuedSend` に格納
+  (シングルスロット、most-recent-wins) され、抽出完了時に自動発射。
+  frontend は「Queued」pill を入力バー上部に表示。
+- セッション管理操作 (`LoadSession`、`DeleteSession`、`ExportSession`、
+  `ImportSession`、`RenameSession`、`NewSession`) は抽出ウィンドウ
+  中はブロックされ続ける — 抽出 goroutine が `trackBg` で登録され
+  続け、既存の frontend gate が `bgTasks.length === 0` をチェック
+  するため。抽出が、もはや所有していないセッションに書き込むのを
+  防ぐ。
 
 state は `internal/agent.Agent` が所有、`agent:state` イベントで
 frontend に通知。Busy ガードは backend 側でも binding entry-point
 で enforce される。
+
+`Bindings.IsBusy()` (`main.go` の `OnBeforeClose` がアプリ終了を gate
+するために使用) は `state == Busy`、`IsExtractionInFlight()`、
+`HasQueuedSend()` のいずれかで true を返す。抽出中の終了は書き込み
+途中で facts を失うので、抽出完了まで OS 確認ダイアログが出続ける。
 
 **Busy guard 配下の操作** (導入バージョン順):
 

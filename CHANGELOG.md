@@ -5,6 +5,114 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.11.0] - 2026-05-18
+
+Closes the long-standing "chat feels slow" gap by moving
+post-response memory extraction out of the UI lock path.
+Without this change, every substantive turn paid the extraction
+LLM's 3-8 s of dead time before the input bar re-enabled even
+on Vertex AI. With it, the input unlocks the moment the visible
+response is delivered — and a SEND issued during the background
+extraction is queued in a single slot and auto-fires when
+extraction completes, so the next turn's `BuildSystemPrompt`
+still sees the prior turn's facts. Zero fact loss; only the UI
+gate changes. See ADR-0015 for the design rationale.
+
+### Added
+
+- **Deferred memory extraction.** `postResponseTasks` splits
+  into two flows: title generation gates `Busy → Idle` (short,
+  first turn only); `extractMemories` runs in a separate
+  goroutine that does not gate the state machine. The
+  extraction goroutine continues to register via `trackBg` so
+  the frontend `bgTasks` view stays accurate.
+- **Single-slot send queue.** `SendWithAttachments` accepts a
+  SEND issued while `extractionInFlight` is true and parks it
+  in `a.queuedSend` (returning `"QUEUED"` instead of starting).
+  A second SEND silently overwrites the slot — most-recent-wins,
+  matching how every chat UI behaves when the user re-types
+  before send. When extraction completes, the slot auto-fires
+  via a fresh `SendWithAttachments` against `a.baseCtx` (the
+  long-lived bindings-scope ctx; the queueing turn's ctx is
+  already cancelled by then).
+- **Queue pill** above the input bar (`components/QueuePill.tsx`).
+  Renders a 60-char preview of the queued message and a ✕
+  cancel button that calls Abort. Amber-tinted to distinguish
+  from the existing status / error treatments.
+- **Four new Wails events**:
+  - `agent:extraction:started` — fires before the extraction
+    goroutine starts. Frontend switches to "extracting"
+    presentation.
+  - `agent:extraction:done` (`{success}`) — fires after the
+    extraction goroutine returns.
+  - `agent:queued` (`{at, message}`) — fires when
+    `SendWithAttachments` captures into the queue.
+  - `agent:queue_cleared` — fires when Abort drops the queued
+    SEND. Auto-dispatch does NOT emit it (the new turn's
+    state changes carry the signal naturally and emitting
+    both would race on the frontend).
+- **Agent getters** `IsExtractionInFlight()` and
+  `HasQueuedSend()` for the bindings layer.
+- **`SetBaseContext(ctx)`** on the agent so bindings can hand
+  it the long-lived ctx at startup for queue auto-dispatch.
+- **ADR-0015** (`docs/{en,ja}/adr/0015-deferred-extraction-send.md`).
+  Captures the design rationale, the five rejected alternatives
+  (notably "abort extraction on new SEND" — drops facts that
+  data-analysis sessions value), edge cases (Abort during
+  extraction, session-management gating, error fall-through to
+  queue dispatch), and per-commit phasing.
+
+### Changed
+
+- **`Bindings.IsBusy`** now returns true for any of: `state ==
+  Busy`, `IsExtractionInFlight()`, `HasQueuedSend()`. The
+  `OnBeforeClose` quit gate in `main.go` inherits this, so
+  the OS confirmation dialog blocks quit until extraction
+  completes and no SEND is pending.
+- **`Agent.Abort`** now clears `a.queuedSend` in addition to
+  cancelling the in-flight ctx. Partially-extracted facts are
+  discarded — per ADR-0015 §3.4 explicit Abort is a stronger
+  user signal than implicit "I want speed".
+- **Frontend `canChat` calculation** filters `"memory-extraction"`
+  out of `bgTasks` for the input gate (new `inputBusyTasks`).
+  Session-management gates (`handleLoadSession` et al.)
+  continue to use the unfiltered list so extraction-in-flight
+  still blocks session switch / delete / export.
+- **`postResponseTasks`** no longer clears `a.cancel` /
+  `a.postCancel` between turns. Cancel funcs are idempotent
+  and overwritten by the next turn anyway; clearing them
+  mid-flight was racy with extraction still running under
+  postCancel.
+
+### Test infrastructure
+
+- New `app/internal/agent/deferred_extraction_test.go` —
+  5 tests covering the ADR-0015 state machine: UI unlock
+  before extraction completes, queue capture during
+  extraction, most-recent-wins overwrite across multiple
+  SENDs, Abort clears the queue and cancels extraction,
+  `IsExtractionInFlight` / `HasQueuedSend` reflect the
+  in-flight window, and queue dispatch survives extraction
+  errors.
+- New `extractMemoriesOverride` test-only field on Agent so
+  tests can pause the extraction goroutine on a channel,
+  observe state transitions in the in-flight window, then
+  release. A regression test asserts `New()` leaves the
+  override nil so production paths always run the real
+  method.
+
+### Compatibility
+
+- **No breaking changes.** All bindings keep their existing
+  signatures; `Send` may now return the literal string
+  `"QUEUED"` as a success value (frontend already treats
+  input-clear as the success signal, so this is invisible).
+- **No schema changes.** chat.json, global_memory.json,
+  session_memory.json all unchanged.
+- **No migration scripts.** Existing v0.10.0 sessions open
+  identically and immediately benefit from the new UI gate
+  behaviour.
+
 ## [0.10.0] - 2026-05-16
 
 Restores standard macOS app-citizenship — the application menu
