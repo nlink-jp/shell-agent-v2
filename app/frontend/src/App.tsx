@@ -10,6 +10,7 @@ import {urlTransform, objectComponents, clearObjectMetaCache} from './markdown/o
 import DataDisclosure from './DataDisclosure'
 import FindingsDisclosure from './FindingsDisclosure'
 import MessageItem from './components/MessageItem'
+import QueuePill from './components/QueuePill'
 import Sidebar from './sidebar/Sidebar'
 import SettingsDialog from './dialogs/SettingsDialog'
 import MITLDialog from './dialogs/MITLDialog'
@@ -137,6 +138,16 @@ function App() {
     // that returned an error and is still being flashed (5 s).
     const [bgTasks, setBgTasks] = useState<string[]>([])
     const [bgFailure, setBgFailure] = useState<{name: string; error: string} | null>(null)
+    // ADR-0015: deferred memory extraction. extractionPending is
+    // true between agent:extraction:started and
+    // agent:extraction:done. queuedMessage, when set, shows the
+    // queue pill above the input bar — the user's SEND landed in
+    // the single-slot queue and will fire when extraction
+    // completes. Clearing happens on agent:queue_cleared (Abort)
+    // or naturally when extraction:done fires (the dispatched
+    // SEND becomes the new in-progress turn).
+    const [extractionPending, setExtractionPending] = useState(false)
+    const [queuedMessage, setQueuedMessage] = useState<{text: string; at: string} | null>(null)
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const messagesContainerRef = useRef<HTMLDivElement>(null)
     // scrollMessagesToBottom forces the .messages container to its
@@ -303,7 +314,36 @@ function App() {
                     }, 5000)
                 }
             })
-            return () => { cleanupStream(); cleanupActivity(); cleanupGlobalMemory(); cleanupSessionMemory(); cleanupFindings(); cleanupReport(); cleanupMitl(); cleanupTitle(); cleanupBgStart(); cleanupBgEnd() }
+            // ADR-0015 deferred-extraction events.
+            const cleanupExtractionStarted = window.runtime.EventsOn('agent:extraction:started', () => {
+                setExtractionPending(true)
+            })
+            const cleanupExtractionDone = window.runtime.EventsOn('agent:extraction:done', () => {
+                setExtractionPending(false)
+                // Auto-dispatch (if any) takes care of the queue;
+                // the new turn's agent:state will reset the rest.
+                // We don't clear queuedMessage here because the
+                // auto-dispatch will trigger a fresh SEND that
+                // moves state through Busy → Idle naturally; the
+                // pill disappears when state goes Busy.
+                setQueuedMessage(null)
+            })
+            const cleanupQueued = window.runtime.EventsOn('agent:queued', (data: any) => {
+                setQueuedMessage({
+                    text: String(data.message || ''),
+                    at: String(data.at || ''),
+                })
+            })
+            const cleanupQueueCleared = window.runtime.EventsOn('agent:queue_cleared', () => {
+                setQueuedMessage(null)
+            })
+            return () => {
+                cleanupStream(); cleanupActivity(); cleanupGlobalMemory();
+                cleanupSessionMemory(); cleanupFindings(); cleanupReport();
+                cleanupMitl(); cleanupTitle(); cleanupBgStart(); cleanupBgEnd();
+                cleanupExtractionStarted(); cleanupExtractionDone();
+                cleanupQueued(); cleanupQueueCleared();
+            }
         }
     }, [])
 
@@ -628,12 +668,21 @@ function App() {
 
     // bgTasks holds names of post-response tasks the backend is
     // still running (title gen / memory compaction / pinned-fact
-    // extraction). The agent stays Busy on the backend until they
-    // all finish, so we treat them as part of "busy" for the input
-    // gate. Without this, ChatInput re-enables the moment Send
-    // returns, the user types, the backend rejects with ErrBusy,
-    // and an "Error: agent is busy" toast appears.
-    const postBusy = bgTasks.length > 0
+    // extraction). The agent stays Busy on the backend until
+    // title generation finishes; ADR-0015 moved memory extraction
+    // off that gate so the user can compose during the extraction
+    // window. Two distinct subsets:
+    //
+    //   - inputBusyTasks: anything that should block the input
+    //     bar. Memory-extraction is EXCLUDED — its SEND-during-
+    //     extraction goes into the single-slot queue and dispatches
+    //     when extraction completes, so the user can keep typing.
+    //   - bgTasks (full): used for session-management gates
+    //     (handleLoadSession et al.) — those keep blocking through
+    //     the extraction window to avoid concurrent agent state
+    //     repurposing.
+    const inputBusyTasks = bgTasks.filter(n => n !== 'memory-extraction')
+    const postBusy = inputBusyTasks.length > 0
     const isBusy = state === 'busy' || postBusy
     const canChat = state === 'idle' && !postBusy && currentSessionId !== ''
 
@@ -923,6 +972,9 @@ function App() {
                         </span>
                     )}
                 </div>
+                {queuedMessage && (
+                    <QueuePill message={queuedMessage.text} onCancel={handleAbort} />
+                )}
                 {isBusy ? (
                     <div className="input-area">
                         <div className="input-row">

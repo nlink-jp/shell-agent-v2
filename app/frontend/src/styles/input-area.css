@@ -208,3 +208,57 @@
     max-width: 100%;
 }
 
+/* ADR-0015: queue pill rendered above the input bar when a SEND
+   is held in the single-slot queue waiting for memory extraction
+   to complete. amber tint signals "in-flight, will fire soon". */
+.queue-pill {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 6px 12px 0 12px;
+    padding: 6px 12px;
+    background: #3a3020;
+    border: 1px solid #6a5430;
+    border-radius: 6px;
+    color: #e0c890;
+    font-size: 13px;
+}
+
+.queue-pill-icon {
+    flex-shrink: 0;
+}
+
+.queue-pill-label {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.queue-pill-label em {
+    font-style: normal;
+    font-weight: 600;
+    color: #ffd590;
+}
+
+.queue-pill-hint {
+    color: #c0a880;
+    font-weight: normal;
+}
+
+.queue-pill-cancel {
+    background: transparent;
+    border: 1px solid #6a5430;
+    color: #e0c890;
+    border-radius: 4px;
+    padding: 2px 8px;
+    cursor: pointer;
+    font-size: 12px;
+    line-height: 1;
+}
+
+.queue-pill-cancel:hover {
+    background: #6a5430;
+    color: #fff;
+}
+
