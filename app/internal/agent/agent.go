@@ -190,6 +190,15 @@ type Agent struct {
 	// queued the message. Set via SetBaseContext from the
 	// bindings layer right after Wails calls startup.
 	baseCtx context.Context
+
+	// extractMemoriesOverride is a test-only hook that replaces
+	// the real extractMemories call from postResponseTasks.
+	// Production code always leaves this nil and the real
+	// method runs. Tests for the ADR-0015 deferred-extraction
+	// flow set this so they can pause the extraction goroutine
+	// on a channel, send while extractionInFlight is true,
+	// then release the hold and assert the queued send fires.
+	extractMemoriesOverride func(ctx context.Context) error
 }
 
 // queuedSend holds the parameters of a SEND that arrived while a
@@ -1772,50 +1781,71 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 // extraction. Each is wrapped in trackBg so the footer indicator
 // (start/end events) and log lines stay symmetric.
 //
-// State machine: agent state stays Busy until all three goroutines
-// finish; the trailing goroutine drops state back to Idle. This
-// means the input field stays disabled while these tasks run, so
-// the user cannot type a new message that would race with title
-// generation or pinned-fact extraction (the previous fire-and-
-// forget design caused tasks to be auto-cancelled in rapid
-// conversations and pinned facts to be silently dropped).
+// State machine (ADR-0015): only title generation gates the
+// Idle transition (it's short and runs at most once per session,
+// on the first turn). Memory extraction runs in a separate
+// goroutine OFF the WaitGroup so the UI unlocks as soon as the
+// visible response is delivered. The extraction goroutine
+// continues to register via trackBg, so it remains visible in
+// bgTasks on the frontend — that's what keeps the session-
+// management gates (LoadSession et al.) blocked through the
+// extraction window even though state == StateIdle. The agent's
+// extractionInFlight flag tracks the same window for the
+// frontend's input-bar tint and the queue-dispatch logic in
+// Send. See ADR-0015 §3.3.
 //
-// The tasks run under a context derived from parentCtx; the cancel
-// is stashed on a.postCancel so Abort can interrupt them when the
-// user explicitly wants to bail (e.g. a 429 retry that's taking
-// too long). Without an Abort, the goroutine waits to completion.
+// All tasks run under a context derived from parentCtx; the
+// cancel is stashed on a.postCancel so Abort can interrupt them
+// when the user explicitly wants to bail.
 //
-// Design: docs/en/history/agent-data-flow.md §4.1,
-// docs/en/history/background-task-indicator.md.
+// Design: docs/en/adr/0015-deferred-extraction-send.md,
+// docs/en/history/agent-data-flow.md §4.1.
 func (a *Agent) postResponseTasks(parentCtx context.Context) {
 	ctx, cancel := context.WithCancel(parentCtx)
 	a.mu.Lock()
 	a.postCancel = cancel
+	a.extractionInFlight = true
 	a.mu.Unlock()
 
-	// v0.2.0: only 2 post-response tasks now. The legacy
-	// "memory-compaction" task is gone (contextbuild handles
-	// folding non-destructively at LLM-call time).
-	a.postTasksWg.Add(2)
+	// Title generation gates the Idle transition (short, first
+	// turn only). Tracked via the WaitGroup.
+	a.postTasksWg.Add(1)
 	go func() {
 		defer a.postTasksWg.Done()
 		a.trackBg(ctx, "title", func() error { return a.generateTitleIfNeeded(ctx) })
 	}()
-	go func() {
-		defer a.postTasksWg.Done()
-		a.trackBg(ctx, "memory-extraction", func() error { return a.extractMemories(ctx) })
-	}()
 
-	// Trailing goroutine: wait for all three tasks to finish, then
-	// release the agent back to Idle. Done as a separate goroutine
-	// so postResponseTasks itself returns immediately and the
-	// caller (agentLoop's defer) doesn't block.
+	// Trailing goroutine for title: drop state to Idle as soon
+	// as title finishes. Extraction does NOT gate this — the
+	// UI unlocks early on purpose (ADR-0015). The cancel /
+	// postCancel pointers are intentionally NOT cleared here:
+	// the extraction goroutine may still be running under
+	// postCancel, and the next turn's Send overwrites both
+	// pointers anyway. Cancel funcs are idempotent and safe to
+	// call on already-finished contexts (see comment on Agent
+	// struct fields).
 	go func() {
 		a.postTasksWg.Wait()
 		a.mu.Lock()
 		a.state = StateIdle
-		a.cancel = nil
-		a.postCancel = nil
+		a.mu.Unlock()
+	}()
+
+	// Memory extraction — off the WaitGroup. Runs concurrently
+	// with the user's composition window for the next turn.
+	// On completion, clear extractionInFlight so the frontend
+	// can revert the input-bar tint.
+	a.mu.Lock()
+	extractFn := a.extractMemoriesOverride
+	a.mu.Unlock()
+	if extractFn == nil {
+		extractFn = a.extractMemories
+	}
+	go func() {
+		a.trackBg(ctx, "memory-extraction", func() error { return extractFn(ctx) })
+
+		a.mu.Lock()
+		a.extractionInFlight = false
 		a.mu.Unlock()
 	}()
 }
