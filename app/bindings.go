@@ -116,6 +116,26 @@ func (b *Bindings) startup(ctx context.Context) {
 	b.agent.SetFindingsHandler(func() {
 		wailsRuntime.EventsEmit(b.ctx, "findings:updated", nil)
 	})
+	// ADR-0015 deferred-extraction lifecycle events. The frontend
+	// listens to these to switch the input bar between Ready /
+	// Extracting visuals and to render the queue pill.
+	b.agent.SetExtractionHandler(func(ev agent.ExtractionEvent) {
+		wailsRuntime.EventsEmit(b.ctx, "agent:extraction:"+string(ev.Phase), map[string]any{
+			"phase":   string(ev.Phase),
+			"success": ev.Success,
+		})
+	})
+	b.agent.SetQueueHandler(func(ev agent.QueuedEvent) {
+		if ev.Cleared {
+			wailsRuntime.EventsEmit(b.ctx, "agent:queue_cleared", map[string]any{})
+			return
+		}
+		wailsRuntime.EventsEmit(b.ctx, "agent:queued", map[string]any{
+			"at":      ev.At.Format("2006-01-02T15:04:05Z07:00"),
+			"message": ev.Message,
+		})
+	})
+
 	b.agent.SetReportHandler(func(title, content string) {
 		wailsRuntime.EventsEmit(b.ctx, "report:created", map[string]any{
 			"title":   title,

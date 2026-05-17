@@ -129,8 +129,10 @@ type Agent struct {
 	globalMemoryHandler        func()
 	findingsHandler      func()
 	sessionMemoryHandler func()
-	activityHandler func(ActivityEvent)
-	bgTaskHandler   BgTaskHandler
+	activityHandler   func(ActivityEvent)
+	bgTaskHandler     BgTaskHandler
+	extractionHandler func(ExtractionEvent) // ADR-0015
+	queueHandler      func(QueuedEvent)     // ADR-0015
 	toolRegistry    *toolcall.Registry
 	guardians       map[string]*mcp.Guardian
 	guardiansMu     sync.RWMutex
@@ -505,6 +507,89 @@ func (a *Agent) SetBgTaskHandler(h BgTaskHandler) {
 	a.bgTaskHandler = h
 }
 
+// ExtractionPhase tags the lifecycle position of a memory-
+// extraction goroutine. ADR-0015 §3.5: the frontend uses this
+// to switch the input bar between Ready / Extracting visuals.
+type ExtractionPhase string
+
+const (
+	ExtractionPhaseStarted ExtractionPhase = "started"
+	ExtractionPhaseDone    ExtractionPhase = "done"
+)
+
+// ExtractionEvent surfaces a deferred-extraction lifecycle
+// transition to the bindings layer. Success is meaningful only
+// when Phase == ExtractionPhaseDone.
+type ExtractionEvent struct {
+	Phase   ExtractionPhase
+	Success bool
+}
+
+// QueuedEvent describes either a new SEND landing in the queue
+// slot or the slot being cleared (Abort / auto-dispatch). When
+// Cleared is true, At is the zero time and Message empty.
+type QueuedEvent struct {
+	Cleared bool
+	At      time.Time
+	Message string
+}
+
+// SetExtractionHandler registers a callback invoked when memory
+// extraction transitions in or out of its in-flight window.
+// Used by the bindings layer to fan out the agent:extraction:*
+// Wails events (ADR-0015 §3.5).
+func (a *Agent) SetExtractionHandler(h func(ExtractionEvent)) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.extractionHandler = h
+}
+
+// SetQueueHandler registers a callback invoked when the single-
+// slot send queue gains a SEND, gets overwritten, or is drained
+// (Abort / auto-dispatch). Used by the bindings layer to fan
+// out the agent:queued and agent:queue_cleared Wails events.
+func (a *Agent) SetQueueHandler(h func(QueuedEvent)) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.queueHandler = h
+}
+
+func (a *Agent) emitExtractionStarted() {
+	a.mu.Lock()
+	h := a.extractionHandler
+	a.mu.Unlock()
+	if h != nil {
+		h(ExtractionEvent{Phase: ExtractionPhaseStarted})
+	}
+}
+
+func (a *Agent) emitExtractionDone(success bool) {
+	a.mu.Lock()
+	h := a.extractionHandler
+	a.mu.Unlock()
+	if h != nil {
+		h(ExtractionEvent{Phase: ExtractionPhaseDone, Success: success})
+	}
+}
+
+func (a *Agent) emitQueued(message string, at time.Time) {
+	a.mu.Lock()
+	h := a.queueHandler
+	a.mu.Unlock()
+	if h != nil {
+		h(QueuedEvent{At: at, Message: message})
+	}
+}
+
+func (a *Agent) emitQueueCleared() {
+	a.mu.Lock()
+	h := a.queueHandler
+	a.mu.Unlock()
+	if h != nil {
+		h(QueuedEvent{Cleared: true})
+	}
+}
+
 // SetBaseContext captures the long-lived bindings-scope context so
 // the ADR-0015 queue auto-dispatch path can hand a still-live ctx
 // to the SendWithAttachments it kicks off after extraction
@@ -750,14 +835,16 @@ func (a *Agent) SendWithAttachments(ctx context.Context, message string, imageOb
 	// silently overwrites the prior queued message (chat
 	// semantics — the user is correcting themselves).
 	if a.state == StateIdle && a.extractionInFlight {
+		qAt := time.Now()
 		a.queuedSend = &queuedSend{
 			Message:           message,
 			ImageObjectIDs:    imageObjectIDs,
 			ImageDataURLs:     imageDataURLs,
 			DocumentObjectIDs: documentObjectIDs,
-			QueuedAt:          time.Now(),
+			QueuedAt:          qAt,
 		}
 		a.mu.Unlock()
+		a.emitQueued(message, qAt)
 		return "QUEUED", nil
 	}
 	if a.state != StateIdle {
@@ -812,6 +899,9 @@ func (a *Agent) Abort() {
 	a.queuedSend = nil
 	a.mu.Unlock()
 	logger.Info("Agent.Abort: state=%s cancel=%v postCancel=%v queued=%v", state, cancel != nil, postCancel != nil, hadQueued)
+	if hadQueued {
+		a.emitQueueCleared()
+	}
 	if cancel != nil {
 		cancel()
 	}
@@ -1850,6 +1940,7 @@ func (a *Agent) postResponseTasks(parentCtx context.Context) {
 	a.postCancel = cancel
 	a.extractionInFlight = true
 	a.mu.Unlock()
+	a.emitExtractionStarted()
 
 	// Title generation gates the Idle transition (short, first
 	// turn only). Tracked via the WaitGroup.
@@ -1886,7 +1977,11 @@ func (a *Agent) postResponseTasks(parentCtx context.Context) {
 		extractFn = a.extractMemories
 	}
 	go func() {
-		a.trackBg(ctx, "memory-extraction", func() error { return extractFn(ctx) })
+		var extractErr error
+		a.trackBg(ctx, "memory-extraction", func() error {
+			extractErr = extractFn(ctx)
+			return extractErr
+		})
 
 		a.mu.Lock()
 		a.extractionInFlight = false
@@ -1894,6 +1989,7 @@ func (a *Agent) postResponseTasks(parentCtx context.Context) {
 		a.queuedSend = nil
 		base := a.baseCtx
 		a.mu.Unlock()
+		a.emitExtractionDone(extractErr == nil)
 
 		// ADR-0015 §3.3: a SEND received while we were extracting
 		// is queued in a.queuedSend; auto-dispatch it now that
@@ -1904,6 +2000,12 @@ func (a *Agent) postResponseTasks(parentCtx context.Context) {
 		// emitters run. baseCtx is used because the ctx that
 		// queued the SEND was already cancelled when that turn
 		// completed.
+		//
+		// We do NOT emit queue_cleared here — the dispatch itself
+		// is the natural signal that the queue was consumed, and
+		// the frontend listens to agent:extraction:done to switch
+		// state. Emitting queue_cleared on auto-dispatch would
+		// race with the new turn's emit on the frontend.
 		if queued != nil && base != nil {
 			go a.SendWithAttachments(
 				base,
