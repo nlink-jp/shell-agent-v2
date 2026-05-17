@@ -119,3 +119,155 @@ type eventCounter struct {
 
 func (e *eventCounter) Inc()          { e.n.Add(1) }
 func (e *eventCounter) Count() int64  { return e.n.Load() }
+
+// TestQueuedSend_HeldDuringExtraction is the structural happy
+// path for ADR-0015's queue: send a turn, hold the extraction,
+// fire a second SEND, observe that the second SEND lands in the
+// queue slot rather than starting (or being rejected with
+// ErrBusy). Auto-dispatch is exercised by the next test.
+func TestQueuedSend_HeldDuringExtraction(t *testing.T) {
+	a := New(config.Default())
+	a.baseCtx = context.Background()
+
+	release := make(chan struct{})
+	a.extractMemoriesOverride = func(ctx context.Context) error {
+		<-release
+		return nil
+	}
+
+	a.mu.Lock()
+	a.state = StateBusy
+	a.mu.Unlock()
+	a.postResponseTasks(context.Background())
+
+	// Wait until extraction is in flight (state Idle + flag set).
+	if !waitFor(20*time.Millisecond, 2*time.Second, func() bool {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		return a.state == StateIdle && a.extractionInFlight
+	}) {
+		t.Fatal("extraction never entered in-flight window")
+	}
+
+	// A SEND now should be queued, not rejected.
+	result, err := a.SendWithAttachments(context.Background(), "queued message", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("SendWithAttachments returned error during extraction: %v", err)
+	}
+	if result != "QUEUED" {
+		t.Errorf("result = %q, want \"QUEUED\"", result)
+	}
+
+	a.mu.Lock()
+	q := a.queuedSend
+	a.mu.Unlock()
+	if q == nil {
+		t.Fatal("queuedSend is nil — SEND was not captured")
+	}
+	if q.Message != "queued message" {
+		t.Errorf("queuedSend.Message = %q, want \"queued message\"", q.Message)
+	}
+
+	close(release)
+}
+
+// TestQueuedSend_OverwriteMostRecentWins fires three SENDs in
+// rapid succession while extraction is held; only the most
+// recent should end up in the queue slot.
+func TestQueuedSend_OverwriteMostRecentWins(t *testing.T) {
+	a := New(config.Default())
+	a.baseCtx = context.Background()
+
+	release := make(chan struct{})
+	a.extractMemoriesOverride = func(ctx context.Context) error {
+		<-release
+		return nil
+	}
+
+	a.mu.Lock()
+	a.state = StateBusy
+	a.mu.Unlock()
+	a.postResponseTasks(context.Background())
+
+	if !waitFor(20*time.Millisecond, 2*time.Second, func() bool {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		return a.state == StateIdle && a.extractionInFlight
+	}) {
+		t.Fatal("extraction never entered in-flight window")
+	}
+
+	for _, m := range []string{"first", "second", "third"} {
+		if _, err := a.SendWithAttachments(context.Background(), m, nil, nil, nil); err != nil {
+			t.Fatalf("SendWithAttachments(%q): %v", m, err)
+		}
+	}
+
+	a.mu.Lock()
+	q := a.queuedSend
+	a.mu.Unlock()
+	if q == nil {
+		t.Fatal("queuedSend is nil")
+	}
+	if q.Message != "third" {
+		t.Errorf("queuedSend.Message = %q, want \"third\" (most-recent-wins)", q.Message)
+	}
+
+	close(release)
+}
+
+// TestQueuedSend_ExtractionErrorStillDispatches asserts that a
+// failure in extractMemories does not prevent the queued SEND
+// from auto-dispatching once the extraction goroutine returns.
+// The user's queued message must not be lost because the
+// background bookkeeping ran into an LLM error.
+//
+// We can't observe the full dispatch end-to-end without driving
+// the agentLoop (which requires a configured backend), but we
+// can observe that queuedSend is cleared and that the agent
+// transitions back through StateBusy briefly (which the
+// dispatch goroutine triggers). Once a real backend isn't
+// configured, the dispatched SendWithAttachments returns very
+// quickly with an error of its own — that's fine for this
+// test; we only care that the dispatch attempt happens.
+func TestQueuedSend_ExtractionErrorStillDispatches(t *testing.T) {
+	a := New(config.Default())
+	a.baseCtx = context.Background()
+
+	a.extractMemoriesOverride = func(ctx context.Context) error {
+		return context.DeadlineExceeded // simulate extraction error
+	}
+
+	a.mu.Lock()
+	a.state = StateBusy
+	a.mu.Unlock()
+	a.postResponseTasks(context.Background())
+
+	// Slip a queued SEND in before extraction finishes — easiest
+	// way is to set it directly under the lock; the production
+	// path goes via SendWithAttachments but the field semantics
+	// are the same and racing with the goroutine is harder to
+	// orchestrate in a test.
+	if !waitFor(20*time.Millisecond, 2*time.Second, func() bool {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		return a.extractionInFlight
+	}) {
+		t.Fatal("extraction never entered in-flight window")
+	}
+	a.mu.Lock()
+	a.queuedSend = &queuedSend{Message: "post-error", QueuedAt: time.Now()}
+	a.mu.Unlock()
+
+	// After extraction returns (with the simulated error), the
+	// completion goroutine should clear queuedSend and dispatch.
+	// Observe by waiting for queuedSend to become nil — the
+	// dispatch goroutine clears it before invoking SendWithAttachments.
+	if !waitFor(20*time.Millisecond, 2*time.Second, func() bool {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		return a.queuedSend == nil
+	}) {
+		t.Fatal("queuedSend was not consumed by auto-dispatch")
+	}
+}

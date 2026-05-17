@@ -742,6 +742,24 @@ func (a *Agent) SendWithAttachments(ctx context.Context, message string, imageOb
 	objectIDs := imageObjectIDs
 	dataURLs := imageDataURLs
 	a.mu.Lock()
+	// ADR-0015: if a prior turn's extraction is still in flight,
+	// hold this SEND in the single-slot queue instead of starting
+	// it. The extraction-completion goroutine in postResponseTasks
+	// will auto-dispatch the queued send when extraction returns.
+	// Most-recent-wins: a second SEND while one is already queued
+	// silently overwrites the prior queued message (chat
+	// semantics — the user is correcting themselves).
+	if a.state == StateIdle && a.extractionInFlight {
+		a.queuedSend = &queuedSend{
+			Message:           message,
+			ImageObjectIDs:    imageObjectIDs,
+			ImageDataURLs:     imageDataURLs,
+			DocumentObjectIDs: documentObjectIDs,
+			QueuedAt:          time.Now(),
+		}
+		a.mu.Unlock()
+		return "QUEUED", nil
+	}
 	if a.state != StateIdle {
 		a.mu.Unlock()
 		return "", ErrBusy
@@ -1846,7 +1864,29 @@ func (a *Agent) postResponseTasks(parentCtx context.Context) {
 
 		a.mu.Lock()
 		a.extractionInFlight = false
+		queued := a.queuedSend
+		a.queuedSend = nil
+		base := a.baseCtx
 		a.mu.Unlock()
+
+		// ADR-0015 §3.3: a SEND received while we were extracting
+		// is queued in a.queuedSend; auto-dispatch it now that
+		// extraction is done so the user's compose-then-send loop
+		// flows without manual re-invocation. We deliberately
+		// call SendWithAttachments (not agentLoop directly) so
+		// the normal state machine, MITL hooks, and event
+		// emitters run. baseCtx is used because the ctx that
+		// queued the SEND was already cancelled when that turn
+		// completed.
+		if queued != nil && base != nil {
+			go a.SendWithAttachments(
+				base,
+				queued.Message,
+				queued.ImageObjectIDs,
+				queued.ImageDataURLs,
+				queued.DocumentObjectIDs,
+			)
+		}
 	}()
 }
 
