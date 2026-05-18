@@ -1,6 +1,7 @@
 package objstore
 
 import (
+	"encoding/base64"
 	"fmt"
 	"strings"
 	"sync"
@@ -264,5 +265,52 @@ func TestSaveDataURL(t *testing.T) {
 	}
 	if meta.SessionID != "sess-test" {
 		t.Errorf("SessionID = %v", meta.SessionID)
+	}
+}
+
+// TestSaveDataURL_FilenameFallbackForGenericMIME guards the v0.11.0
+// fix for the Finder drag-drop case: macOS hands a .md file to the
+// frontend with file.type == "application/octet-stream", which would
+// previously land in TypeBlob and get skipped by the binding's
+// attachment handler. SaveDataURL now consults origName's extension
+// when MIME is empty or generic and re-routes to TypeMarkdown.
+func TestSaveDataURL_FilenameFallbackForGenericMIME(t *testing.T) {
+	cases := []struct {
+		name     string
+		mime     string
+		origName string
+		wantType ObjectType
+		wantMime string
+	}{
+		// Frontend was supposed to fix the MIME but didn't; the
+		// backend has to catch it via filename. .md.
+		{".md with application/octet-stream", "application/octet-stream", "audit.md", TypeMarkdown, "text/markdown"},
+		// Empty MIME (some paste paths) — same recovery.
+		{".markdown with empty MIME", "", "notes.markdown", TypeMarkdown, "text/markdown"},
+		// .txt → text/plain.
+		{".txt with application/octet-stream", "application/octet-stream", "log.txt", TypeMarkdown, "text/plain"},
+		// Already-correct MIME survives untouched.
+		{"correct text/markdown", "text/markdown", "doc.md", TypeMarkdown, "text/markdown"},
+		// No filename → stays TypeBlob (we can't infer).
+		{"empty origName stays blob", "application/octet-stream", "", TypeBlob, "application/octet-stream"},
+		// Unrelated extension stays TypeBlob.
+		{"binary extension stays blob", "application/octet-stream", "archive.zip", TypeBlob, "application/octet-stream"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := NewStoreAt(t.TempDir())
+			body := base64.StdEncoding.EncodeToString([]byte("test body"))
+			dataURL := "data:" + tc.mime + ";base64," + body
+			meta, err := s.SaveDataURL(dataURL, tc.origName, "sess-test")
+			if err != nil {
+				t.Fatalf("SaveDataURL: %v", err)
+			}
+			if meta.Type != tc.wantType {
+				t.Errorf("Type = %q, want %q", meta.Type, tc.wantType)
+			}
+			if meta.MimeType != tc.wantMime {
+				t.Errorf("MimeType = %q, want %q", meta.MimeType, tc.wantMime)
+			}
+		})
 	}
 }

@@ -113,6 +113,32 @@ function ChatInput({onSend, disabled}: Props) {
     // come back from SaveDataURL after the data-URL round-trip.
     const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
 
+    // rewriteDataURLMIMEFromFilename patches a data URL whose
+    // MIME header is empty or generic (application/octet-stream)
+    // with the type inferred from the filename extension. macOS
+    // Finder drag-drop hands .md files to the browser as
+    // application/octet-stream because the OS hasn't registered
+    // text/markdown; without this, the server routes them to
+    // TypeBlob and the binding skips the attachment entirely.
+    function rewriteDataURLMIMEFromFilename(dataURL: string, file: File): string {
+        const currentMIME = file.type
+        if (currentMIME !== '' && currentMIME !== 'application/octet-stream') {
+            return dataURL
+        }
+        const lower = file.name.toLowerCase()
+        let inferred: string | null = null
+        if (lower.endsWith('.md') || lower.endsWith('.markdown')) {
+            inferred = 'text/markdown'
+        } else if (lower.endsWith('.txt')) {
+            inferred = 'text/plain'
+        }
+        if (!inferred) return dataURL
+        // `data:` + maybe-empty MIME, optional `;base64`, then `,`.
+        // Replace just the MIME portion, leaving the encoding flag
+        // and payload intact.
+        return dataURL.replace(/^data:[^;,]*/, `data:${inferred}`)
+    }
+
     async function addImages(files: FileList | File[]) {
         // FileReader is async; reading files in a plain for-loop and
         // appending each onload result lets readers race — bigger
@@ -130,7 +156,17 @@ function ChatInput({onSend, disabled}: Props) {
             new Promise<PendingAttachment>((resolve, reject) => {
                 const reader = new FileReader()
                 reader.onload = () => resolve({
-                    dataURL: reader.result as string,
+                    // v0.11.0: macOS Finder drag-drop hands .md / .txt
+                    // files to the browser as
+                    // application/octet-stream (or empty), which
+                    // landed in TypeBlob server-side and got skipped
+                    // by the attachment handler. Rewrite the data
+                    // URL's MIME header from the filename extension
+                    // so SaveDataURL routes correctly to
+                    // TypeMarkdown. The objstore side also has a
+                    // filename fallback for defense-in-depth (other
+                    // entry points / paste flows).
+                    dataURL: rewriteDataURLMIMEFromFilename(reader.result as string, file),
                     // file.name is empty for clipboard-paste images
                     // ("image/png" item with no filename) — leave it
                     // empty so objstore.OrigName stays "" and the

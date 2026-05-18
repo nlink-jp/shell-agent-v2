@@ -366,9 +366,19 @@ const MaxAttachmentBytes = 50 * 1024 * 1024
 // actual filename here so the data panel and chat bubbles can
 // show "audit.md" instead of the 32-hex object ID.
 //
-// Type inference from MIME:
+// Type inference from MIME, with a filename-extension fallback
+// for the common case where Finder drag-drop hands us
+// application/octet-stream for a .md file (macOS doesn't always
+// register the markdown MIME with the system). The frontend
+// also rewrites the data URL's MIME before SaveDataURL is
+// called; this is defense-in-depth for other entry points and
+// for paste flows where filename metadata is missing.
+//
 //   - image/*                         → TypeImage
 //   - text/markdown, text/plain       → TypeMarkdown   (v0.5)
+//   - empty or application/octet-stream
+//       + origName ends with .md / .markdown → TypeMarkdown / text/markdown
+//       + origName ends with .txt            → TypeMarkdown / text/plain
 //   - anything else                   → TypeBlob
 //
 // application/json deliberately stays as TypeBlob: tabular JSON
@@ -393,6 +403,19 @@ func (s *Store) SaveDataURL(dataURL, origName, sessionID string) (*ObjectMeta, e
 	}
 	if len(decoded) > MaxAttachmentBytes {
 		return nil, fmt.Errorf("attachment too large: %d bytes (max %d)", len(decoded), MaxAttachmentBytes)
+	}
+
+	// Apply filename-extension fallback BEFORE the type switch so
+	// downstream callers see the corrected MIME on meta.MimeType
+	// (analyse-text / grep-text are MIME-aware via isTextMIME).
+	if (mimeType == "" || mimeType == "application/octet-stream") && origName != "" {
+		lower := strings.ToLower(origName)
+		switch {
+		case strings.HasSuffix(lower, ".md") || strings.HasSuffix(lower, ".markdown"):
+			mimeType = "text/markdown"
+		case strings.HasSuffix(lower, ".txt"):
+			mimeType = "text/plain"
+		}
 	}
 
 	// Determine type from MIME.

@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 Closes the long-standing "chat feels slow" gap by moving
 post-response memory extraction out of the UI lock path.
+Also fixes a separate latent bug surfaced during E2E testing:
+Finder drag-drop of `.md` files was being routed to `TypeBlob`
+because macOS hands `.md` to the browser as
+`application/octet-stream`. The frontend now rewrites the data
+URL's MIME header from the filename extension before sending,
+and `SaveDataURL` has a defense-in-depth filename fallback for
+other entry points (paste, future MCP-injected attachments,
+etc.). The Markdown-attachment happy path (ADR-0006, v0.5.0)
+works again for drag-drop.
 Without this change, every substantive turn paid the extraction
 LLM's 3-8 s of dead time before the input bar re-enabled even
 on Vertex AI. With it, the input unlocks the moment the visible
@@ -83,6 +92,25 @@ gate changes. See ADR-0015 for the design rationale.
   and overwritten by the next turn anyway; clearing them
   mid-flight was racy with extraction still running under
   postCancel.
+
+### Fixed
+
+- **Finder drag-drop of `.md` / `.txt` files** misrouting to
+  `TypeBlob`. macOS hands these to the browser with
+  `file.type === "application/octet-stream"` (or empty);
+  pre-fix the binding's `SendWithImages` saw a blob attachment
+  it didn't know how to attach and logged
+  `SendWithImages: attachment with unexpected type "blob"; skipping`.
+  The user's "summarise the attachment" requests then forced
+  the LLM into a recovery loop (list-objects → sandbox-copy →
+  cat or analyze-text → create-report) instead of using the
+  intended `analyze-text` / `grep-text` path that ADR-0006
+  designed. Fixed in two places: the frontend
+  (`ChatInput.tsx`) rewrites the data URL's MIME header from
+  the filename extension before SaveDataURL; the objstore
+  (`SaveDataURL`) carries a filename-extension fallback for
+  other entry points. `TestSaveDataURL_FilenameFallbackForGenericMIME`
+  pins the six relevant combinations of MIME × filename.
 
 ### Test infrastructure
 
