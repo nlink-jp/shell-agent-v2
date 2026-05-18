@@ -14,12 +14,35 @@ auto-installed — copy the ones you want into your
 | [`generate-image.sh`](generate-image.sh) | [gem-image](https://github.com/nlink-jp/gem-image) | `gem-image` binary on `$PATH` | on (`@category: write`) |
 | [`search-kb-gem.sh`](search-kb-gem.sh) | [gem-rag](https://github.com/nlink-jp/gem-rag) (Vertex AI Gemini RAG) | `gem-rag` binary + pre-indexed corpus | off |
 | [`search-kb-lite.sh`](search-kb-lite.sh) | [lite-rag](https://github.com/nlink-jp/lite-rag) (local LLM RAG) | `lite-rag` binary + pre-indexed corpus | off |
+| [`summary.sh`](summary.sh) | [gem-summary](https://github.com/nlink-jp/gem-summary) (Vertex AI Gemini single-call text summariser) | `gem-summary` binary on `$PATH` | off |
 
-All four scripts declare `@timeout: 120` because the underlying
-RAG / search / image round-trips routinely exceed the
-30-second default. See
+All five scripts declare `@timeout: 120` because the underlying
+Gemini round-trips routinely exceed the 30-second default
+(`gem-summary`'s chunked path in particular can fan out 5-10
+parallel calls and a merge call). See
 [docs/en/history/tool-execution-timeout.md](../../docs/en/history/tool-execution-timeout.md)
 for the rationale.
+
+### When to pick `summary` over `analyze-text`
+
+`summary.sh` is the recommended path for **ordinary summary
+requests** — "summarise this document", "give me a TL;DR",
+"what does this report say". One LLM call (or one merge call
+plus parallel chunk calls for over-context-window inputs).
+
+The built-in `analyze-text` tool, by contrast, uses a
+sliding-window summariser that issues 3-5 LLM calls and
+maintains a running summary across windows. That overhead pays
+off for **log audits / anomaly detection across long
+documents** where the running-summary context bridge between
+windows is load-bearing. For plain summarisation it's overkill.
+
+The `@description:` field in `summary.sh` calls out this
+contrast explicitly so the LLM can pick correctly from the
+tool list — no need to seed System Rules or modify
+shell-agent-v2's built-in prompts. If you observe drift in
+practice, add a System Rules entry that pins the preference
+(`examples/system_rules/` is the natural home).
 
 ## Installing one
 
