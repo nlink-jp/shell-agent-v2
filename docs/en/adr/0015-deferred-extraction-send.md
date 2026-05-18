@@ -197,38 +197,43 @@ go {
 
 New shape:
 
-1. **Title generation stays blocking** (still tracked by wg
-   and contributes to the StateIdle transition). It only runs
-   on the first turn and completes fast.
-2. **Memory extraction moves off the wg**. A new goroutine
-   runs extraction in the background:
+1. **State flips to Idle at entry** to `postResponseTasks`,
+   BEFORE either background goroutine starts. The visible
+   response is already rendered by the time `postResponseTasks`
+   is called (it runs from agentLoop's defer); gating Idle on
+   *any* background work made the first turn pay 3-5 s of
+   title-gen latency even on Vertex AI, which was the original
+   user complaint that motivated this ADR.
+2. **Title and extraction both run in bg goroutines off the
+   state-machine path** but tracked on `postTasksWg` so
+   LoadSession / Export / tests can drain them.
+3. **`a.extractionInFlight` becomes the dedicated signal** for
+   the queue / UI tint, independent of `state`.
 
 ```go
-// Title — gates the StateIdle transition (short, first turn only).
+// State → Idle immediately on entry. Both bg goroutines launch
+// after this point and run independently of the state machine.
+a.mu.Lock()
+a.postCancel = cancel
+a.extractionInFlight = true
+a.state = StateIdle
+a.mu.Unlock()
+a.emitExtractionStarted()
+
+// Title generation — bg goroutine, only fires when the
+// session's Title is still "New Session". Quick on Vertex,
+// slower locally; either way decoupled from state.
 a.postTasksWg.Add(1)
 go func() {
     defer a.postTasksWg.Done()
     a.trackBg(ctx, "title", generateTitle)
 }()
 
-// State flip back to Idle now happens as soon as title
-// completes (extraction is no longer gating).
-go func() {
-    a.postTasksWg.Wait()
-    a.mu.Lock()
-    a.state = StateIdle
-    a.cancel = nil
-    a.mu.Unlock()
-    a.emitState() // ← UI unlocks here, even if extraction is still running
-}()
-
 // Memory extraction — runs concurrently with the user's next
 // composition window. When it finishes, dispatch any queued SEND.
-a.mu.Lock()
-a.extractionInFlight = true
-a.mu.Unlock()
-a.emitExtractionStarted()
+a.postTasksWg.Add(1)
 go func() {
+    defer a.postTasksWg.Done()
     a.trackBg(ctx, "memory-extraction", extractMemories)
 
     a.mu.Lock()
@@ -445,10 +450,16 @@ for the queue pill above when a SEND is queued.
    UI locked, same as before. The new mechanism only changes
    the *post-response* gate, not the in-loop gate.
 
-10. **Title generation still gates StateIdle.** Title gen is
-    short (3-5 s) and only runs once per session, so this is
-    a minor first-turn-only cost. Not worth complicating the
-    state machine further by moving title off the wg too.
+10. **Title generation is also off the state-machine gate.**
+    Original draft kept title on the wg under the rationale
+    "short and only first turn", but observed first-turn
+    latency from title alone was still 3-5 s on Vertex AI
+    (longer on local LLMs). Title now joins extraction as a
+    pure bg goroutine — the title appears in the sidebar a
+    few seconds after the response is rendered, which is the
+    same UX every other chat app uses. Both stay on
+    `postTasksWg` so LoadSession / Export / tests can drain
+    them before mutating session state.
 
 ---
 

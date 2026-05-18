@@ -45,16 +45,18 @@ func TestDeferredExtraction_UIUnlocksBeforeExtraction(t *testing.T) {
 
 	a.postResponseTasks(context.Background())
 
-	// State should drop to Idle once title completes (instant
-	// here — nil session early-return). Extraction is still
-	// held by `release`. Poll with a short timeout to absorb
-	// goroutine scheduling.
+	// State drops to Idle on postResponseTasks entry, BEFORE
+	// either bg goroutine starts. Extraction is still held by
+	// `release`. Title may or may not have run yet (irrelevant
+	// to the state machine). Poll briefly to absorb goroutine
+	// scheduling, though state should already be Idle by the
+	// time postResponseTasks returns.
 	if !waitFor(50*time.Millisecond, 2*time.Second, func() bool {
 		a.mu.Lock()
 		defer a.mu.Unlock()
 		return a.state == StateIdle
 	}) {
-		t.Fatal("state did not transition to Idle within 2s — title may be wedged")
+		t.Fatal("state did not transition to Idle within 2s — entry-time flip regressed")
 	}
 
 	a.mu.Lock()

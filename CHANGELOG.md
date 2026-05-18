@@ -29,12 +29,17 @@ gate changes. See ADR-0015 for the design rationale.
 
 ### Added
 
-- **Deferred memory extraction.** `postResponseTasks` splits
-  into two flows: title generation gates `Busy → Idle` (short,
-  first turn only); `extractMemories` runs in a separate
-  goroutine that does not gate the state machine. The
-  extraction goroutine continues to register via `trackBg` so
-  the frontend `bgTasks` view stays accurate.
+- **Deferred memory extraction.** `postResponseTasks` no longer
+  gates the `Busy → Idle` transition on any background work.
+  State flips to Idle immediately at entry (the visible
+  response is already on screen), then title generation and
+  memory extraction run in parallel goroutines. Both register
+  via `trackBg` (so the frontend `bgTasks` view stays accurate)
+  and both are tracked by `postTasksWg` (so LoadSession /
+  Export / tests can drain them before mutating session
+  state). Pre-refinement the title generation alone could
+  delay the input bar by 3-5 s on the first turn even with
+  Vertex AI — that's gone now.
 - **Single-slot send queue.** `SendWithAttachments` accepts a
   SEND issued while `extractionInFlight` is true and parks it
   in `a.queuedSend` (returning `"QUEUED"` instead of starting).

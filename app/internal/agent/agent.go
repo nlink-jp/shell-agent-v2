@@ -1936,47 +1936,44 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 // docs/en/history/agent-data-flow.md §4.1.
 func (a *Agent) postResponseTasks(parentCtx context.Context) {
 	ctx, cancel := context.WithCancel(parentCtx)
+	// ADR-0015 (refined): state goes to Idle immediately on
+	// entry, BEFORE either background goroutine launches. The
+	// visible response is already on screen at this point —
+	// agentLoop returned and the chat pane has rendered the
+	// final bubble. Gating Idle on title generation (which the
+	// pre-refinement code did) meant first-turn users waited
+	// 3-5 s for the title LLM call before they could type.
+	// Both title and extraction are now bg-only; the wg
+	// continues to track them so LoadSession / Export / tests
+	// can drain them before mutating session state.
 	a.mu.Lock()
 	a.postCancel = cancel
 	a.extractionInFlight = true
+	a.state = StateIdle
 	a.mu.Unlock()
 	a.emitExtractionStarted()
 
-	// Title generation gates the Idle transition (short, first
-	// turn only). Tracked via the WaitGroup.
+	// Title generation — first turn only, runs in bg.
 	a.postTasksWg.Add(1)
 	go func() {
 		defer a.postTasksWg.Done()
 		a.trackBg(ctx, "title", func() error { return a.generateTitleIfNeeded(ctx) })
 	}()
 
-	// Trailing goroutine for title: drop state to Idle as soon
-	// as title finishes. Extraction does NOT gate this — the
-	// UI unlocks early on purpose (ADR-0015). The cancel /
-	// postCancel pointers are intentionally NOT cleared here:
-	// the extraction goroutine may still be running under
-	// postCancel, and the next turn's Send overwrites both
-	// pointers anyway. Cancel funcs are idempotent and safe to
-	// call on already-finished contexts (see comment on Agent
-	// struct fields).
-	go func() {
-		a.postTasksWg.Wait()
-		a.mu.Lock()
-		a.state = StateIdle
-		a.mu.Unlock()
-	}()
-
-	// Memory extraction — off the WaitGroup. Runs concurrently
-	// with the user's composition window for the next turn.
-	// On completion, clear extractionInFlight so the frontend
-	// can revert the input-bar tint.
+	// Memory extraction. Also on the wg so LoadSession's
+	// drain catches it (per-session bg writes must not race
+	// session-pointer swap). The extractionInFlight flag /
+	// queuedSend slot are separate concerns: they drive the
+	// UI's "extracting" indicator and queue dispatch.
 	a.mu.Lock()
 	extractFn := a.extractMemoriesOverride
 	a.mu.Unlock()
 	if extractFn == nil {
 		extractFn = a.extractMemories
 	}
+	a.postTasksWg.Add(1)
 	go func() {
+		defer a.postTasksWg.Done()
 		var extractErr error
 		a.trackBg(ctx, "memory-extraction", func() error {
 			extractErr = extractFn(ctx)

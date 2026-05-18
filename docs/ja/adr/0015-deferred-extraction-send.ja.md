@@ -181,36 +181,42 @@ go {
 
 新形:
 
-1. **Title 生成は引き続き blocking** (wg で追跡され StateIdle
-   遷移を gate する)。初回ターンのみ短時間で完了。
-2. **Memory extraction は wg から外す**。新 goroutine がバック
-   グラウンドで実行:
+1. **State は postResponseTasks 入口で即 Idle** に遷移、両 bg
+   goroutine launch 前。可視レスポンスは postResponseTasks が
+   呼ばれた時点で既に画面表示済み (agentLoop の defer 経由)。
+   *いかなる* bg work で Idle を gate しても初回ターンの title-gen
+   レイテンシ 3-5 秒が Vertex AI でも残り、本 ADR を motivate した
+   元の不満が解消されない。
+2. **Title と extraction は両方とも state machine から外れた bg
+   goroutine で走る** が `postTasksWg` で追跡され、LoadSession /
+   Export / tests が drain 可能。
+3. **`a.extractionInFlight` がキュー / UI tint の専用シグナル**、
+   `state` とは独立。
 
 ```go
-// Title — StateIdle 遷移を gate (短い、初回のみ)。
+// State → Idle を entry で即時。両 bg goroutine はこの後で launch、
+// state machine とは独立して走る。
+a.mu.Lock()
+a.postCancel = cancel
+a.extractionInFlight = true
+a.state = StateIdle
+a.mu.Unlock()
+a.emitExtractionStarted()
+
+// Title 生成 — bg goroutine、session.Title が "New Session" の
+// ときだけ発火。Vertex は速く local は遅め; いずれにせよ state
+// とは decouple。
 a.postTasksWg.Add(1)
 go func() {
     defer a.postTasksWg.Done()
     a.trackBg(ctx, "title", generateTitle)
 }()
 
-// State の Idle 復帰は title 完了直後 (抽出は gate しない)。
-go func() {
-    a.postTasksWg.Wait()
-    a.mu.Lock()
-    a.state = StateIdle
-    a.cancel = nil
-    a.mu.Unlock()
-    a.emitState() // ← 抽出が走っていても UI はここで解除
-}()
-
 // Memory extraction — ユーザーの次メッセージ作文ウィンドウと並行。
 // 完了時にキュー上 SEND を dispatch。
-a.mu.Lock()
-a.extractionInFlight = true
-a.mu.Unlock()
-a.emitExtractionStarted()
+a.postTasksWg.Add(1)
 go func() {
+    defer a.postTasksWg.Done()
     a.trackBg(ctx, "memory-extraction", extractMemories)
 
     a.mu.Lock()
@@ -405,10 +411,14 @@ pill は `agent:queue_cleared` または turn auto-dispatch で消える。
    持続中は `state == StateBusy`、UI ロック、従来通り。新機構は
    *post-response* gate のみ変更、in-loop gate は不変。
 
-10. **Title 生成は依然 StateIdle gate**。Title gen は短い (3-5 秒)
-    かつセッションあたり 1 回のみなので、初回ターンのみのマイナー
-    コスト。title も wg から外して state machine をさらに複雑化する
-    価値はない。
+10. **Title 生成も state machine の gate から外す**。当初ドラフトは
+    「短いし初回のみ」の根拠で title を wg に残していたが、観測された
+    初回ターンレイテンシは Vertex AI でも title 単独で 3-5 秒 (ローカル
+    LLM はさらに長い)。Title も pure bg goroutine として extraction
+    と合流 — title は response 描画後数秒でサイドバーに反映され、
+    他のチャットアプリと同じ UX。両方とも `postTasksWg` 上に居続け、
+    session state mutation 前に LoadSession / Export / tests が
+    drain 可能。
 
 ---
 
