@@ -758,6 +758,14 @@ func (a *Agent) buildMessagesV2(ctx context.Context, budget config.ContextBudget
 		cache = &contextbuild.SummaryCache{}
 	}
 
+	// ADR-0018: consult the active session for any user / tool
+	// record that contains the current guard nonce, and rotate
+	// only on that signal. Keeps the nonce stable across the
+	// normal turns where no leak has happened so llama.cpp's
+	// prompt-prefix KV cache reuse can actually fire (ADR-0017's
+	// in-production effectiveness depends on this).
+	a.chat.PrepareWrap(a.session)
+
 	systemPrompt := a.chat.BuildSystemPrompt(
 		a.globalMemory.FormatForPrompt(),
 		a.sessionMemoryPrompt(),
@@ -1254,6 +1262,11 @@ func (a *Agent) LoadSession(session *memory.Session) error {
 	a.session = session
 	a.promptTokens = 0
 	a.outputTokens = 0
+	// v0.13.1 (ADR-0018 §4.4): reset the guard nonce on session
+	// switch so each session starts with its own nonce. Costs one
+	// cold turn at switch time; gains per-session isolation of
+	// nonce-leak attack surfaces.
+	a.chat.ResetGuardTag()
 	// v0.12.0 (ADR-0016 §3.3): resolve the session's profile.
 	// Empty ProfileID (v0.11.x session, no session.json) OR unknown
 	// ProfileID (referenced profile was deleted) → fall back to the
