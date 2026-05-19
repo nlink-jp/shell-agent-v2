@@ -26,22 +26,32 @@ const TagPrefix = "shell-agent-v2-sandbox"
 // the build context is a single file.
 const RecommendedDockerfile = `FROM python:3.12-slim
 
-# CJK fonts — matplotlib renders Japanese / Chinese /
-# Korean labels as tofu without these.
+# System packages:
+#   - fonts-noto-cjk{,-extra}: matplotlib renders Japanese /
+#     Chinese / Korean labels as tofu without these.
+#   - ca-certificates: TLS root bundle for outbound HTTPS.
+#   - graphviz: provides the dot / neato / fdp / circo / twopi
+#     binaries that the Python graphviz wrapper shells out to;
+#     also pulls the Graphviz libraries pydot uses. Renders
+#     .dot files into PNG / SVG and unlocks the standard
+#     "let the agent draw a diagram" flow.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         fonts-noto-cjk \
         fonts-noto-cjk-extra \
         ca-certificates \
+        graphviz \
     && rm -rf /var/lib/apt/lists/*
 
-# Common analysis libs.
+# Common analysis libs. graphviz here is the Python wrapper
+# (the binaries are installed via apt-get above).
 RUN pip install --no-cache-dir \
         pandas \
         numpy \
         matplotlib \
         scipy \
-        scikit-learn
+        scikit-learn \
+        graphviz
 
 # matplotlib rcParams: put Noto Sans CJK JP into the font
 # fallback chain so charts with Japanese labels render
