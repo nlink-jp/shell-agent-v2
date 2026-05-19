@@ -890,7 +890,7 @@ func (a *Agent) SendWithAttachments(ctx context.Context, message string, imageOb
 	if strings.HasPrefix(message, "/") {
 		parts := strings.Fields(message)
 		switch parts[0] {
-		case "/model", "/finding", "/findings", "/help":
+		case "/model", "/profile", "/finding", "/findings", "/help":
 			result, err := a.handleCommand(message)
 			a.mu.Lock()
 			a.state = StateIdle
@@ -2397,6 +2397,8 @@ func (a *Agent) handleCommand(message string) (string, error) {
 		return a.handleHelpCommand()
 	case "/model":
 		return a.handleModelCommand(parts[1:])
+	case "/profile":
+		return a.handleProfileCommand(parts[1:])
 	default:
 		return fmt.Sprintf("Unknown command: %s\nType /help for available commands.", cmd), nil
 	}
@@ -2409,10 +2411,93 @@ func (a *Agent) handleHelpCommand() (string, error) {
 |---------|-------------|
 | /help | Show this help |
 | /model | Show current backend |
-| /model local | Switch to local LLM |
-| /model vertex | Switch to Vertex AI |
+| /model local | Switch to local LLM (within the current profile) |
+| /model vertex | Switch to Vertex AI (within the current profile) |
+| /profile | List profiles, marking the current one |
+| /profile <name> | Switch this session to the named profile |
 | /export | Export the current session as a .shellagent bundle |
 | /import | Import a .shellagent bundle as a new session |`, nil
+}
+
+// handleProfileCommand implements the /profile chat command
+// (ADR-0016 §3.4):
+//
+//	/profile            → list profiles with current marked
+//	/profile <name>     → switch this session's profile to <name>
+//
+// Switching writes session.json atomically and re-instantiates
+// the backend client against the new profile's DefaultBackend
+// side (a deliberately stronger statement than /model — the
+// user is opting into the new profile's preferred side).
+//
+// Same dispatch path as /model, so the existing busy-state guard
+// (a.state != StateIdle returning ErrBusy at SendWithImages
+// entry) and the ADR-0015 extraction queue naturally apply: a
+// /profile typed during an in-flight turn is rejected; one typed
+// during background extraction is held in the single-slot queue
+// and runs after extraction completes.
+func (a *Agent) handleProfileCommand(args []string) (string, error) {
+	if a.session == nil {
+		return "", fmt.Errorf("no active session")
+	}
+	if len(args) == 0 {
+		return a.listProfilesForChat(), nil
+	}
+	target := strings.Join(args, " ")
+	profile, ok, ambiguous := a.cfg.LLM.ProfileByName(target)
+	if ambiguous {
+		return fmt.Sprintf("Profile name %q is ambiguous — multiple profiles share this name. Disambiguate with a partial UUID prefix (Settings auto-renames duplicates, so this should only happen if config.json was hand-edited).", target), nil
+	}
+	if !ok {
+		return fmt.Sprintf("Unknown profile: %q. Type /profile for the list.", target), nil
+	}
+	if profile.ID == a.session.ProfileID {
+		return fmt.Sprintf("Already on profile %q.", profile.Name), nil
+	}
+	if err := a.applyProfileSwitch(profile); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Switched to profile %q (default side: %s).", profile.Name, profile.DefaultBackend), nil
+}
+
+// applyProfileSwitch updates the active session's profile binding
+// and reinstantiates the backend client. Caller must hold a.mu (or
+// be on the chat-command path where StateBusy serialises access).
+// Shared between handleProfileCommand and the upcoming Bindings.
+// SwitchSessionProfile popover endpoint (commit 5).
+func (a *Agent) applyProfileSwitch(profile *config.LLMProfile) error {
+	if a.session == nil {
+		return fmt.Errorf("no active session")
+	}
+	a.session.ProfileID = profile.ID
+	if err := memory.SaveSessionConfig(a.session.ID, memory.SessionConfig{ProfileID: profile.ID}); err != nil {
+		return fmt.Errorf("persist session config: %w", err)
+	}
+	a.setBackend(profile.DefaultBackend)
+	a.activeProfileID = profile.ID
+	logger.Info("profile switched: session=%s profile=%s side=%s", a.session.ID, profile.ID, profile.DefaultBackend)
+	return nil
+}
+
+// listProfilesForChat renders the profile list for the /profile
+// no-args path. Active profile is marked with •, others with ○.
+func (a *Agent) listProfilesForChat() string {
+	var b strings.Builder
+	b.WriteString("**LLM Profiles**\n\n")
+	for i := range a.cfg.LLM.Profiles {
+		p := &a.cfg.LLM.Profiles[i]
+		mark := "○"
+		if p.ID == a.session.ProfileID {
+			mark = "●"
+		}
+		fmt.Fprintf(&b, "%s %s — default side: %s", mark, p.Name, p.DefaultBackend)
+		if p.ID == a.cfg.LLM.DefaultProfileID {
+			b.WriteString(" (global default)")
+		}
+		b.WriteString("\n")
+	}
+	b.WriteString("\nUse `/profile <name>` to switch the current session's profile.")
+	return b.String()
 }
 
 func (a *Agent) handleModelCommand(args []string) (string, error) {
