@@ -790,6 +790,12 @@ func (a *Agent) buildMessagesV2(ctx context.Context, budget config.ContextBudget
 		Summarize:           summarize,
 		WrapUserToolContent: a.chat.WrapUserToolContent,
 		ObjectLookup:        a.documentMetaLookup(),
+		// ADR-0017: rendered from each user record's stored
+		// Timestamp so the output is byte-stable across turns —
+		// llama.cpp's KV-cache prefix reuse needs that to fire.
+		UserRecordTemporalPrefix: func(ts time.Time) string {
+			return chat.RenderTemporalPrefix(ts, time.Local)
+		},
 	})
 	if err != nil {
 		return nil, err
