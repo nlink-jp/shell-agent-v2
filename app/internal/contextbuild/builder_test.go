@@ -250,3 +250,79 @@ func TestBuild_FitsInBudget_BasicSanity(t *testing.T) {
 		}
 	}
 }
+
+// TestBuild_UserRecordPrefixByteStable confirms ADR-0017's load-bearing
+// invariant at the Build level: two Build calls on the same session and
+// options must produce a byte-identical message array. This is what
+// llama.cpp's prompt prefix KV cache needs to fire across turns.
+func TestBuild_UserRecordPrefixByteStable(t *testing.T) {
+	ts := time.Date(2026, 5, 20, 12, 34, 56, 0, time.UTC)
+	session := &memory.Session{
+		Records: []memory.Record{
+			{Timestamp: ts, Role: "user", Content: "Hello"},
+			{Timestamp: ts.Add(2 * time.Second), Role: "assistant", Content: "Hi there"},
+			{Timestamp: ts.Add(4 * time.Second), Role: "user", Content: "How are you?"},
+		},
+	}
+	opts := BuildOptions{
+		SystemPrompt: "you are an agent",
+		Loc:          time.UTC,
+		UserRecordTemporalPrefix: func(t time.Time) string {
+			return "[Time: " + t.Format("2006-01-02 15:04:05 MST") + "]"
+		},
+	}
+	resA, errA := Build(stdcontext.Background(), session, &SummaryCache{}, opts)
+	resB, errB := Build(stdcontext.Background(), session, &SummaryCache{}, opts)
+	if errA != nil || errB != nil {
+		t.Fatalf("Build errors: A=%v B=%v", errA, errB)
+	}
+	if len(resA.Messages) != len(resB.Messages) {
+		t.Fatalf("message-count drift: A=%d B=%d", len(resA.Messages), len(resB.Messages))
+	}
+	for i := range resA.Messages {
+		if resA.Messages[i].Content != resB.Messages[i].Content {
+			t.Errorf("message %d content drift:\nA: %q\nB: %q",
+				i, resA.Messages[i].Content, resB.Messages[i].Content)
+		}
+	}
+}
+
+// TestBuild_UserRecordPrefixNotOnAssistantOrTool verifies that the
+// temporal prefix is scoped to user records — assistant / tool / report
+// messages must render without it regardless of the option being set.
+func TestBuild_UserRecordPrefixNotOnAssistantOrTool(t *testing.T) {
+	ts := time.Date(2026, 5, 20, 12, 34, 56, 0, time.UTC)
+	session := &memory.Session{
+		Records: []memory.Record{
+			{Timestamp: ts, Role: "user", Content: "Hello"},
+			{Timestamp: ts.Add(time.Second), Role: "assistant", Content: "Hi"},
+			{Timestamp: ts.Add(2 * time.Second), Role: "tool", Content: "tool-result"},
+		},
+	}
+	opts := BuildOptions{
+		SystemPrompt: "sys",
+		Loc:          time.UTC,
+		UserRecordTemporalPrefix: func(t time.Time) string {
+			return "<<TS:" + t.Format("2006-01-02") + ">>"
+		},
+	}
+	res, err := Build(stdcontext.Background(), session, &SummaryCache{}, opts)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	// res.Messages: [system, user, assistant, tool]
+	if len(res.Messages) < 4 {
+		t.Fatalf("expected ≥4 messages, got %d", len(res.Messages))
+	}
+	// User: should contain the marker.
+	if !strings.Contains(res.Messages[1].Content, "<<TS:") {
+		t.Errorf("user message missing temporal prefix; got %q", res.Messages[1].Content)
+	}
+	// Assistant / tool: must NOT contain the marker.
+	if strings.Contains(res.Messages[2].Content, "<<TS:") {
+		t.Errorf("assistant message unexpectedly has temporal prefix; got %q", res.Messages[2].Content)
+	}
+	if strings.Contains(res.Messages[3].Content, "<<TS:") {
+		t.Errorf("tool message unexpectedly has temporal prefix; got %q", res.Messages[3].Content)
+	}
+}
