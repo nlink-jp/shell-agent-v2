@@ -23,6 +23,45 @@ func TestBuildTemporalContext(t *testing.T) {
 	}
 }
 
+func TestRenderTemporalPrefix_ContainsDateTimeWeekday(t *testing.T) {
+	ts := time.Date(2026, 5, 20, 12, 34, 56, 0, time.UTC)
+	got := RenderTemporalPrefix(ts, time.UTC)
+	for _, want := range []string{"2026-05-20", "Wednesday", "12:34:56", "UTC"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("RenderTemporalPrefix output missing %q\nfull: %s", want, got)
+		}
+	}
+	if !strings.HasPrefix(got, "[Time:") || !strings.HasSuffix(got, "]") {
+		t.Errorf("RenderTemporalPrefix output not in expected [Time: …] form: %s", got)
+	}
+}
+
+// TestRenderTemporalPrefix_ByteStable is the load-bearing invariant
+// for ADR-0017: two renders of the same timestamp must produce
+// byte-identical strings, otherwise the server-side KV cache can't
+// reuse the prefix across requests.
+func TestRenderTemporalPrefix_ByteStable(t *testing.T) {
+	ts := time.Date(2026, 5, 20, 12, 34, 56, 789_000_000, time.UTC)
+	a := RenderTemporalPrefix(ts, time.UTC)
+	b := RenderTemporalPrefix(ts, time.UTC)
+	if a != b {
+		t.Errorf("non-deterministic output for the same input:\nA: %s\nB: %s", a, b)
+	}
+}
+
+// TestRenderTemporalPrefix_NilLocFallback ensures defensive callers
+// (legacy contextbuild paths without an explicit Loc) get a sane
+// default instead of a panic.
+func TestRenderTemporalPrefix_NilLocFallback(t *testing.T) {
+	ts := time.Now()
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("RenderTemporalPrefix panicked with nil loc: %v", r)
+		}
+	}()
+	_ = RenderTemporalPrefix(ts, nil)
+}
+
 func TestBuildMessages(t *testing.T) {
 	e := New("You are a helpful assistant.")
 	session := &memory.Session{

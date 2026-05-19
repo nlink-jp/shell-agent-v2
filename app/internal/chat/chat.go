@@ -290,7 +290,36 @@ func CleanResponse(content string) string {
 	return strip.ThinkTags(content)
 }
 
-// buildTemporalContext creates enriched date/time context for the LLM.
+// RenderTemporalPrefix renders the per-record temporal prefix used
+// at message-build time. The output is deterministic in (ts, loc),
+// so two renders of the same Record.Timestamp produce byte-identical
+// strings — critical for KV-cache prefix reuse across LLM requests
+// (ADR-0017).
+//
+// Format: "[Time: 2026-05-20 Tuesday 12:34:56 JST]"
+//
+// Tokens: ~15 per call. Compact intentionally — we trade the
+// "Yesterday: …" relative-day hint for size, since modern LLMs
+// can compute the prior day from the explicit weekday + date.
+func RenderTemporalPrefix(ts time.Time, loc *time.Location) string {
+	if loc == nil {
+		loc = time.Local
+	}
+	t := ts.In(loc)
+	return fmt.Sprintf("[Time: %s %s %s %s]",
+		t.Format("2006-01-02"),
+		t.Format("Monday"),
+		t.Format("15:04:05"),
+		t.Format("MST"),
+	)
+}
+
+// buildTemporalContext returns the current temporal context for the
+// legacy paths that still inject it into the system prompt
+// (BuildSystemPrompt / BuildMessages). Phase 2 of ADR-0017 will
+// remove those call sites; until then this wrapper keeps the old
+// behaviour identical to the pre-refactor format so we can land the
+// refactor and the call-site removal as separate commits.
 func buildTemporalContext() string {
 	now := time.Now()
 	_, offset := now.Zone()
