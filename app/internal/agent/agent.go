@@ -107,6 +107,14 @@ type Agent struct {
 	postCancel context.CancelFunc
 
 	backend       llm.Backend
+	// activeProfileID tracks the ID of the LLM profile the current
+	// backend was instantiated against. LoadSession compares the
+	// resolved profile against this field and only rebuilds backend
+	// when the profile actually changes — keeps test stubs alive
+	// when LoadSession is called with the same (default) profile,
+	// and avoids needless retry-policy / context-budget churn when
+	// switching between sessions sharing a profile.
+	activeProfileID string
 	chat          *chat.Engine
 	session       *memory.Session
 	findings      *findings.Store
@@ -244,7 +252,9 @@ func New(cfg *config.Config) *Agent {
 	}
 	a.startGuardians()
 	a.maybeStartSandbox()
-	a.setBackend(cfg.LLM.DefaultProfile().DefaultBackend)
+	defaultProf := cfg.LLM.DefaultProfile()
+	a.setBackend(defaultProf.DefaultBackend)
+	a.activeProfileID = defaultProf.ID
 	_ = a.globalMemory.Load()
 	_ = a.sysRules.Load()
 	// v0.6: populate the tool-descriptor registry. Builtin
@@ -732,9 +742,24 @@ func (a *Agent) buildMessagesV2(ctx context.Context, budget config.ContextBudget
 	return res.Messages, nil
 }
 
+// currentProfile returns the LLM profile the current session is
+// bound to. When no session is loaded or the session has no
+// recorded profile_id (v0.11.x session before lazy migration), or
+// the recorded profile no longer exists, it falls back to the
+// default profile. Never returns nil — Config.Load guarantees at
+// least one profile exists.
+func (a *Agent) currentProfile() *config.LLMProfile {
+	if a.session != nil && a.session.ProfileID != "" {
+		if p := a.cfg.LLM.ResolveProfile(a.session.ProfileID); p != nil {
+			return p
+		}
+	}
+	return a.cfg.LLM.DefaultProfile()
+}
+
 // currentModelName returns the active backend's configured model string.
 func (a *Agent) currentModelName() string {
-	prof := a.cfg.LLM.DefaultProfile()
+	prof := a.currentProfile()
 	switch a.currentBackendKey() {
 	case config.BackendVertexAI:
 		return prof.VertexAI.Model
@@ -747,7 +772,7 @@ func (a *Agent) currentModelName() string {
 // Caller must already hold a.mu, or accept a stale read.
 func (a *Agent) currentBackendKey() config.LLMBackend {
 	if a.backend == nil {
-		return a.cfg.LLM.DefaultProfile().DefaultBackend
+		return a.currentProfile().DefaultBackend
 	}
 	return config.LLMBackend(a.backend.Name())
 }
@@ -1160,7 +1185,43 @@ func (a *Agent) LoadSession(session *memory.Session) error {
 	a.session = session
 	a.promptTokens = 0
 	a.outputTokens = 0
-	logger.Info("session loaded: id=%s private=%v", session.ID, session.Private)
+	// v0.12.0 (ADR-0016 §3.3): resolve the session's profile.
+	// Empty ProfileID (v0.11.x session, no session.json) OR unknown
+	// ProfileID (referenced profile was deleted) → fall back to the
+	// default profile and lazy-write session.json so subsequent
+	// loads are fully migrated. The agent.backend is reset to the
+	// resolved profile's DefaultBackend side; /model within this
+	// session toggles between the resolved profile's pair.
+	originalProfileID := session.ProfileID
+	resolved := a.cfg.LLM.ResolveProfile(session.ProfileID)
+	if resolved == nil {
+		// Unreachable when Config.Load runs (repairProfiles
+		// guarantees ≥1 profile); be defensive anyway.
+		logger.Error("agent: LoadSession resolved profile is nil (no profiles in config?)")
+	} else if resolved.ID != originalProfileID {
+		// Either v0.11.x lazy migrate or deleted-profile fallback.
+		if originalProfileID == "" {
+			logger.Info("session %s: lazy-migrating session.json (profile=%s)", session.ID, resolved.ID)
+		} else {
+			logger.Info("session %s: profile %s missing, falling back to default %s", session.ID, originalProfileID, resolved.ID)
+		}
+		session.ProfileID = resolved.ID
+		if err := memory.SaveSessionConfig(session.ID, memory.SessionConfig{ProfileID: resolved.ID}); err != nil {
+			logger.Error("agent: SaveSessionConfig: %v", err)
+			// Non-fatal: the session still works in memory; we just
+			// won't have persisted the fallback. Next load retries.
+		}
+	}
+	// Rebuild the backend client only when the session's profile
+	// actually differs from the currently-active one. This keeps
+	// test stubs alive across LoadSession calls within the same
+	// profile and avoids needless retry/budget churn between
+	// sessions that share a profile.
+	if resolved != nil && resolved.ID != a.activeProfileID {
+		a.setBackend(resolved.DefaultBackend)
+		a.activeProfileID = resolved.ID
+	}
+	logger.Info("session loaded: id=%s private=%v profile=%s", session.ID, session.Private, session.ProfileID)
 
 	// v0.2.0: Findings and Session Memory are per-session.
 	// Construct (or reload) both stores every time LoadSession
@@ -2387,10 +2448,10 @@ func (a *Agent) RestartLLMBackend() {
 }
 
 func (a *Agent) setBackend(backend config.LLMBackend) {
-	// v0.12.0 (ADR-0016): commit 1 reads the default profile. Commit 3
-	// plumbs the active session's profile through so each session can
-	// run against its own (Local, Vertex) pair.
-	prof := a.cfg.LLM.DefaultProfile()
+	// v0.12.0 (ADR-0016): reads the active session's profile, falling
+	// back to the default profile when no session is loaded yet
+	// (agent.New time) or the session's profile_id was deleted.
+	prof := a.currentProfile()
 	var inner llm.Backend
 	var timeoutSec int
 	var maxAttempts, backoffBaseSec, backoffMaxSec, jitterSec int

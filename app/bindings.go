@@ -371,16 +371,26 @@ func (b *Bindings) newSession(private bool) (string, error) {
 		return "", fmt.Errorf("agent is busy")
 	}
 
+	// v0.12.0 (ADR-0016 §3.3): new sessions inherit the current
+	// default profile. session.json is written immediately so the
+	// binding survives an app restart even if the user never sends
+	// a message in this session.
+	defaultProfileID := b.cfg.LLM.DefaultProfileID
 	session := &memory.Session{
-		ID:      fmt.Sprintf("sess-%d", nowUnixMilli()),
-		Title:   "New Session",
-		Private: private,
-		Records: []memory.Record{},
+		ID:        fmt.Sprintf("sess-%d", nowUnixMilli()),
+		Title:     "New Session",
+		Private:   private,
+		Records:   []memory.Record{},
+		ProfileID: defaultProfileID,
 	}
 	if err := session.Save(); err != nil {
 		return "", err
 	}
-	logger.Info("session created: id=%s private=%v", session.ID, session.Private)
+	if err := memory.SaveSessionConfig(session.ID, memory.SessionConfig{ProfileID: defaultProfileID}); err != nil {
+		logger.Error("session create: SaveSessionConfig: %v", err)
+		// Non-fatal: agent.LoadSession will lazy-write on first open.
+	}
+	logger.Info("session created: id=%s private=%v profile=%s", session.ID, session.Private, defaultProfileID)
 
 	b.switchAnalysis(session.ID)
 	if err := b.agent.LoadSession(session); err != nil {

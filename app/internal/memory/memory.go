@@ -113,6 +113,15 @@ type Session struct {
 	Title   string   `json:"title"`
 	Private bool     `json:"private,omitempty"`
 	Records []Record `json:"records"`
+
+	// ProfileID names the LLM profile (config.LLMProfile.ID) the
+	// session is bound to. NOT persisted in chat.json — it lives in
+	// session.json next to chat.json (ADR-0016 §3.2). LoadSession
+	// populates this field by reading session.json; an empty value
+	// means "no session.json on disk" (v0.11.x session or
+	// brand-new session pre-save), which the agent layer treats as
+	// "fall back to the default profile + lazy-write session.json".
+	ProfileID string `json:"-"`
 }
 
 // AddUserMessage appends a user message to the session.
@@ -194,6 +203,11 @@ func ChatPath(sessionID string) string {
 }
 
 // LoadSession reads a session from disk.
+//
+// v0.12.0 (ADR-0016): also reads session.json (if present) and
+// populates Session.ProfileID. A missing or malformed session.json
+// leaves ProfileID empty, which the agent layer interprets as
+// "fall back to the default profile + lazy-write session.json".
 func LoadSession(sessionID string) (*Session, error) {
 	data, err := os.ReadFile(ChatPath(sessionID))
 	if err != nil {
@@ -203,6 +217,11 @@ func LoadSession(sessionID string) (*Session, error) {
 	if err := json.Unmarshal(data, &s); err != nil {
 		return nil, err
 	}
+	if cfg, exists, err := LoadSessionConfig(sessionID); err == nil && exists {
+		s.ProfileID = cfg.ProfileID
+	}
+	// On error (malformed session.json) we leave ProfileID empty so
+	// the agent can lazy-recover rather than failing the whole load.
 	return &s, nil
 }
 
