@@ -5,6 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.13.1] - 2026-05-20
+
+Real-world activation of the v0.13.0 prompt-prefix-stability
+work ([ADR-0018](docs/en/adr/0018-guard-nonce-stability.md)).
+
+### Fixed
+
+- **KV-cache reuse for the conversation history.** v0.13.0
+  removed the timestamp-in-system-prompt problem so the system
+  block was byte-stable across turns — but the
+  prompt-injection guard nonce (`nlk/guard`) was still being
+  rotated on every `BuildSystemPrompt` call, which rewrites
+  every wrapped user / tool record between turns. Production
+  tests stayed at ~28 s per turn on 15 K-token sessions. The
+  v0.12.x-and-earlier behaviour silently won.
+- **Scan-and-rotate guard nonce.** `chat.PrepareWrap(session)`
+  now runs before each LLM round. It scans the active session's
+  user and tool records for the current nonce string and
+  rotates only when the nonce literally appears inside
+  untrusted content — the exact condition under which a
+  leaked-nonce prompt injection could land. Otherwise the
+  nonce persists, so wrapped records render byte-identically
+  across turns and llama.cpp's prefix-cache reuse finally
+  fires on the full conversation history (bench T10b: 93 %
+  speedup, [llm-cache-bench-2026-05-20.md §T10](docs/en/history/llm-cache-bench-2026-05-20.md)).
+- **Session-switch nonce reset.** `agent.LoadSession` resets
+  the guard tag so each session starts with its own nonce.
+  Per-session isolation of the leak surface; cost is one cold
+  turn at switch time.
+
+### Tests
+
+Eight new invariants on `Engine.PrepareWrap`:
+first-call mint, no-leak preservation, leak-in-user
+rotation, leak-in-tool rotation, leak-in-assistant ignored,
+conservative match forms (open / close / bare), byte-stable
+normal case, nil-session no-op.
+
 ## [0.13.0] - 2026-05-20
 
 Prompt-prefix stability for KV-cache reuse

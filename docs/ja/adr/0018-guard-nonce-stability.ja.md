@@ -1,6 +1,6 @@
 # Guard nonce 安定化による KV cache 再利用 — 設計ノート
 
-**Status:** Proposed (2026-05-20)。
+**Status:** Implemented in v0.13.1 (2026-05-20)。
 **Target:** v0.13.1 (パッチ — v0.13.0 リリース後に発見された
 regression クラスの性能バグへの対処。ユーザー可視の修正で
 スキーマ移行なし、Wails バインディング署名の変更なし)。

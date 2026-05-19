@@ -1,6 +1,6 @@
 # Guard nonce stability for KV cache reuse — Design Note
 
-**Status:** Proposed (2026-05-20).
+**Status:** Implemented in v0.13.1 (2026-05-20).
 **Target:** v0.13.1 (patch — addresses a regression-class
 performance bug discovered after v0.13.0 release; user-visible
 fix with no schema migration and no Wails binding signature
