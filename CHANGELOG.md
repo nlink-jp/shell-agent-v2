@@ -5,6 +5,83 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.13.0] - 2026-05-20
+
+Prompt-prefix stability for KV-cache reuse
+([ADR-0017](docs/en/adr/0017-prompt-prefix-stability.md)).
+
+User-visible win: on local LM Studio (and any llama.cpp-backed
+server), each turn after the first is now an order of magnitude
+faster. Empirical: a 5K-token prompt that previously took ~6.4 s
+of prompt-processing per turn now takes ~250 ms — 25× speedup.
+The benchmark report
+[`docs/en/history/llm-cache-bench-2026-05-20.md`](docs/en/history/llm-cache-bench-2026-05-20.md)
+shows the apples-to-apples comparison (T7 vs T8) along with the
+methodology for re-running.
+
+### Changed
+
+- **System prompt no longer carries `Current date and time:` or
+  `Yesterday:` lines.** Those lines used to sit in the middle of
+  `chat.BuildSystemPrompt`'s output and rebuilt every call, so
+  the byte prefix differed every turn — defeating LM Studio's
+  prompt-prefix KV cache for everything past that point. The
+  system prompt is now byte-identical across consecutive
+  requests whenever memory state hasn't changed.
+- **Temporal context now rides each user record.** A per-record
+  `[Time: 2026-05-20 Tuesday 12:34:56 JST]` prefix is rendered
+  at message-build time from each user record's stored
+  `Timestamp` field — deterministic in (ts, loc), so historical
+  user records render byte-identically across turns and the
+  server's cache reuses them. ~15 tokens overhead per user
+  record.
+- **`chat.RenderTemporalPrefix(ts, loc)`** — new exported helper
+  for callers that want to format a temporal prefix from an
+  explicit timestamp (the agent layer is the only caller for
+  now).
+- **`contextbuild.BuildOptions.UserRecordTemporalPrefix`** —
+  optional hook on the message-builder. `nil` disables the
+  feature (legacy / test paths). Production agent calls supply
+  a closure over `chat.RenderTemporalPrefix`.
+
+### Added
+
+- **`app/cmd/llm-cache-bench/`** — self-contained Go program
+  (~320 LOC, zero external deps) that probes a local OpenAI-
+  compatible endpoint with controlled prompt-construction
+  strategies and reports wall-clock per-request timings as
+  markdown. Used to validate the design and to re-run after
+  future changes. See the README at the top of `main.go` for
+  invocation.
+
+### Tests
+
+- **`chat.RenderTemporalPrefix`** — basic shape, byte-stability,
+  nil-loc fallback.
+- **`chat.BuildSystemPrompt`** — `NoTemporalLines` invariant
+  (no `Current date and time`, no `Yesterday:`, no `[Time:`
+  in the assembled system prompt).
+- **`contextbuild.renderRecordContent`** — temporal prefix is
+  scoped to user role; zero-timestamp records skip the prefix
+  defensively.
+- **`contextbuild.Build`** — byte-stability of the full
+  message array across repeated Build calls (the load-bearing
+  invariant for cache reuse).
+
+### Not in scope (deferred)
+
+- **Memory-block volatility (Phase 2).** Benchmark T9 measured
+  the residual cost of extracting a new fact mid-conversation
+  at ~200 ms per mutation. Worst-case ~600 ms on a turn that
+  extracts 3 facts — small compared to Phase 1's 6 s gain. The
+  implementation complexity of memory-render caching or
+  relocation isn't justified yet; re-evaluate if users surface
+  the residual latency.
+- **Vertex AI Gemini context caching API.** Vertex uses a
+  different mechanism with its own pricing and explicit
+  `cache_id` semantics. Out of scope for this ADR. A future
+  ADR may take this up if cost / latency on Vertex warrant it.
+
 ## [0.12.1] - 2026-05-20
 
 Post-release polish on the Settings dialog after the v0.12.0

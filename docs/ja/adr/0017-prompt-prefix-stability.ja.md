@@ -1,6 +1,6 @@
 # Prompt prefix の安定化による KV cache 再利用 — 設計ノート
 
-**Status:** Proposed (2026-05-20)。
+**Status:** Implemented in v0.13.0 (2026-05-20)。
 **Target:** v0.13.0 (マイナーバンプ — 内部メッセージ組み立ての変更のみ、
 スキーマ移行なし、Wails バインディング署名の変更なし)。
 **Reported by:** ユーザー — 「ローカル LM Studio で shell-agent-v2 を

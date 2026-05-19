@@ -423,6 +423,23 @@ v0.12.0 新設の `/profile <name>` で session のプロファイル参照
 プロファイルにバインドされる扱いで、初回ロード時に新規
 `session.json` が遅延書き込みされる。
 
+### Prompt prefix の安定化による KV cache 再利用 (v0.13.0, ADR-0017)
+
+`BuildSystemPrompt` は意図的にコール毎に変化する内容
+(timestamp、ミリ秒単位の "now" 等) を一切出力しない。ローカル
+バックエンドでは、メモリ状態が安定している間は system block が
+ターン間で byte 同一になり、LM Studio (および llama.cpp ベースの
+サーバ全般) の KV-cache prefix 再利用が後続ターンで発動する —
+5K token プロンプトで wall-clock 25 倍の節約。
+
+temporal context は各 user record に同行する:
+`contextbuild.renderRecordContent` は
+`opts.UserRecordTemporalPrefix(record.Timestamp)` を呼び、
+結果を user role content に prepend する。レンダリングは保存済
+timestamp で deterministic なので、履歴の user record も replay
+の度に同じ bytes を生成する。なぜ "最新 user message にのみ" では
+なく per-record render が正しい設計なのかは ADR-0017 §3.1 参照。
+
 ## 8. フロントエンド構成
 
 React + TypeScript、SPA、ルーターなし。Wails が

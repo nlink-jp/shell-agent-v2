@@ -1,6 +1,6 @@
 # Prompt prefix stability for KV cache reuse — Design Note
 
-**Status:** Proposed (2026-05-20).
+**Status:** Implemented in v0.13.0 (2026-05-20).
 **Target:** v0.13.0 (minor bump — internal message assembly
 change; no schema migrations, no Wails binding signature changes).
 **Reported by:** User — "when running shell-agent-v2 on local

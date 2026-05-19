@@ -476,6 +476,24 @@ the legacy fields. A v0.11.x session without `session.json` is
 treated as binding to the default profile and gets a fresh
 `session.json` lazy-written on first load.
 
+### Prompt prefix stability for KV-cache reuse (v0.13.0, ADR-0017)
+
+`BuildSystemPrompt` deliberately omits any per-call volatile
+content (no timestamp, no millisecond-fresh anything). On local
+backends that means the system block is byte-identical across
+turns whenever memory state is stable, so LM Studio's (and any
+llama.cpp-backed server's) KV-cache prefix reuse fires on every
+subsequent turn — a 25× wall-clock saving on 5K-token prompts.
+
+Temporal context travels with each user record:
+`contextbuild.renderRecordContent` calls
+`opts.UserRecordTemporalPrefix(record.Timestamp)` and prepends
+the result to user-role content. The rendering is deterministic
+in the stored timestamp, so historical user records produce the
+same bytes on every replay. See ADR-0017 §3.1 for why a
+per-record render (not "only the latest user message") was the
+correct design.
+
 ## 8. Frontend architecture
 
 React + TypeScript, single-page, no router. Wails generates the JS
