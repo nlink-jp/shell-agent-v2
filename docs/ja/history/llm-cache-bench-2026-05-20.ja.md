@@ -1,30 +1,38 @@
 # LM Studio Prompt Cache Benchmark — 2026-05-20
 
-[ADR-0017](../adr/0017-prompt-prefix-stability.ja.md) の実証
+[ADR-0017](../adr/0017-prompt-prefix-stability.ja.md) と
+[ADR-0018](../adr/0018-guard-nonce-stability.ja.md) の実証
 コンパニオン。`app/cmd/llm-cache-bench/main.go` を LM Studio
-搭載の開発用ラップトップに対して実行した結果。ADR-0017 の実装に
-踏み込む前に設計仮説を実機で検証することが目的:
+搭載の開発用ラップトップに対して実行した結果。実装前に設計仮説を
+実機で検証することが目的:
 
-1. LM Studio の OpenAI 互換エンドポイントは、プロンプト prefix が
-   byte 同一のリクエスト間で実際に KV cache を再利用するか? (T6, T8)
-2. system prompt 内に timestamp を埋め込む — つまり shell-agent-v2
-   の現行レイアウト — はその再利用を破壊するか? (T7)
-3. timestamp を user message に移動すると再利用は回復するか? (T8)
-4. `cache_prompt: true` 拡張パラメータでサーバがリクエストを拒否
-   するか? (T5)
-5. 会話途中での memory の変化はどれくらい高コストか? (T9 — ADR-0017
-   §6.2 / §9 の Phase 2 判断材料)
+1. **T1-T9** (ADR-0017): LM Studio の OpenAI 互換エンドポイントは、
+   prompt prefix が byte 同一の時に実際に KV cache を再利用するか?
+   何が破壊するか (system 内 timestamp → T7)、何が救うか (user 内
+   timestamp → T8)?
+2. **T10a-c** (ADR-0018): production の実 wrap
+   (`<user_data_XXX>...</user_data_XXX>` で各 user record を包む)
+   を伴う条件で、`nlk/guard` の per-turn nonce 回転が ADR-0017 の
+   勝ちを silent に潰しているのではないか? T10 ファミリーで定量化
+   + 提案する scan-and-rotate 案も検証。
 
-結論ヘッドライン: **yes (T8 で 96% 高速化) / yes (T7 で速度向上ゼロ) /
-yes (T8 で回復) / no (T5 は受理されるが効果なし) / 中程度
-(T9 で fact 追加 1 件あたり約 200ms ペナルティ — 後述)**。
+結論ヘッドライン:
+
+- T8 (ADR-0017 レイアウト) → 安定 prefix で 96% 高速化。
+- T10a (現行 production の per-turn nonce) → **0% 高速化** —
+  ADR-0017 の勝ちが production セッションで silent に失われていた
+  ことを確認。
+- T10b (per-session-stable nonce、ADR-0018 通常ケース) → **93%
+  高速化** — 勝ちを取り戻す。
+- T10c (rotate-on-detection、ADR-0018 漏洩検知ケース) → rotate
+  イベントで 1 ターンだけ高コスト、その後また cache warm。
 
 ## Setup
 
 - **Endpoint**: `http://localhost:1234/v1`
 - **Model**: `google/gemma-4-26b-a4b`
 - **Runs per scenario**: 5 (first call always cold)
-- **Date**: 2026-05-20 01:21:27
+- **Date**: 2026-05-20 08:36:52
 
 All requests use `max_tokens: 5`, `temperature: 0`, `stream: false`. Wall-clock ms ≈ prompt-processing time + ~5-token generation overhead (negligible). A large gap between the first call and subsequent calls implies the server is reusing cached prompt KV.
 
@@ -34,13 +42,13 @@ If the server caches the KV across requests, the second and following calls shou
 
 | Run | wall ms | prompt tok | out tok | cached tok | http | error |
 |---:|---:|---:|---:|---:|---:|---|
-| 1 | 273 | 33 | 3 | 0 | 200 |  |
-| 2 | 277 | 33 | 3 | 0 | 200 |  |
-| 3 | 273 | 33 | 3 | 0 | 200 |  |
-| 4 | 268 | 33 | 3 | 0 | 200 |  |
-| 5 | 272 | 33 | 3 | 0 | 200 |  |
+| 1 | 277 | 33 | 3 | 0 | 200 |  |
+| 2 | 276 | 33 | 3 | 0 | 200 |  |
+| 3 | 274 | 33 | 3 | 0 | 200 |  |
+| 4 | 269 | 33 | 3 | 0 | 200 |  |
+| 5 | 276 | 33 | 3 | 0 | 200 |  |
 
-**Summary**: first=273ms, mean(subsequent)=272ms, speedup=0.4%
+**Summary**: first=277ms, mean(subsequent)=273ms, speedup=1.4%
 
 ## T2 — Same system, user message varies only in trailing token
 
@@ -48,13 +56,13 @@ Probes whether prefix match extends past the system prompt into the user message
 
 | Run | wall ms | prompt tok | out tok | cached tok | http | error |
 |---:|---:|---:|---:|---:|---:|---|
-| 1 | 211 | 40 | 3 | 0 | 200 |  |
-| 2 | 205 | 40 | 3 | 0 | 200 |  |
-| 3 | 211 | 40 | 3 | 0 | 200 |  |
-| 4 | 247 | 40 | 5 | 0 | 200 |  |
-| 5 | 214 | 40 | 3 | 0 | 200 |  |
+| 1 | 205 | 40 | 3 | 0 | 200 |  |
+| 2 | 210 | 40 | 3 | 0 | 200 |  |
+| 3 | 203 | 40 | 3 | 0 | 200 |  |
+| 4 | 245 | 40 | 5 | 0 | 200 |  |
+| 5 | 215 | 40 | 3 | 0 | 200 |  |
 
-**Summary**: first=211ms, mean(subsequent)=219ms, speedup=-3.8%
+**Summary**: first=205ms, mean(subsequent)=218ms, speedup=-6.3%
 
 ## T3 — Volatile system prompt (timestamp inside system), stable user — simulates current shell-agent-v2
 
@@ -62,13 +70,13 @@ Reproduces the current production layout where temporal context is embedded in t
 
 | Run | wall ms | prompt tok | out tok | cached tok | http | error |
 |---:|---:|---:|---:|---:|---:|---|
-| 1 | 225 | 64 | 3 | 0 | 200 |  |
-| 2 | 257 | 64 | 3 | 0 | 200 |  |
-| 3 | 260 | 64 | 3 | 0 | 200 |  |
-| 4 | 246 | 64 | 3 | 0 | 200 |  |
+| 1 | 226 | 64 | 3 | 0 | 200 |  |
+| 2 | 251 | 64 | 3 | 0 | 200 |  |
+| 3 | 254 | 64 | 3 | 0 | 200 |  |
+| 4 | 247 | 64 | 3 | 0 | 200 |  |
 | 5 | 254 | 64 | 3 | 0 | 200 |  |
 
-**Summary**: first=225ms, mean(subsequent)=254ms, speedup=-12.9%
+**Summary**: first=226ms, mean(subsequent)=251ms, speedup=-11.1%
 
 ## T4 — Stable system, timestamp moved to user message — simulates the ADR-0017 proposed layout
 
@@ -76,13 +84,13 @@ System prompt is byte-identical across calls; the timestamp lives at the head of
 
 | Run | wall ms | prompt tok | out tok | cached tok | http | error |
 |---:|---:|---:|---:|---:|---:|---|
-| 1 | 204 | 63 | 2 | 0 | 200 |  |
+| 1 | 199 | 63 | 2 | 0 | 200 |  |
 | 2 | 197 | 63 | 2 | 0 | 200 |  |
-| 3 | 198 | 63 | 2 | 0 | 200 |  |
-| 4 | 208 | 63 | 2 | 0 | 200 |  |
-| 5 | 206 | 63 | 2 | 0 | 200 |  |
+| 3 | 200 | 63 | 2 | 0 | 200 |  |
+| 4 | 199 | 63 | 2 | 0 | 200 |  |
+| 5 | 199 | 63 | 2 | 0 | 200 |  |
 
-**Summary**: first=204ms, mean(subsequent)=202ms, speedup=1.0%
+**Summary**: first=199ms, mean(subsequent)=198ms, speedup=0.5%
 
 ## T5 — Probe `cache_prompt: true` extension parameter
 
@@ -91,12 +99,12 @@ Sends the same baseline as T1 but with `cache_prompt: true` in the request body.
 | Run | wall ms | prompt tok | out tok | cached tok | http | error |
 |---:|---:|---:|---:|---:|---:|---|
 | 1 | 272 | 33 | 3 | 0 | 200 |  |
-| 2 | 271 | 33 | 3 | 0 | 200 |  |
+| 2 | 272 | 33 | 3 | 0 | 200 |  |
 | 3 | 277 | 33 | 3 | 0 | 200 |  |
-| 4 | 279 | 33 | 3 | 0 | 200 |  |
-| 5 | 270 | 33 | 3 | 0 | 200 |  |
+| 4 | 276 | 33 | 3 | 0 | 200 |  |
+| 5 | 262 | 33 | 3 | 0 | 200 |  |
 
-**Summary**: first=272ms, mean(subsequent)=274ms, speedup=-0.7%
+**Summary**: first=272ms, mean(subsequent)=271ms, speedup=0.4%
 
 ## T6 — Large stable system prompt (~8K tokens of filler)
 
@@ -104,13 +112,13 @@ Worst-case prompt-processing scenario: a long stable system prompt. Cache benefi
 
 | Run | wall ms | prompt tok | out tok | cached tok | http | error |
 |---:|---:|---:|---:|---:|---:|---|
-| 1 | 6341 | 5260 | 2 | 0 | 200 |  |
-| 2 | 99 | 5260 | 2 | 0 | 200 |  |
-| 3 | 104 | 5260 | 2 | 0 | 200 |  |
-| 4 | 100 | 5260 | 2 | 0 | 200 |  |
-| 5 | 100 | 5260 | 2 | 0 | 200 |  |
+| 1 | 6232 | 5260 | 2 | 0 | 200 |  |
+| 2 | 119 | 5260 | 2 | 0 | 200 |  |
+| 3 | 102 | 5260 | 2 | 0 | 200 |  |
+| 4 | 98 | 5260 | 2 | 0 | 200 |  |
+| 5 | 99 | 5260 | 2 | 0 | 200 |  |
 
-**Summary**: first=6341ms, mean(subsequent)=100ms, speedup=98.4%
+**Summary**: first=6232ms, mean(subsequent)=104ms, speedup=98.3%
 
 ## T7 — Large system + volatile timestamp INSIDE system (current shell-agent-v2 layout, full size)
 
@@ -118,13 +126,13 @@ Repeats T3 but with 8K filler so prompt processing is non-trivial. Expectation: 
 
 | Run | wall ms | prompt tok | out tok | cached tok | http | error |
 |---:|---:|---:|---:|---:|---:|---|
-| 1 | 6449 | 5285 | 2 | 0 | 200 |  |
-| 2 | 6428 | 5285 | 2 | 0 | 200 |  |
-| 3 | 6477 | 5285 | 2 | 0 | 200 |  |
-| 4 | 6435 | 5285 | 2 | 0 | 200 |  |
-| 5 | 6426 | 5285 | 2 | 0 | 200 |  |
+| 1 | 6591 | 5285 | 2 | 0 | 200 |  |
+| 2 | 6627 | 5285 | 2 | 0 | 200 |  |
+| 3 | 6593 | 5285 | 2 | 0 | 200 |  |
+| 4 | 6420 | 5285 | 2 | 0 | 200 |  |
+| 5 | 6314 | 5285 | 2 | 0 | 200 |  |
 
-**Summary**: first=6449ms, mean(subsequent)=6441ms, speedup=0.1%
+**Summary**: first=6591ms, mean(subsequent)=6488ms, speedup=1.6%
 
 ## T8 — Large system stable + timestamp in user message (ADR-0017 proposed layout, full size)
 
@@ -132,13 +140,13 @@ Repeats T4 with 8K filler. Expectation: cache fires on the system block, subsequ
 
 | Run | wall ms | prompt tok | out tok | cached tok | http | error |
 |---:|---:|---:|---:|---:|---:|---|
-| 1 | 6421 | 5285 | 2 | 0 | 200 |  |
-| 2 | 295 | 5285 | 2 | 0 | 200 |  |
-| 3 | 249 | 5285 | 2 | 0 | 200 |  |
-| 4 | 267 | 5285 | 2 | 0 | 200 |  |
-| 5 | 250 | 5285 | 2 | 0 | 200 |  |
+| 1 | 6273 | 5285 | 2 | 0 | 200 |  |
+| 2 | 290 | 5285 | 2 | 0 | 200 |  |
+| 3 | 244 | 5285 | 2 | 0 | 200 |  |
+| 4 | 245 | 5285 | 2 | 0 | 200 |  |
+| 5 | 259 | 5285 | 2 | 0 | 200 |  |
 
-**Summary**: first=6421ms, mean(subsequent)=265ms, speedup=95.9%
+**Summary**: first=6273ms, mean(subsequent)=259ms, speedup=95.9%
 
 ## T9 — Memory section grows by one fact between turns (Phase 2 question)
 
@@ -146,90 +154,142 @@ Run 1-2 share memory v1; run 3-4 share memory v2 (1 new fact); run 5 has v3 (1 m
 
 | Run | wall ms | prompt tok | out tok | cached tok | http | error |
 |---:|---:|---:|---:|---:|---:|---|
-| 1 | 379 | 4654 | 3 | 0 | 200 |  |
-| 2 | 118 | 4654 | 3 | 0 | 200 |  |
-| 3 | 315 | 4661 | 3 | 0 | 200 |  |
-| 4 | 121 | 4661 | 3 | 0 | 200 |  |
-| 5 | 324 | 4670 | 3 | 0 | 200 |  |
+| 1 | 363 | 4654 | 3 | 0 | 200 |  |
+| 2 | 139 | 4654 | 3 | 0 | 200 |  |
+| 3 | 327 | 4661 | 3 | 0 | 200 |  |
+| 4 | 115 | 4661 | 3 | 0 | 200 |  |
+| 5 | 322 | 4670 | 3 | 0 | 200 |  |
 
-**Summary**: first=379ms, mean(subsequent)=219ms, speedup=42.2%
+**Summary**: first=363ms, mean(subsequent)=225ms, speedup=38.0%
+
+## T10a — Per-turn guard nonce rotation (v0.13.0 production behaviour)
+
+Simulates the current production wrapping: every turn gets a fresh nonce, so every wrapped user record in the conversation history has different bytes between turns. Expectation: NO cache reuse — every turn pays the full prompt-processing cost because the byte prefix diverges immediately after the system block.
+
+| Run | wall ms | prompt tok | out tok | cached tok | http | error |
+|---:|---:|---:|---:|---:|---:|---|
+| 1 | 1644 | 4348 | 3 | 0 | 200 |  |
+| 2 | 1503 | 4308 | 3 | 0 | 200 |  |
+| 3 | 1507 | 4308 | 3 | 0 | 200 |  |
+| 4 | 1586 | 4324 | 3 | 0 | 200 |  |
+| 5 | 1585 | 4324 | 3 | 0 | 200 |  |
+
+**Summary**: first=1644ms, mean(subsequent)=1545ms, speedup=6.0%
+
+## T10b — Per-session stable guard nonce (ADR-0018 normal case)
+
+Same setup as T10a but the nonce is held constant for all runs — modelling the proposed scan-and-rotate normal case where no leak is detected and the nonce stays put. Expectation: cache fires for the full conversation history starting from run 2.
+
+| Run | wall ms | prompt tok | out tok | cached tok | http | error |
+|---:|---:|---:|---:|---:|---:|---|
+| 1 | 1519 | 4316 | 3 | 0 | 200 |  |
+| 2 | 109 | 4316 | 3 | 0 | 200 |  |
+| 3 | 105 | 4316 | 3 | 0 | 200 |  |
+| 4 | 106 | 4316 | 3 | 0 | 200 |  |
+| 5 | 104 | 4316 | 3 | 0 | 200 |  |
+
+**Summary**: first=1519ms, mean(subsequent)=106ms, speedup=93.0%
+
+## T10c — Rotate-on-detection mid-conversation (ADR-0018 leak case)
+
+Runs 1-2 share nonce A; runs 3-5 share nonce B (simulating a detected nonce leak that triggered a rotate). Expectation: run 3 invalidates the cached history (byte divergence at first user record); runs 4-5 hit cache for the new history. The bench answers: how expensive is one rotation event? — i.e. the worst-case turn under the proposed design.
+
+| Run | wall ms | prompt tok | out tok | cached tok | http | error |
+|---:|---:|---:|---:|---:|---:|---|
+| 1 | 1614 | 4332 | 3 | 0 | 200 |  |
+| 2 | 112 | 4332 | 3 | 0 | 200 |  |
+| 3 | 1511 | 4316 | 3 | 0 | 200 |  |
+| 4 | 113 | 4316 | 3 | 0 | 200 |  |
+| 5 | 111 | 4316 | 3 | 0 | 200 |  |
+
+**Summary**: first=1614ms, mean(subsequent)=461ms, speedup=71.4%
 
 ## Cross-scenario summary
 
 | Scenario | First (ms) | Subseq mean (ms) | Speedup | Cache observed? |
 |---|---:|---:|---:|---|
-| T1 | 273 | 272 | 0.4% | ❌ no |
-| T2 | 211 | 219 | -3.8% | ❌ no |
-| T3 | 225 | 254 | -12.9% | ❌ no |
-| T4 | 204 | 202 | 1.0% | ❌ no |
-| T5 | 272 | 274 | -0.7% | ❌ no |
-| T6 | 6341 | 100 | 98.4% | ✅ yes (≥30%) |
-| T7 | 6449 | 6441 | 0.1% | ❌ no |
-| T8 | 6421 | 265 | 95.9% | ✅ yes (≥30%) |
-| T9 | 379 | 219 | 42.2% | ✅ yes (≥30%) |
+| T1 | 277 | 273 | 1.4% | ❌ no |
+| T2 | 205 | 218 | -6.3% | ❌ no |
+| T3 | 226 | 251 | -11.1% | ❌ no |
+| T4 | 199 | 198 | 0.5% | ❌ no |
+| T5 | 272 | 271 | 0.4% | ❌ no |
+| T6 | 6232 | 104 | 98.3% | ✅ yes (≥30%) |
+| T7 | 6591 | 6488 | 1.6% | ❌ no |
+| T8 | 6273 | 259 | 95.9% | ✅ yes (≥30%) |
+| T9 | 363 | 225 | 38.0% | ✅ yes (≥30%) |
+| T10a | 1644 | 1545 | 6.0% | ❌ no |
+| T10b | 1519 | 106 | 93.0% | ✅ yes (≥30%) |
+| T10c | 1614 | 461 | 71.4% | ✅ yes (≥30%) |
+
 
 ## 解釈ノート
 
-### T7 vs T8: Phase 1 の決定的データ
+### T7 vs T8 (ADR-0017 Phase 1 の証拠)
 
-数字は明白。同じハードウェア、同じモデル、同じプロンプトサイズ
-(5285 token)、同じ user message — timestamp の *位置* だけが違う。
+同じハード、同じモデル、同じプロンプトサイズ (5285 token)、同じ
+user message — timestamp の *位置* だけが違う。
 
-- T7 は timestamp を system prompt 内に置く (現行 shell-agent-v2
-  レイアウト)。system prefix が毎回変わるので KV cache 再利用は
-  一切発動しない。毎ターン約 6.4 秒の prompt-processing コストを
-  全額支払う。
-- T8 は system prompt を安定させ、timestamp を user message の頭に
-  prepend する。system prefix はリクエスト間で byte 同一になり、
-  サーバは system block 全部の KV を再利用し、~30 token の user
-  message だけを再処理する。後続ターン平均: 265ms。
+- T7 (system prompt 内に timestamp) — system prefix が毎回変わり、
+  KV cache 再利用は不発、~6.4 s/ターン。
+- T8 (timestamp を user message へ移動) — system 安定、cache は
+  system block 全体を再利用。初回以降 ~265 ms。
 
-これが ADR-0017 §3 の load-bearing データポイント。
+ADR-0017 §3 の load-bearing データポイント。
 
-### T9: memory の volatility は中程度の懸念
+### T10a / T10b / T10c (ADR-0018 の証拠)
 
-T9 の初回 (379ms) はクリーンな cold baseline では **ない** — 先行する
-T6/T7/T8 が T9 と同じ ~7K filler を共有しているので、サーバキャッシュ
-が filler 部分について先行有利の状態だった。有用な比較は T9 *内部*:
+これが v0.13.0 production テストで ADR-0017 の勝ちが見えなかった
+理由:
 
-- Run 2, 4 (memory 不変での cache hit): ~120ms
-- Run 3, 5 (memory が 1 fact 増加): ~320ms
-- **Memory 変化 1 回あたりのペナルティ: 約 200ms**
+- **T10a** は v0.13.0 の実挙動を simulate: wrap nonce が
+  `BuildSystemPrompt` 内 `e.guardTag = guard.NewTag()` で毎ターン
+  回転する。会話履歴内の各 wrapped user record が毎ターン違う nonce
+  で render され、byte prefix は system block の直後で diverge。
+  **結果: runs 2-5 で 0% 高速化。** system block は cache されるが、
+  会話履歴は cache されず、履歴が prompt サイズの大部分 (4308 token)
+  を占めるので効果ゼロ。
+- **T10b** は ADR-0018 通常ケースを simulate: 1 つの安定 nonce を
+  セッション全体で使う。**結果: 93% 高速化** (1519 → 106 ms)。
+  per-turn rotation が silent に捨てていた勝ちを取り戻す。
+- **T10c** は rotation-on-detection を simulate: runs 1-2 が nonce
+  A、runs 3-5 が nonce B (turn 3 で漏洩検知してローテートしたと
+  仮定)。run 3 は期待通り cache miss (~1500 ms) だが、runs 4-5 は
+  即座に cache warm に復帰 (~110 ms)。**検知イベントあたり高コスト
+  1 ターン** が scan-and-rotate 設計のワーストケース。
 
-これは実在する (wall-clock 差は再現性あり、prompt token 数も runs 2→3
-と 4→5 で実際に 7-9 token 増えている) が小さい。比較のため、Phase 1
-問題 (T7) は毎ターン約 6,400ms。
+### T9 (memory volatility — ADR-0017 Phase 2 deferred 判断材料)
 
-shell-agent-v2 への実用上の含意: 典型的な抽出はターンあたり 0-3 fact
-追加 → ワーストケースで 3 fact 抽出ターンに ~600ms の追加遅延。
-気にはなるが、Phase 1 が解決する 6 秒の痛みとは別物。ADR-0017 の
-Phase 2 (memory caching / relocation) は **ユーザーが「memory 変化
-時の体感遅延が気になる」と報告するまで保留** が妥当 — fact 1 件
-あたり ~200ms に対して、実装複雑度 (render 済文字列キャッシュ、
-変更検出) はペイしない。
+T9 の初回 (363 ms) はクリーンな cold baseline では **ない** —
+先行する T6/T7/T8 が T9 と同じ ~7K filler を共有しているので、
+サーバキャッシュが filler 部分で先行有利。有用な比較は T9 *内部*:
+
+- Runs 2, 4 (memory 不変での cache hit): ~120 ms
+- Runs 3, 5 (memory が 1 fact 増加): ~325 ms
+- **Memory 変化 1 回あたりのペナルティ: 約 200 ms**
+
+実在するが小さい。この規模では ADR-0017 Phase 2 (memory
+caching / relocation) は **defer** — ユーザーが残余レイテンシを
+報告したら再評価。
 
 ### T5: cache_prompt は silent に受理 (が効果なし)
 
-T5 はリクエスト body に `cache_prompt: true` を送信。LM Studio は
-HTTP 200 を返した — パラメータは受理、拒否されず。だが T5 の wall
-time は T1 (パラメータなしで同条件) と統計的に区別できない。フラグは
-このサーバ / モデルではキャッシュ挙動を変えない。サーバは十分大きい
-prefix に対して既に自動的にキャッシュする (T6, T8 参照)。
-
-結論: パラメータを送らない。zero-benefit、かつ他の OpenAI 互換
-サーバとの将来互換性ハザード (non-zero-risk)。
+T5 はリクエスト body に `cache_prompt: true` を送信。LM Studio
+は HTTP 200 を返した — パラメータは受理、拒否されず。だが T5 の
+wall time は T1 (パラメータなしで同条件) と統計的に区別できない。
+フラグはこのサーバ / モデルではキャッシュ挙動を変えない。サーバ
+は十分大きい prefix に対して既に自動的にキャッシュする。
 
 ### T1-T5 でキャッシュ効果が見えない理由
 
 T1-T5 は小さいプロンプト (33-64 token) を使う。このスケールでは
 per-request overhead (~200ms — ネットワーク往復 + tokenize セット
-アップ + ~5 token 生成) が wall-clock を支配し、キャッシュヒット vs
-ミスはノイズに埋もれる。LM Studio はおそらく小さいプロンプトに対する
+アップ + ~5 token 生成) が wall-clock を支配し、cache hit vs miss
+はノイズに埋もれる。LM Studio はおそらく小さいプロンプトに対する
 キャッシュ管理を skip して bookkeeping コストを抑えている。
 
-shell-agent-v2 の本番プロンプトは典型的に数千トークン (system prompt
-+ memory + history + tool descriptors) なので、T6/T7/T8/T9 の
-レジームが関連する条件。
+shell-agent-v2 の本番プロンプトは典型的に数千トークン (system
+prompt + memory + history + tool descriptors) なので、T6/T7/T8/T10
+のレジームが関連する条件。
 
 ## 再現方法
 
@@ -242,6 +302,5 @@ go run ./cmd/llm-cache-bench \
     --out /tmp/my-run.md
 ```
 
-LM Studio (または任意の OpenAI 互換ローカルサーバ) 起動済 + 対象
-モデルロード済 + 並行推論ロードなし、が前提。
-
+LM Studio (または任意の OpenAI 互換ローカルサーバ) 起動済 +
+対象モデルロード済 + 並行推論ロードなし、が前提。

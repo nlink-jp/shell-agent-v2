@@ -20,6 +20,8 @@ package main
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -353,6 +355,126 @@ func runT8LargeStableSystemUserTimestamp(c *client, runs int) scenario {
 // If wall_ms(3) ≈ wall_ms(2), memory volatility is essentially free.
 // If wall_ms(3) ≈ wall_ms(1), each memory mutation costs a full
 // reprocess. Real answer expected in between.
+// --- T10 family: guard nonce rotation impact -----------------------
+//
+// shell-agent-v2 wraps user / tool content in <user_data_XXX>...
+// </user_data_XXX> for prompt-injection defence (nlk/guard). The XXX
+// part is a 16-byte cryptographic nonce. v0.12.x rotates the nonce
+// on every BuildSystemPrompt call (per-turn). The Phase 1 of ADR-0017
+// removed the temporal context but didn't touch this rotation, so
+// every turn the WHOLE conversation history re-renders with a new
+// nonce — the byte prefix of the prompt diverges right after the
+// system block. ADR-0018 will revisit this.
+//
+// These scenarios quantify the impact before we commit to the design.
+
+// generateNonce returns a fresh random nonce string in the shape used
+// by nlk/guard ("user_data_" + 16 random hex bytes).
+func generateNonce() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		// crypto/rand failures are essentially impossible in practice;
+		// fall back to a deterministic placeholder so the bench keeps
+		// running rather than aborting.
+		return "user_data_deadbeefdeadbeefdeadbeefdeadbeef"
+	}
+	return "user_data_" + hex.EncodeToString(b)
+}
+
+// wrapWithNonce mimics guard.Tag.Wrap output: <name>content</name>.
+func wrapWithNonce(name, content string) string {
+	return "<" + name + ">" + content + "</" + name + ">"
+}
+
+// fakeHistory builds a synthetic conversation history of `pairs`
+// user + assistant pairs. User content is wrapped with the given
+// nonce (matching production); assistant content is plain. Each
+// user adds ~150 tokens, each assistant ~200.
+func fakeHistory(nonce string, pairs int) []chatMessage {
+	userPad := makeBigPad(150)
+	asstPad := makeBigPad(200)
+	msgs := make([]chatMessage, 0, pairs*2)
+	for i := 0; i < pairs; i++ {
+		msgs = append(msgs, chatMessage{
+			Role:    "user",
+			Content: wrapWithNonce(nonce, fmt.Sprintf("Turn %d question: %s", i+1, userPad)),
+		})
+		msgs = append(msgs, chatMessage{
+			Role:    "assistant",
+			Content: fmt.Sprintf("Turn %d answer: %s", i+1, asstPad),
+		})
+	}
+	return msgs
+}
+
+func runT10aPerTurnRotation(c *client, runs int) scenario {
+	s := scenario{
+		ID:    "T10a",
+		Title: "Per-turn guard nonce rotation (v0.13.0 production behaviour)",
+		Notes: "Simulates the current production wrapping: every turn gets a fresh nonce, so every wrapped user record in the conversation history has different bytes between turns. Expectation: NO cache reuse — every turn pays the full prompt-processing cost because the byte prefix diverges immediately after the system block.",
+	}
+	pad := makeBigPad(5000)
+	baseSystem := "You are a helpful assistant.\n\nReference document:\n\n" + pad + "\n\nAnswer briefly."
+	for i := 0; i < runs; i++ {
+		nonce := generateNonce()
+		msgs := append([]chatMessage{{Role: "system", Content: baseSystem}}, fakeHistory(nonce, 3)...)
+		msgs = append(msgs, chatMessage{
+			Role:    "user",
+			Content: wrapWithNonce(nonce, "Reply with the word OK."),
+		})
+		s.Runs = append(s.Runs, c.call(msgs, nil))
+		time.Sleep(50 * time.Millisecond)
+	}
+	return s
+}
+
+func runT10bPerSessionStable(c *client, runs int) scenario {
+	s := scenario{
+		ID:    "T10b",
+		Title: "Per-session stable guard nonce (ADR-0018 normal case)",
+		Notes: "Same setup as T10a but the nonce is held constant for all runs — modelling the proposed scan-and-rotate normal case where no leak is detected and the nonce stays put. Expectation: cache fires for the full conversation history starting from run 2.",
+	}
+	nonce := generateNonce()
+	pad := makeBigPad(5000)
+	baseSystem := "You are a helpful assistant.\n\nReference document:\n\n" + pad + "\n\nAnswer briefly."
+	for i := 0; i < runs; i++ {
+		msgs := append([]chatMessage{{Role: "system", Content: baseSystem}}, fakeHistory(nonce, 3)...)
+		msgs = append(msgs, chatMessage{
+			Role:    "user",
+			Content: wrapWithNonce(nonce, "Reply with the word OK."),
+		})
+		s.Runs = append(s.Runs, c.call(msgs, nil))
+		time.Sleep(50 * time.Millisecond)
+	}
+	return s
+}
+
+func runT10cRotateOnDetection(c *client, runs int) scenario {
+	s := scenario{
+		ID:    "T10c",
+		Title: "Rotate-on-detection mid-conversation (ADR-0018 leak case)",
+		Notes: "Runs 1-2 share nonce A; runs 3-5 share nonce B (simulating a detected nonce leak that triggered a rotate). Expectation: run 3 invalidates the cached history (byte divergence at first user record); runs 4-5 hit cache for the new history. The bench answers: how expensive is one rotation event? — i.e. the worst-case turn under the proposed design.",
+	}
+	nonceA := generateNonce()
+	nonceB := generateNonce()
+	pad := makeBigPad(5000)
+	baseSystem := "You are a helpful assistant.\n\nReference document:\n\n" + pad + "\n\nAnswer briefly."
+	for i := 0; i < runs; i++ {
+		nonce := nonceA
+		if i >= 2 {
+			nonce = nonceB
+		}
+		msgs := append([]chatMessage{{Role: "system", Content: baseSystem}}, fakeHistory(nonce, 3)...)
+		msgs = append(msgs, chatMessage{
+			Role:    "user",
+			Content: wrapWithNonce(nonce, "Reply with the word OK."),
+		})
+		s.Runs = append(s.Runs, c.call(msgs, nil))
+		time.Sleep(50 * time.Millisecond)
+	}
+	return s
+}
+
 func runT9MemoryVolatility(c *client, runs int) scenario {
 	s := scenario{
 		ID:    "T9",
@@ -508,6 +630,9 @@ func main() {
 		runT7LargeVolatileSystem(c, *runs),
 		runT8LargeStableSystemUserTimestamp(c, *runs),
 		runT9MemoryVolatility(c, *runs),
+		runT10aPerTurnRotation(c, *runs),
+		runT10bPerSessionStable(c, *runs),
+		runT10cRotateOnDetection(c, *runs),
 	}
 
 	writeMarkdown(os.Stdout, c.endpoint, c.model, *runs, scenarios)
