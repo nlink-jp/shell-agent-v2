@@ -1,6 +1,6 @@
 # マルチプロファイル LLM バックエンド — 設計ノート
 
-**Status:** Approved (2026-05-19)。
+**Status:** Implemented in v0.12.0 (2026-05-19)。
 **Target:** v0.12.0 (マイナーバンプ — config スキーマ移行、新しい
 セッションレベル永続状態、新しい `/profile` コマンド、新しい
 Settings タブ。Wails API の破壊的削除はなし)。

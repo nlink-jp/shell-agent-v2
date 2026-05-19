@@ -448,6 +448,34 @@ args size, and `ContextBudget`. Resolved by
 `cfg.ContextBudgetFor(backend)` so the same session adapts to the
 active model's window.
 
+### Multi-profile resolution (v0.12.0, ADR-0016)
+
+The `(Local, VertexAI)` pair is one *profile* among many in
+`config.json`'s `llm.profiles[]`. Each session references one
+profile via a per-session `session.json` file alongside
+`chat.json`:
+
+```
+sessions/<id>/
+├── chat.json        # transcript (records, title, private)
+└── session.json     # {schema_version, profile_id}  ← v0.12.0+
+```
+
+`agent.currentProfile()` resolves the session's profile (falling
+back to the default profile when no session is loaded, or the
+recorded profile_id was deleted), and `setBackend` sources the
+Local / VertexAI config from that profile rather than the
+top-level config. `/model` toggles the active backend *within*
+the session's profile; new in v0.12.0 is `/profile <name>` to
+switch the session's profile binding (atomically rewrites
+`session.json`; emits `agent:profile:changed`).
+
+Backwards compat: a v0.11.x `config.json` is migrated on first
+v0.12.0 load by synthesising one profile named "Default" from
+the legacy fields. A v0.11.x session without `session.json` is
+treated as binding to the default profile and gets a fresh
+`session.json` lazy-written on first load.
+
 ## 8. Frontend architecture
 
 React + TypeScript, single-page, no router. Wails generates the JS

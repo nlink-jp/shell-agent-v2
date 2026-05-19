@@ -396,6 +396,33 @@ per-backend config (`config.LocalConfig` / `VertexAIConfig`) は
 endpoint / model / retry / timeout / max args / `ContextBudget`
 を保持。
 
+### マルチプロファイル解決 (v0.12.0, ADR-0016)
+
+`(Local, VertexAI)` のペアは `config.json` の `llm.profiles[]` に
+入る複数のプロファイルのうちの 1 つ。各セッションは
+`chat.json` の隣の `session.json` でプロファイルを参照する:
+
+```
+sessions/<id>/
+├── chat.json        # 会話 (records, title, private)
+└── session.json     # {schema_version, profile_id}  ← v0.12.0+
+```
+
+`agent.currentProfile()` がセッションの profile_id を解決し
+(セッション未ロード時 / 参照プロファイル削除時はデフォルト
+プロファイルにフォールバック)、`setBackend` は top-level config
+ではなく resolved profile から Local/VertexAI 設定を取り出す。
+`/model` は session の profile *内* の active backend を切替、
+v0.12.0 新設の `/profile <name>` で session のプロファイル参照
+自体を切替える (`session.json` をアトミックにリライト、
+`agent:profile:changed` を emit)。
+
+後方互換: v0.11.x `config.json` は v0.12.0 初回ロード時に
+レガシーフィールドから「Default」プロファイル 1 つを合成して
+移行。`session.json` を持たない v0.11.x セッションはデフォルト
+プロファイルにバインドされる扱いで、初回ロード時に新規
+`session.json` が遅延書き込みされる。
+
 ## 8. フロントエンド構成
 
 React + TypeScript、SPA、ルーターなし。Wails が

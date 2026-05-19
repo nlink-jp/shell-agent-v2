@@ -1,6 +1,6 @@
 # Multi-profile LLM backend — Design Note
 
-**Status:** Approved (2026-05-19).
+**Status:** Implemented in v0.12.0 (2026-05-19).
 **Target:** v0.12.0 (minor bump — config schema migration, new
 session-level persisted state, new `/profile` command, new Settings
 tab; no breaking Wails API removals).

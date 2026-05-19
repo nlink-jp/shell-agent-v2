@@ -5,6 +5,121 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.12.0] - 2026-05-19
+
+Multi-profile LLM backend support
+([ADR-0016](docs/en/adr/0016-multi-profile-llm-backend.md)). The
+single `(Local, VertexAI, default_backend)` triple is replaced by
+a list of named profiles; each session references one profile via
+a new `session.json` file alongside `chat.json`.
+
+The user-visible win is per-session billing/access attribution
+(separate GCP projects for paid client work vs. personal
+experiments) and multiple Local endpoints (home rig + work
+laptop) coexisting in one config without hand-editing
+`config.json`.
+
+### Added
+
+- **LLM profiles in `config.json`.** Each profile bundles a Local
+  config, a Vertex AI config, and a `default_backend` flag, plus
+  a UUID v4 identity and a user-facing Name. The `(Local, Vertex)`
+  pair invariant from v0.11.x is preserved inside each profile,
+  so `/model` keeps working unchanged within whatever profile a
+  session is bound to.
+- **`session.json`** alongside `chat.json` in each session
+  directory. Holds `{schema_version, profile_id}`. The
+  conversation transcript (`chat.json`) is untouched by
+  configuration changes — clean separation of concerns.
+- **`/profile` chat command.** `/profile` lists profiles with the
+  active one marked; `/profile <name>` switches the current
+  session (case-insensitive). Same dispatch path as `/model`, so
+  busy-state guard and ADR-0015 extraction queue apply
+  automatically.
+- **Session Control Popover** anchored under the status-bar
+  badges. Switch profile via a dropdown or toggle Local↔Vertex
+  via a radio without leaving the chat. Controls disable while
+  busy or extracting (mirrors `/profile` / `/model`).
+- **Settings → "LLM Profiles" tab.** Two-pane layout (list +
+  detail). Create new from empty / clone of selected; rename
+  inline; per-profile `default_backend`; Local + Vertex AI
+  detail forms; per-row Delete (default profile is gated); Set
+  as default. Duplicate names auto-disambiguate with `(2)`,
+  `(3)` suffixes — macOS Finder convention — with a one-time
+  inline toast showing the rewrite.
+- **Status-bar profile badge.** Always shows the active session's
+  profile name next to the existing backend badge. Both badges
+  are clickable and open the Session Control Popover.
+- **Wails events.** `agent:profile:changed`, `agent:backend:changed`,
+  `config:profile:list_changed` drive the badges, popover, and
+  Settings tab refresh.
+- **Wails bindings.** Profile CRUD (`ListProfiles`, `GetProfile`,
+  `CreateProfile`, `UpdateProfile`, `DeleteProfile`,
+  `SetDefaultProfile`) and session-control endpoints
+  (`SwitchSessionProfile`, `SwitchSessionBackend`,
+  `CurrentSessionProfile`, `CurrentSessionBackend`).
+
+### Changed
+
+- **`config.json` schema.** Top-level `llm.{default_backend, local,
+  vertex_ai}` are replaced by `llm.{default_profile_id,
+  profiles[]}`. A v0.11.x config is migrated on first v0.12.0
+  load: a single profile named "Default" is synthesised from the
+  legacy fields, and the legacy keys are dropped from the
+  on-disk JSON. Migration is structure-only — no value
+  transformation, no data loss.
+- **`agent.backend` instantiation** now sources Local/VertexAI
+  configs from the active session's profile (via `currentProfile()`),
+  not the top-level config. `LoadSession` reads `session.json`,
+  resolves the profile, and rebuilds the backend only when the
+  profile actually changes — keeps test stubs alive and avoids
+  needless retry/budget churn between sessions sharing a profile.
+- **`Send` "Default Backend" Settings field** now edits the
+  default profile's `default_backend` (the multi-profile
+  equivalent), so the single-profile workflow is unchanged for
+  v0.11.x users who don't open the new tab.
+
+### Migration / compatibility
+
+- **`config.json`**: one-shot on first v0.12.0 load. Idempotent.
+- **`chat.json` / `session_memory.json` / `findings.json` /
+  `summaries.json`**: schemas unchanged.
+- **Existing sessions** without `session.json` lazy-write one on
+  first v0.12.0 load (pointing at the synthesised "Default"
+  profile). Sessions whose recorded profile is deleted from
+  Settings fall back to the default on next load and rewrite
+  their `session.json` cleanly.
+- **`ExportSession` bundles** continue to omit `session.json`
+  (already excluded by the sessionio whitelist). Imported
+  sessions get a fresh `session.json` bound to the destination's
+  current default profile.
+- **Downgrading** from v0.12.0 back to v0.11.x is not supported
+  without manual `config.json` rollback (the new shape parses as
+  empty `LLMConfig` under v0.11.x).
+
+### Tests
+
+39 new tests across the seven implementation commits:
+
+- `internal/config`: migration (legacy + already-migrated +
+  dangling-default repair), ResolveProfile, ProfileByName,
+  DisambiguateName (no-collision, one collision, chain, gap fill,
+  case-insensitive, selfID excluded), repairProfiles.
+- `internal/memory`: SessionConfig load-missing / load-malformed /
+  roundtrip / schema_version stamp / 0600 perms / 20-writer
+  atomic concurrency.
+- `internal/agent`: LoadSession NoSessionJSON lazy migrate,
+  DeletedProfile fallback, KnownProfile no-rewrite (stub
+  preservation), CurrentProfile default fallbacks,
+  MalformedSessionJSON recovery; /profile list, switch,
+  case-insensitive, same-profile no-op, unknown, ambiguous
+  (defensive), Send-dispatch end-to-end, help mentions /profile.
+- `bindings`: List default-first, Get known/unknown, Create
+  auto-disambiguate + clone, Update full roundtrip + rename
+  auto-disambiguate, Delete refuses-default + non-default,
+  SetDefault + unknown ID, SwitchSessionProfile,
+  SwitchSessionBackend.
+
 ## [0.11.1] - 2026-05-19
 
 Three small, opt-in additions on top of v0.11.0 — no app
