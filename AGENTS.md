@@ -84,7 +84,8 @@ shell-agent-v2/
 - Post-response tasks (title generation, memory extraction) via async WaitGroup
 
 ### Context Budget Control (v0.2.0: non-destructive only)
-- Per-backend `ContextBudget` (`Local`, `VertexAI`) resolved by `cfg.ContextBudgetFor(backend)` so the same session adapts to the active model's window.
+- Per-backend `ContextBudget` (`Local`, `VertexAI`) resolved by `cfg.ContextBudgetFor(backend)` (reads from the active session's profile, ADR-0016) so the same session adapts to the active model's window.
+- **Multi-profile LLM (v0.12.0, ADR-0016)** — `LLMConfig` now holds a list of named profiles; each session references one via a `session.json` file alongside `chat.json`. `agent.currentProfile()` resolves the active session's profile; `/model` toggles Local↔Vertex within the profile; `/profile <name>` switches the binding. v0.11.x configs auto-migrate (`UnmarshalJSON` synthesises a "Default" profile). Settings → LLM Profiles edits profiles live (blur-commit, no Save button); status-bar pill (`<Profile> / <Local|Vertex>`) opens the Session Control Popover.
 - Records stay immutable; `internal/contextbuild` builds the LLM message list per call. Older portions condense via a content-keyed summary cache at `sessions/<id>/summaries.json`. Time-range markers are added to summaries, raw records (after a >30-min gap or for tool/report rows), Global Memory entries (`(learned …)`), Session Memory entries, and Findings.
 - The v0.1.x destructive Hot→Warm compaction path was removed in v0.2.0 along with `Tier` / `HotTokenLimit` / `Memory.UseV2`.
 
@@ -178,10 +179,10 @@ shell-agent-v2/
 - Chat-pane bottom: status footer strip — backend badge,
   message counts, prompt / output token totals from the last
   call. Wraps to two lines on narrow windows.
-- Settings: tabbed (General / Tools / MCP) near-fullscreen overlay.
-  General has Sandbox (Enabled, engine, image, network, limits)
-  and per-backend budget editors. The v0.1.x "Use v2 context
-  builder" toggle was removed in v0.2.0.
+- Settings: tabbed (General / LLM Profiles / System Rules / Tools / MCP / Sandbox) near-fullscreen overlay.
+  General holds Theme / Location / Agent loop / Privacy / Logger;
+  v0.12.0 moved the Local LLM + Vertex AI sections out of General
+  into the new **LLM Profiles** tab (live-apply, no Save button).
 - Tools tab: unified list with Enabled + MITL toggles per tool;
   sandbox-* tools surface here when the engine is up.
 - Tool-call timeline: every tool start/end appears inline in chat
@@ -190,8 +191,9 @@ shell-agent-v2/
 - Pin to Global Memory dialog (v0.2.0 Phase 9): category picker
   shown when promoting a Session Memory entry or a Finding into
   the cross-session pool.
-- Commands (/help, /model): popup panel, not chat messages.
-  /finding and /findings were removed in v0.2.0.
+- Commands (/help, /model, /profile): popup panel, not chat messages.
+  /profile lists / switches the session's profile binding (v0.12.0,
+  ADR-0016). /finding and /findings were removed in v0.2.0.
 - MITL dialog: SQL preview, analysis plan, feedback input.
 
 ## Design Documents
