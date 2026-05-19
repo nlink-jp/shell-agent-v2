@@ -8,21 +8,6 @@ import (
 	"github.com/nlink-jp/shell-agent-v2/internal/memory"
 )
 
-func TestBuildTemporalContext(t *testing.T) {
-	ctx := buildTemporalContext()
-	now := time.Now()
-
-	if !strings.Contains(ctx, now.Format("2006-01-02")) {
-		t.Errorf("temporal context missing today's date: %s", ctx)
-	}
-	if !strings.Contains(ctx, now.Format("Monday")) {
-		t.Errorf("temporal context missing day of week: %s", ctx)
-	}
-	if !strings.Contains(ctx, "Yesterday:") {
-		t.Errorf("temporal context missing yesterday: %s", ctx)
-	}
-}
-
 func TestRenderTemporalPrefix_ContainsDateTimeWeekday(t *testing.T) {
 	ts := time.Date(2026, 5, 20, 12, 34, 56, 0, time.UTC)
 	got := RenderTemporalPrefix(ts, time.UTC)
@@ -84,8 +69,13 @@ func TestBuildMessages(t *testing.T) {
 	if !strings.Contains(msgs[0].Content, "helpful assistant") {
 		t.Error("system prompt not included")
 	}
-	if !strings.Contains(msgs[0].Content, "Current date and time") {
-		t.Error("temporal context not included")
+	// v0.13.0 (ADR-0017): temporal context is no longer injected
+	// into the system prompt — it travels with each user record via
+	// contextbuild's UserRecordTemporalPrefix hook.
+	for _, banned := range []string{"Current date and time", "Yesterday:"} {
+		if strings.Contains(msgs[0].Content, banned) {
+			t.Errorf("system prompt should not contain %q; got:\n%s", banned, msgs[0].Content)
+		}
 	}
 }
 
@@ -93,16 +83,38 @@ func TestBuildSystemPrompt_IncludesAllChannels(t *testing.T) {
 	e := New("BASE PROMPT")
 	e.SetLocation("Tokyo")
 	got := e.BuildSystemPrompt("- pinned fact (learned 2026-04-15)", "", "- finding from 2026-04-20", "")
+	// v0.13.0 (ADR-0017): "Current date and time" is no longer
+	// expected here — temporal context now lives on user records.
 	for _, want := range []string{
 		"BASE PROMPT",
 		"Tokyo",
-		"Current date and time",
 		"pinned fact",
 		"learned 2026-04-15",
 		"finding from 2026-04-20",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("system prompt missing %q\nfull: %s", want, got)
+		}
+	}
+}
+
+// TestBuildSystemPrompt_NoTemporalLines is the ADR-0017 §3.3
+// invariant on the system prompt side: no `Current date and time:`
+// and no `Yesterday:` lines should ever appear in the assembled
+// system block. Their presence would re-break llama.cpp prefix
+// caching by introducing a per-call volatile region.
+func TestBuildSystemPrompt_NoTemporalLines(t *testing.T) {
+	e := New("BASE PROMPT")
+	e.SetLocation("Tokyo")
+	e.SetSandboxEnabled(true)
+	got := e.BuildSystemPrompt("global", "session", "findings", "system rules")
+	for _, banned := range []string{
+		"Current date and time",
+		"Yesterday:",
+		"[Time:",
+	} {
+		if strings.Contains(got, banned) {
+			t.Errorf("system prompt unexpectedly contains %q\nfull: %s", banned, got)
 		}
 	}
 }
@@ -141,26 +153,25 @@ func TestBuildSystemPrompt_SystemRulesInjection(t *testing.T) {
 
 func TestBuildSystemPrompt_SystemRulesPosition(t *testing.T) {
 	// Structural invariant: rules sit between the base prompt and
-	// the temporal context, and before the Global Memory header.
-	// Mechanical guard against future drift moving the injection
-	// point. ADR-0012 §4.4.
+	// the Global Memory header. Mechanical guard against future
+	// drift moving the injection point. ADR-0012 §4.4.
+	//
+	// v0.13.0 (ADR-0017): the "rules before temporal context"
+	// assertion is gone because temporal context no longer lives
+	// in the system prompt.
 	e := New("BASE PROMPT MARKER")
 	got := e.BuildSystemPrompt("- pinned fact", "", "", "RULE BODY")
 
 	idxBase := strings.Index(got, "BASE PROMPT MARKER")
 	idxRules := strings.Index(got, "<system_rules>")
-	idxTime := strings.Index(got, "Current date and time")
 	idxGlobal := strings.Index(got, "Important facts you remember")
 
-	if idxBase < 0 || idxRules < 0 || idxTime < 0 || idxGlobal < 0 {
-		t.Fatalf("missing anchors: base=%d rules=%d time=%d global=%d\n%s",
-			idxBase, idxRules, idxTime, idxGlobal, got)
+	if idxBase < 0 || idxRules < 0 || idxGlobal < 0 {
+		t.Fatalf("missing anchors: base=%d rules=%d global=%d\n%s",
+			idxBase, idxRules, idxGlobal, got)
 	}
 	if !(idxBase < idxRules) {
 		t.Errorf("rules must come after base prompt: base=%d rules=%d", idxBase, idxRules)
-	}
-	if !(idxRules < idxTime) {
-		t.Errorf("rules must come before temporal context: rules=%d time=%d", idxRules, idxTime)
 	}
 	if !(idxRules < idxGlobal) {
 		t.Errorf("rules must come before Global Memory: rules=%d global=%d", idxRules, idxGlobal)

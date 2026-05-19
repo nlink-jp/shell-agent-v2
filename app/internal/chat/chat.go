@@ -108,7 +108,7 @@ func sanitizeSystemContext(s string, maxLen int) string {
 }
 
 // BuildSystemPrompt assembles the full system block:
-// base prompt + System Rules + temporal context + sandbox guidance
+// base prompt + System Rules + Location + sandbox guidance
 // (when enabled) + Global Memory + Session Memory + Findings.
 // Callers using contextbuild.Build directly pass this as
 // BuildOptions.SystemPrompt instead of going through BuildMessages.
@@ -120,6 +120,15 @@ func sanitizeSystemContext(s string, maxLen int) string {
 // and before the temporal context (ADR-0012). All four context
 // channels arrive as parameters; the Engine holds no mutable
 // per-turn state.
+// v0.13.0 (ADR-0017): Temporal context is no longer injected
+// here. It used to sit in the middle of this block (between
+// System Rules and sandbox guidance) and rebuilt every call,
+// which defeated llama.cpp prefix caching for everything past
+// the timestamp. It now travels with each user record via
+// contextbuild's UserRecordTemporalPrefix hook, derived from
+// each Record.Timestamp so historical renders are byte-stable.
+// The system prompt is byte-identical across consecutive
+// requests whenever the memory state hasn't changed.
 //
 //   - globalMemoryContext: cross-session user identity (preference/decision)
 //   - sessionMemoryContext: current-session context (fact/context)
@@ -127,17 +136,15 @@ func sanitizeSystemContext(s string, maxLen int) string {
 //   - systemRules: user-authored standing instructions (ADR-0012)
 func (e *Engine) BuildSystemPrompt(globalMemoryContext, sessionMemoryContext, findingsContext, systemRules string) string {
 	e.guardTag = guard.NewTag()
-	timeContext := buildTemporalContext()
-	if e.location != "" {
-		timeContext += "\nLocation: " + e.location
-	}
 	full := e.systemPrompt
 	if rules := strings.TrimSpace(systemRules); rules != "" {
 		full += "\n\nThe user has defined the following standing instructions. " +
 			"Treat them as high-priority rules that override the default agent behaviour unless they conflict with safety or security guidelines.\n\n" +
 			"<system_rules>\n" + rules + "\n</system_rules>"
 	}
-	full += fmt.Sprintf("\n\n%s", timeContext)
+	if e.location != "" {
+		full += "\n\nLocation: " + e.location
+	}
 	if e.sandboxEnabled {
 		full += sandboxGuidance
 	}
@@ -204,11 +211,13 @@ func (e *Engine) BuildMessages(session *memory.Session, pinnedContext, findingsC
 	// Rotate guard nonce each call
 	e.guardTag = guard.NewTag()
 
-	timeContext := buildTemporalContext()
+	// v0.13.0 (ADR-0017): temporal context no longer injected here.
+	// See BuildSystemPrompt for the rationale; this legacy path is
+	// kept in sync so we don't ship two layouts.
+	fullSystem := e.systemPrompt
 	if e.location != "" {
-		timeContext += "\nLocation: " + e.location
+		fullSystem += "\n\nLocation: " + e.location
 	}
-	fullSystem := fmt.Sprintf("%s\n\n%s", e.systemPrompt, timeContext)
 	if e.sandboxEnabled {
 		fullSystem += sandboxGuidance
 	}
@@ -314,27 +323,3 @@ func RenderTemporalPrefix(ts time.Time, loc *time.Location) string {
 	)
 }
 
-// buildTemporalContext returns the current temporal context for the
-// legacy paths that still inject it into the system prompt
-// (BuildSystemPrompt / BuildMessages). Phase 2 of ADR-0017 will
-// remove those call sites; until then this wrapper keeps the old
-// behaviour identical to the pre-refactor format so we can land the
-// refactor and the call-site removal as separate commits.
-func buildTemporalContext() string {
-	now := time.Now()
-	_, offset := now.Zone()
-	offsetHours := offset / 3600
-	offsetMins := (offset % 3600) / 60
-
-	yesterday := now.AddDate(0, 0, -1)
-
-	return fmt.Sprintf(
-		"Current date and time: %s (%s) %s (UTC%+03d:%02d)\nYesterday: %s (%s)",
-		now.Format("2006-01-02"),
-		now.Format("Monday"),
-		now.Format("15:04:05"),
-		offsetHours, offsetMins,
-		yesterday.Format("2006-01-02"),
-		yesterday.Format("Monday"),
-	)
-}
