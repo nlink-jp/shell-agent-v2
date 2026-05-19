@@ -435,6 +435,158 @@
     color: #66aaee;
 }
 
+/* ADR-0016: profile + backend badges are clickable to open the
+   Session Control Popover. The chevron hint mirrors the macOS
+   menu-bar status item convention. */
+.backend-badge.clickable, .profile-badge.clickable {
+    cursor: pointer;
+    user-select: none;
+}
+.backend-badge.clickable:hover, .profile-badge.clickable:hover {
+    filter: brightness(1.2);
+}
+.profile-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    background: var(--bg-input, #2a2a2a);
+    color: var(--text-primary, #e0e0e0);
+    border: 1px solid var(--border-color, #3a3a3a);
+    margin-right: 4px;
+}
+.profile-badge .chevron {
+    margin-left: 4px;
+    opacity: 0.6;
+    font-size: 9px;
+}
+
+/* Session Control Popover (ADR-0016 §3.10) */
+.session-control-popover {
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 6px;
+    z-index: 1500;
+    width: 320px;
+    background: var(--bg-msg, #1f1f1f);
+    border: 1px solid var(--border-color, #3a3a3a);
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+    padding: 10px 12px;
+    font-size: 12px;
+}
+.scp-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+.scp-header h4 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary, #e0e0e0);
+}
+.scp-close {
+    background: none;
+    border: none;
+    color: var(--text-secondary, #888);
+    cursor: pointer;
+    font-size: 14px;
+    padding: 0 4px;
+}
+.scp-close:hover {
+    color: var(--text-primary, #e0e0e0);
+}
+.scp-busy-banner {
+    background: #4a3a1a;
+    color: #d4a64a;
+    padding: 6px 8px;
+    border-radius: 4px;
+    margin-bottom: 8px;
+    font-size: 11px;
+}
+.scp-section {
+    margin-bottom: 10px;
+}
+.scp-label {
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary, #aaa);
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.scp-profile-select {
+    width: 100%;
+    padding: 4px 8px;
+    background: var(--bg-input, #2a2a2a);
+    color: var(--text-primary, #e0e0e0);
+    border: 1px solid var(--border-color, #3a3a3a);
+    border-radius: 4px;
+    font-size: 12px;
+}
+.scp-hint {
+    font-size: 10px;
+    color: var(--text-secondary, #888);
+    margin-top: 3px;
+    margin-left: 2px;
+}
+.scp-radio-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.scp-radio-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+.scp-radio-row:hover {
+    background: var(--bg-input, #2a2a2a);
+}
+.scp-radio-row.selected {
+    background: var(--bg-input, #2a2a2a);
+}
+.scp-radio-row input[type="radio"] {
+    margin: 0;
+}
+.scp-radio-row input[type="radio"]:disabled {
+    cursor: not-allowed;
+}
+.scp-radio-label {
+    font-weight: 500;
+    color: var(--text-primary, #e0e0e0);
+}
+.scp-radio-model {
+    margin-left: auto;
+    font-size: 10px;
+    color: var(--text-secondary, #888);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.scp-footer {
+    border-top: 1px solid var(--border-color, #3a3a3a);
+    padding-top: 8px;
+    margin-top: 8px;
+}
+.scp-settings-link {
+    background: none;
+    border: none;
+    color: var(--accent-color, #66aaee);
+    cursor: pointer;
+    font-size: 11px;
+    padding: 0;
+    text-decoration: none;
+}
+.scp-settings-link:hover {
+    text-decoration: underline;
+}
+
 .retry-badge {
     display: inline-block;
     padding: 2px 8px;

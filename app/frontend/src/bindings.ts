@@ -23,6 +23,7 @@ import type {
     ToolCallDetails,
     ToolInfo,
 } from './types'
+import type {main} from '../wailsjs/go/models'
 
 declare global {
     interface Window {
@@ -88,6 +89,18 @@ declare global {
                     GetWorkFiles(sessionID: string): Promise<{path: string; size: number; mtime: number}[]>;
                     GetSidebarPrefs(): Promise<{width: number; collapsed: boolean}>;
                     SaveSidebarPrefs(width: number, collapsed: boolean): Promise<void>;
+
+                    // ADR-0016 multi-profile LLM backend.
+                    ListProfiles(): Promise<main.ProfileSummary[]>;
+                    GetProfile(id: string): Promise<main.ProfileDetail>;
+                    CreateProfile(req: main.CreateProfileRequest): Promise<main.CreateProfileResult>;
+                    UpdateProfile(id: string, req: main.UpdateProfileRequest): Promise<main.UpdateProfileResult>;
+                    DeleteProfile(id: string): Promise<main.DeleteProfileResult>;
+                    SetDefaultProfile(id: string): Promise<void>;
+                    SwitchSessionProfile(profileID: string): Promise<void>;
+                    SwitchSessionBackend(backend: string): Promise<void>;
+                    CurrentSessionProfile(): Promise<main.ProfileSummary>;
+                    CurrentSessionBackend(): Promise<string>;
                 };
             };
         };

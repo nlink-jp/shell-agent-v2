@@ -9,8 +9,9 @@
 import {useState, useEffect, useRef} from 'react'
 import BackendBudgetEditor from '../components/BackendBudgetEditor'
 import type {MCPProfile, MCPStatus, Settings, ToolInfo, SandboxImageStatus, SandboxImageInfo} from '../types'
+import type {main} from '../../wailsjs/go/models'
 
-type SettingsTab = 'general' | 'rules' | 'tools' | 'mcp' | 'sandbox'
+type SettingsTab = 'general' | 'profiles' | 'rules' | 'tools' | 'mcp' | 'sandbox'
 
 // Local-only frontend approximation of memory.EstimateTokens.
 // max(chars/4, words*1.3) — close enough for the advisory display
@@ -154,6 +155,7 @@ export default function SettingsDialog({settings, tools, mcpStatus, onUpdate, on
                 </div>
                 <div className="settings-tabs">
                     <button className={tab === 'general' ? 'active' : ''} onClick={() => setTab('general')}>General</button>
+                    <button className={tab === 'profiles' ? 'active' : ''} onClick={() => setTab('profiles')}>LLM Profiles</button>
                     <button className={tab === 'rules' ? 'active' : ''} onClick={() => setTab('rules')}>System Rules</button>
                     <button className={tab === 'tools' ? 'active' : ''} onClick={() => setTab('tools')}>Tools</button>
                     <button className={tab === 'mcp' ? 'active' : ''} onClick={() => setTab('mcp')}>MCP</button>
@@ -262,6 +264,7 @@ export default function SettingsDialog({settings, tools, mcpStatus, onUpdate, on
                             <p className="sidebar-hint">Total LLM call attempts including the first (1 = no retries). Defaults to 3. Backoff timing knobs (base / max / jitter) are config-only — see README.</p>
                         </div>
                     </>)}
+                    {tab === 'profiles' && <ProfilesTab />}
                     {tab === 'rules' && (<>
                         <div className="settings-section">
                             <h3>System Rules</h3>
@@ -548,6 +551,265 @@ export default function SettingsDialog({settings, tools, mcpStatus, onUpdate, on
                 </div>
                 <div className="settings-footer">
                     <button className="settings-close-btn" onClick={onClose}>Close</button>
+                </div>
+            </div>
+        </div>
+    )
+}
+
+
+// ProfilesTab — ADR-0016 §3.5 LLM Profiles UI.
+//
+// Self-contained component that lists profiles and lets the user
+// create / clone / rename / edit / delete / set-default. The full
+// per-profile detail form (Local + Vertex sections) mirrors the
+// legacy single-profile Settings layout, so a v0.11.x user reads
+// the same fields in the same order — just scoped to a selected
+// profile.
+//
+// Lives in the same file as the dialog body so it shares the
+// dialog's styling vocabulary; broken out only for state-locality.
+function ProfilesTab() {
+    const [profiles, setProfiles] = useState<main.ProfileSummary[]>([])
+    const [selectedID, setSelectedID] = useState<string>('')
+    const [detail, setDetail] = useState<main.ProfileDetail | null>(null)
+    const [dirty, setDirty] = useState(false)
+    const [status, setStatus] = useState<string>('')
+    const [confirmDeleteID, setConfirmDeleteID] = useState<string>('')
+
+    const refreshList = async () => {
+        if (!window.go) return
+        try {
+            const ps = await window.go.main.Bindings.ListProfiles()
+            setProfiles(ps)
+            if (!selectedID && ps.length > 0) {
+                setSelectedID(ps[0].id)
+            }
+        } catch (e) {
+            console.error('ListProfiles:', e)
+        }
+    }
+
+    useEffect(() => {
+        refreshList()
+    }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+    useEffect(() => {
+        if (!selectedID || !window.go) {
+            setDetail(null)
+            return
+        }
+        window.go.main.Bindings.GetProfile(selectedID).then(d => {
+            setDetail(d)
+            setDirty(false)
+        }).catch(e => console.error('GetProfile:', e))
+    }, [selectedID])
+
+    // Two-click delete confirm matches the rest of the app
+    // (BulkActions / Findings / image-delete).
+    useEffect(() => {
+        if (!confirmDeleteID) return
+        const t = setTimeout(() => setConfirmDeleteID(''), 3000)
+        return () => clearTimeout(t)
+    }, [confirmDeleteID])
+
+    const patch = (p: Partial<main.ProfileDetail>) => {
+        setDetail(prev => prev ? {...prev, ...p} as main.ProfileDetail : prev)
+        setDirty(true)
+    }
+    const patchLocal = (p: Partial<main.LocalProfileFields>) => {
+        setDetail(prev => prev ? {...prev, local: {...prev.local, ...p}} as main.ProfileDetail : prev)
+        setDirty(true)
+    }
+    const patchVertex = (p: Partial<main.VertexProfileFields>) => {
+        setDetail(prev => prev ? {...prev, vertex: {...prev.vertex, ...p}} as main.ProfileDetail : prev)
+        setDirty(true)
+    }
+
+    const createNew = async (cloneFromID: string) => {
+        if (!window.go) return
+        const name = cloneFromID ? 'Cloned profile' : 'New profile'
+        try {
+            const res = await window.go.main.Bindings.CreateProfile({
+                name,
+                clone_from_id: cloneFromID,
+                default_side: 'local',
+            } as main.CreateProfileRequest)
+            await refreshList()
+            setSelectedID(res.profile.id)
+            if (res.name_adjusted) {
+                setStatus(`Renamed to "${res.profile.name}" (a profile named "${res.original_name}" already existed).`)
+                setTimeout(() => setStatus(''), 5000)
+            }
+        } catch (e: any) {
+            setStatus(`Create failed: ${String(e?.message || e)}`)
+        }
+    }
+
+    const save = async () => {
+        if (!window.go || !detail) return
+        try {
+            const res = await window.go.main.Bindings.UpdateProfile(detail.id, {
+                name: detail.name,
+                default_backend: detail.default_backend,
+                local: detail.local,
+                vertex: detail.vertex,
+            } as main.UpdateProfileRequest)
+            await refreshList()
+            // Re-fetch the (possibly auto-renamed) detail.
+            const fresh = await window.go.main.Bindings.GetProfile(detail.id)
+            setDetail(fresh)
+            setDirty(false)
+            if (res.name_adjusted) {
+                setStatus(`Renamed to "${res.profile.name}" (a profile named "${res.original_name}" already existed).`)
+            } else {
+                setStatus('Saved')
+            }
+            setTimeout(() => setStatus(''), 4000)
+        } catch (e: any) {
+            setStatus(`Save failed: ${String(e?.message || e)}`)
+        }
+    }
+
+    const removeProfile = async (id: string) => {
+        if (!window.go) return
+        try {
+            await window.go.main.Bindings.DeleteProfile(id)
+            await refreshList()
+            if (selectedID === id) {
+                const remaining = profiles.filter(p => p.id !== id)
+                setSelectedID(remaining.length > 0 ? remaining[0].id : '')
+            }
+        } catch (e: any) {
+            setStatus(`Delete failed: ${String(e?.message || e)}`)
+            setTimeout(() => setStatus(''), 5000)
+        }
+    }
+
+    const setAsDefault = async (id: string) => {
+        if (!window.go) return
+        try {
+            await window.go.main.Bindings.SetDefaultProfile(id)
+            await refreshList()
+            setStatus('Default profile updated')
+            setTimeout(() => setStatus(''), 3000)
+        } catch (e: any) {
+            setStatus(`SetDefault failed: ${String(e?.message || e)}`)
+        }
+    }
+
+    return (
+        <div className="settings-section">
+            <h3>LLM Profiles</h3>
+            <p className="sidebar-hint">
+                Each profile is a pair of (Local, Vertex AI) configs plus a default side.
+                Sessions reference a profile; /model toggles between the pair within the
+                session's profile. See <code>docs/en/adr/0016-multi-profile-llm-backend.md</code>.
+            </p>
+            <div className="profiles-layout">
+                <div className="profiles-list">
+                    {profiles.map(p => (
+                        <div
+                            key={p.id}
+                            className={`profile-list-row ${p.id === selectedID ? 'selected' : ''}`}
+                            onClick={() => setSelectedID(p.id)}
+                        >
+                            <span className="profile-name">{p.name}</span>
+                            {p.is_default && <span className="profile-default-tag">default</span>}
+                        </div>
+                    ))}
+                    <div className="profiles-list-actions">
+                        <button onClick={() => createNew('')}>+ New empty</button>
+                        {selectedID && (
+                            <button onClick={() => createNew(selectedID)}>+ Clone selected</button>
+                        )}
+                    </div>
+                </div>
+                <div className="profile-detail">
+                    {detail ? (
+                        <>
+                            <label>
+                                <span>Name</span>
+                                <input value={detail.name} onChange={e => patch({name: e.target.value})} />
+                            </label>
+                            <label>
+                                <span>Default side (which backend /model lands on first)</span>
+                                <select value={detail.default_backend} onChange={e => patch({default_backend: e.target.value})}>
+                                    <option value="local">Local LLM</option>
+                                    <option value="vertex_ai">Vertex AI</option>
+                                </select>
+                            </label>
+                            <div className="profile-action-row">
+                                {!detail.is_default && (
+                                    <button onClick={() => setAsDefault(detail.id)}>Set as default</button>
+                                )}
+                                {!detail.is_default && (
+                                    confirmDeleteID === detail.id
+                                        ? <button className="danger-confirm" onClick={() => removeProfile(detail.id)}>Confirm delete</button>
+                                        : <button className="danger" onClick={() => setConfirmDeleteID(detail.id)}>Delete profile</button>
+                                )}
+                                {detail.is_default && (
+                                    <span className="sidebar-hint">Default profiles cannot be deleted. Set a different default first.</span>
+                                )}
+                            </div>
+                            <h4>Local</h4>
+                            <label>
+                                <span>Endpoint</span>
+                                <input value={detail.local.endpoint} onChange={e => patchLocal({endpoint: e.target.value})} />
+                            </label>
+                            <label>
+                                <span>Model</span>
+                                <input value={detail.local.model} onChange={e => patchLocal({model: e.target.value})} />
+                            </label>
+                            <label>
+                                <span>API key env var</span>
+                                <input value={detail.local.api_key_env} onChange={e => patchLocal({api_key_env: e.target.value})} />
+                            </label>
+                            <BackendBudgetEditor
+                                budget={detail.local.context_budget}
+                                onChange={b => patchLocal({context_budget: b as any})}
+                            />
+                            <label>
+                                <span>Per-request timeout (seconds)</span>
+                                <input type="number" min={5} value={detail.local.request_timeout_seconds || 300} onChange={e => patchLocal({request_timeout_seconds: parseInt(e.target.value, 10) || 300})} />
+                            </label>
+                            <label>
+                                <span>Retry max attempts</span>
+                                <input type="number" min={1} max={10} value={detail.local.retry_max_attempts || 3} onChange={e => patchLocal({retry_max_attempts: parseInt(e.target.value, 10) || 3})} />
+                            </label>
+                            <h4>Vertex AI</h4>
+                            <label>
+                                <span>Project ID</span>
+                                <input value={detail.vertex.project_id} onChange={e => patchVertex({project_id: e.target.value})} />
+                            </label>
+                            <label>
+                                <span>Region</span>
+                                <input value={detail.vertex.region} onChange={e => patchVertex({region: e.target.value})} />
+                            </label>
+                            <label>
+                                <span>Model</span>
+                                <input value={detail.vertex.model} onChange={e => patchVertex({model: e.target.value})} />
+                            </label>
+                            <BackendBudgetEditor
+                                budget={detail.vertex.context_budget}
+                                onChange={b => patchVertex({context_budget: b as any})}
+                            />
+                            <label>
+                                <span>Per-request timeout (seconds)</span>
+                                <input type="number" min={5} value={detail.vertex.request_timeout_seconds || 180} onChange={e => patchVertex({request_timeout_seconds: parseInt(e.target.value, 10) || 180})} />
+                            </label>
+                            <label>
+                                <span>Retry max attempts</span>
+                                <input type="number" min={1} max={10} value={detail.vertex.retry_max_attempts || 3} onChange={e => patchVertex({retry_max_attempts: parseInt(e.target.value, 10) || 3})} />
+                            </label>
+                            <div className="profile-save-row">
+                                <button onClick={save} disabled={!dirty}>Save changes</button>
+                                {status && <span className="profile-save-status">{status}</span>}
+                            </div>
+                        </>
+                    ) : (
+                        <p className="sidebar-hint">Select a profile to edit.</p>
+                    )}
                 </div>
             </div>
         </div>

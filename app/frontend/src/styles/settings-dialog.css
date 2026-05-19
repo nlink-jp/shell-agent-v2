@@ -524,3 +524,86 @@
     background: #3a4a5a;
 }
 
+
+/* ADR-0016: Profiles tab — two-pane layout (list + detail). */
+.profiles-layout {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    gap: 16px;
+}
+.profiles-list {
+    border-right: 1px solid var(--border-color, #3a3a3a);
+    padding-right: 12px;
+}
+.profile-list-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-bottom: 2px;
+}
+.profile-list-row:hover {
+    background: var(--bg-input, #2a2a2a);
+}
+.profile-list-row.selected {
+    background: var(--bg-input, #2a2a2a);
+    font-weight: 500;
+}
+.profile-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.profile-default-tag {
+    font-size: 10px;
+    color: var(--accent-color, #66aaee);
+    background: rgba(102, 170, 238, 0.1);
+    padding: 1px 6px;
+    border-radius: 3px;
+    margin-left: 6px;
+}
+.profiles-list-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border-color, #3a3a3a);
+}
+.profile-detail h4 {
+    margin: 16px 0 8px 0;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-secondary, #aaa);
+}
+.profile-action-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin: 8px 0 12px 0;
+}
+.profile-save-row {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-color, #3a3a3a);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.profile-save-status {
+    font-size: 12px;
+    color: var(--text-secondary, #888);
+}
+.danger {
+    color: #dc322f;
+}
+.danger-confirm {
+    background: #dc322f;
+    color: white;
+    border: 1px solid #dc322f;
+}

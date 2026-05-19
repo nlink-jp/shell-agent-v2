@@ -11,6 +11,8 @@ import DataDisclosure from './DataDisclosure'
 import FindingsDisclosure from './FindingsDisclosure'
 import MessageItem from './components/MessageItem'
 import QueuePill from './components/QueuePill'
+import SessionControlPopover from './components/SessionControlPopover'
+import type {main} from '../wailsjs/go/models'
 import Sidebar from './sidebar/Sidebar'
 import SettingsDialog from './dialogs/SettingsDialog'
 import MITLDialog from './dialogs/MITLDialog'
@@ -65,6 +67,15 @@ function App() {
     const [messages, setMessages] = useState<ChatMessage[]>([])
     const [streaming, setStreaming] = useState('')
     const [backend, setBackend] = useState('')
+    // ADR-0016: profile state for status-bar badge + Session Control
+    // Popover. Loaded via ListProfiles / CurrentSessionProfile and
+    // kept in sync with agent:profile:changed / agent:backend:changed
+    // / config:profile:list_changed Wails events.
+    const [profiles, setProfiles] = useState<main.ProfileSummary[]>([])
+    const [currentProfileID, setCurrentProfileID] = useState<string>('')
+    const [showSessionPopover, setShowSessionPopover] = useState(false)
+    // One-time toast for Settings auto-disambiguated profile names.
+    const [profileToast, setProfileToast] = useState<string>('')
     const [sidebarPanel, setSidebarPanel] = useState<SidebarPanel>('sessions')
     const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
     const [sidebarWidth, setSidebarWidth] = useState(280)
@@ -337,12 +348,28 @@ function App() {
             const cleanupQueueCleared = window.runtime.EventsOn('agent:queue_cleared', () => {
                 setQueuedMessage(null)
             })
+            // ADR-0016 events. Profile changes update both the status
+            // badge and the popover dropdown selection; backend changes
+            // update the badge label and the popover radio.
+            const cleanupProfileChanged = window.runtime.EventsOn('agent:profile:changed', (data: any) => {
+                if (data?.profile_id) setCurrentProfileID(String(data.profile_id))
+            })
+            const cleanupBackendChanged = window.runtime.EventsOn('agent:backend:changed', (data: any) => {
+                if (data?.backend) setBackend(String(data.backend))
+            })
+            const cleanupProfileList = window.runtime.EventsOn('config:profile:list_changed', () => {
+                if (!window.go) return
+                window.go.main.Bindings.ListProfiles().then(ps => {
+                    if (ps) setProfiles(ps)
+                }).catch(() => {})
+            })
             return () => {
                 cleanupStream(); cleanupActivity(); cleanupGlobalMemory();
                 cleanupSessionMemory(); cleanupFindings(); cleanupReport();
                 cleanupMitl(); cleanupTitle(); cleanupBgStart(); cleanupBgEnd();
                 cleanupExtractionStarted(); cleanupExtractionDone();
                 cleanupQueued(); cleanupQueueCleared();
+                cleanupProfileChanged(); cleanupBackendChanged(); cleanupProfileList();
             }
         }
     }, [])
@@ -417,6 +444,13 @@ function App() {
                 if (b) setBackend(b)
                 else setTimeout(load, 100)
             })
+            // ADR-0016: profile state for status badge + popover.
+            window.go.main.Bindings.ListProfiles().then(ps => {
+                if (!cancel && ps) setProfiles(ps)
+            }).catch(() => {})
+            window.go.main.Bindings.CurrentSessionProfile().then(p => {
+                if (!cancel && p && p.id) setCurrentProfileID(p.id)
+            }).catch(() => {})
             window.go.main.Bindings.GetSettings().then(s => {
                 if (!cancel && s.theme) document.documentElement.setAttribute('data-theme', s.theme)
             })
@@ -942,8 +976,47 @@ function App() {
                         </div>
                     </div>
                 )}
-                <div className="input-status-bar">
-                    <span className={`backend-badge ${backend}`}>{backend || '...'}</span>
+                <div className="input-status-bar" style={{position: 'relative'}}>
+                    {profiles.length > 0 && currentProfileID && (
+                        <span
+                            className="profile-badge clickable"
+                            title="Active profile — click to switch"
+                            onClick={() => setShowSessionPopover(v => !v)}
+                        >
+                            {profiles.find(p => p.id === currentProfileID)?.name || 'Default'}
+                            <span className="chevron">{showSessionPopover ? '▾' : '▸'}</span>
+                        </span>
+                    )}
+                    <span
+                        className={`backend-badge clickable ${backend}`}
+                        title="Active backend — click to toggle"
+                        onClick={() => setShowSessionPopover(v => !v)}
+                    >
+                        {backend || '...'}
+                    </span>
+                    {showSessionPopover && (
+                        <SessionControlPopover
+                            profiles={profiles}
+                            currentProfileID={currentProfileID}
+                            activeBackend={backend}
+                            isBusy={state === 'busy' || extractionPending}
+                            onSwitchProfile={async (id) => {
+                                if (!window.go) return
+                                await window.go.main.Bindings.SwitchSessionProfile(id)
+                            }}
+                            onSwitchBackend={async (b) => {
+                                if (!window.go) return
+                                await window.go.main.Bindings.SwitchSessionBackend(b)
+                            }}
+                            onClose={() => setShowSessionPopover(false)}
+                            onOpenSettings={() => setShowSettings(true)}
+                        />
+                    )}
+                    {profileToast && (
+                        <span className="profile-toast" title={profileToast}>
+                            {profileToast}
+                        </span>
+                    )}
                     {state === 'busy' && retryStatus && (
                         <span className="retry-badge" title="LLM backend hit a transient failure and is retrying">
                             {retryStatus}
