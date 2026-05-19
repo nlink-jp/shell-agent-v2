@@ -77,6 +77,21 @@ func renderRecordContent(records []memory.Record, i int, opts BuildOptions) (str
 		content = wrapped
 	}
 
+	// v0.13.0 (ADR-0017): user records get a per-record temporal
+	// prefix rendered from their stored Timestamp. Skipping
+	// shouldAnnotate's "i == 0" workaround is intentional here —
+	// that workaround existed because the system prompt was also
+	// emitting "now is T", which collided with a timestamped first
+	// user message. The system-side temporal context is gone in
+	// v0.13.0, so the conflict that prompted the workaround is gone
+	// too. The temporal prefix is always added for user records
+	// (when the option is set and the timestamp is non-zero); the
+	// shouldAnnotate bracket marker below is still emitted for the
+	// tool / report / >30 min gap cases on a different axis.
+	if r.Role == "user" && opts.UserRecordTemporalPrefix != nil && !r.Timestamp.IsZero() {
+		content = opts.UserRecordTemporalPrefix(r.Timestamp) + "\n\n" + content
+	}
+
 	if shouldAnnotate(records, i) {
 		marker := "[" + formatTimestamp(r.Timestamp, opts.loc()) + "]"
 		content = marker + "\n" + content

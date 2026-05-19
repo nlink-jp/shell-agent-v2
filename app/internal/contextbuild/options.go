@@ -73,6 +73,22 @@ type BuildOptions struct {
 	// always sees the freshest metadata (Load() backfill may have
 	// updated tokens since the record was written).
 	ObjectLookup llm.ObjectMetaLookup
+
+	// UserRecordTemporalPrefix, if set, is called per user-role
+	// record during message rendering and the result is prepended to
+	// that record's content (after guard wrapping). nil disables the
+	// feature for test / legacy paths.
+	//
+	// The renderer must be deterministic in record.Timestamp so that
+	// identical records produce byte-identical bytes across
+	// successive Build calls. That byte-stability is what lets the
+	// LLM server's KV-cache prefix reuse fire across turns
+	// (ADR-0017).
+	//
+	// Records whose Timestamp is the zero time are rendered without
+	// a prefix — defensive against very old session bundles where
+	// the field may be missing.
+	UserRecordTemporalPrefix func(ts time.Time) string
 }
 
 func (o *BuildOptions) now() time.Time {

@@ -239,3 +239,72 @@ func TestTruncateToTokens_Idempotent(t *testing.T) {
 		t.Error("zero budget should disable truncation")
 	}
 }
+
+// TestRenderRecordContent_TemporalPrefixOnUserOnly verifies the
+// ADR-0017 user-record temporal prefix only fires on user-role
+// records. Assistant / tool / report records, even with the
+// option set, render unaffected.
+func TestRenderRecordContent_TemporalPrefixOnUserOnly(t *testing.T) {
+	ts := time.Date(2026, 5, 20, 12, 34, 56, 0, utc)
+	records := []memory.Record{
+		mkRec(ts, "user", "hi"),
+		mkRec(ts.Add(time.Second), "assistant", "hello"),
+		mkRec(ts.Add(2*time.Second), "tool", "result"),
+	}
+	opts := BuildOptions{
+		Loc: utc,
+		UserRecordTemporalPrefix: func(t time.Time) string {
+			return "<<TS:" + t.Format("2006-01-02") + ">>"
+		},
+	}
+	got0, _ := renderRecordContent(records, 0, opts)
+	got1, _ := renderRecordContent(records, 1, opts)
+	got2, _ := renderRecordContent(records, 2, opts)
+
+	if !strings.Contains(got0, "<<TS:2026-05-20>>") {
+		t.Errorf("user record should carry temporal prefix; got %q", got0)
+	}
+	if strings.Contains(got1, "<<TS:") {
+		t.Errorf("assistant record must not get temporal prefix; got %q", got1)
+	}
+	if strings.Contains(got2, "<<TS:") {
+		t.Errorf("tool record must not get temporal prefix; got %q", got2)
+	}
+}
+
+// TestRenderRecordContent_TemporalPrefixByteStable confirms two
+// renders of the same user record produce byte-identical strings —
+// the load-bearing invariant for ADR-0017's cache reuse strategy.
+func TestRenderRecordContent_TemporalPrefixByteStable(t *testing.T) {
+	ts := time.Date(2026, 5, 20, 12, 34, 56, 789_000_000, utc)
+	records := []memory.Record{mkRec(ts, "user", "hi")}
+	opts := BuildOptions{
+		Loc: utc,
+		UserRecordTemporalPrefix: func(t time.Time) string {
+			return "[Time:" + t.Format("15:04:05.000") + "]"
+		},
+	}
+	a, _ := renderRecordContent(records, 0, opts)
+	b, _ := renderRecordContent(records, 0, opts)
+	if a != b {
+		t.Errorf("renderRecordContent must be deterministic in record fields:\nA: %q\nB: %q", a, b)
+	}
+}
+
+// TestRenderRecordContent_TemporalPrefixZeroTimestampSkipped is the
+// defensive case for very old session bundles where Record.Timestamp
+// may be missing — we must not crash and must not render a misleading
+// "[Time: 0001-01-01 Monday 00:00:00 UTC]" line.
+func TestRenderRecordContent_TemporalPrefixZeroTimestampSkipped(t *testing.T) {
+	records := []memory.Record{mkRec(time.Time{}, "user", "hello from a legacy bundle")}
+	opts := BuildOptions{
+		Loc: utc,
+		UserRecordTemporalPrefix: func(t time.Time) string {
+			return "<<TS:" + t.Format("2006-01-02") + ">>"
+		},
+	}
+	got, _ := renderRecordContent(records, 0, opts)
+	if strings.Contains(got, "<<TS:") {
+		t.Errorf("zero-timestamp record should NOT get temporal prefix; got %q", got)
+	}
+}
