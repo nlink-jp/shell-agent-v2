@@ -5,6 +5,58 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.11.1] - 2026-05-19
+
+Three small, opt-in additions on top of v0.11.0 — no app
+behaviour changes, no required user action.
+
+### Added
+
+- **Recommended Dockerfile bundles graphviz.** `apt-get`
+  layer now installs the `graphviz` system package (dot /
+  neato / fdp / circo / twopi binaries plus the libraries
+  pydot depends on) and the `pip install` layer adds the
+  `graphviz` Python wrapper. Sandbox sessions can render
+  `.dot` files into PNG / SVG and the agent's "draw a
+  diagram" flow works out of the box. Existing sandbox
+  images keep working under their current content-addressed
+  tag; users who hit "Reset to recommended" in
+  Settings → Sandbox will see the Dockerfile hash change
+  and can opt into a rebuild from the diff view.
+- **`examples/shell_tools/summary.sh`** — an opt-in shell
+  tool wrapping the new
+  [gem-summary v0.1.0](https://github.com/nlink-jp/gem-summary)
+  CLI. Designed as a lighter-weight alternative to the
+  built-in `analyze-text` for ordinary summary requests
+  (1 LLM call vs analyze-text's 3-5 sliding-window calls).
+  Workflow: `sandbox-copy-object(object_id, path=foo.md)` →
+  `summary(filename=foo.md)`. The `@description:` field
+  contrasts the two tools so the LLM picks correctly from
+  the tool list — no built-in prompt changes, no System
+  Rules required. `examples/shell_tools/README.md` gains a
+  catalogue row and a "When to pick summary over
+  analyze-text" section.
+
+### Fixed
+
+- **`summary.sh` design follow-up**: initial draft passed
+  the document body as the `content` parameter, but two
+  problems surfaced during E2E smoke (function_call argument
+  size limits cap practical document size; local LLMs misread
+  `content` as "the user's request"). Redesigned to use the
+  filename-in-/work pattern that other shell tools already
+  follow (generate-image → register-object, sandbox-run-python
+  writers). `content` remains as an XOR alternative for
+  short inline text.
+
+### Compatibility
+
+- **No breaking changes.** Pre-v0.11.1 users see no behaviour
+  difference until they (a) rebuild the sandbox image from the
+  Settings → Sandbox "Reset to recommended" button, or (b)
+  copy `summary.sh` into their tools directory. Both are
+  explicit opt-in.
+
 ## [0.11.0] - 2026-05-18
 
 Closes the long-standing "chat feels slow" gap by moving
