@@ -528,12 +528,44 @@
 /* ADR-0016: Profiles tab — two-pane layout (list + detail). */
 .profiles-layout {
     display: grid;
-    grid-template-columns: 220px 1fr;
+    grid-template-columns: 200px minmax(0, 1fr);
     gap: 16px;
+    /* Grid children default to min-content sizing which lets long
+     * input fields blow the column out and produce a horizontal
+     * scrollbar on the modal. minmax(0, 1fr) above and min-width: 0
+     * on the children fixes both axes. */
 }
 .profiles-list {
-    border-right: 1px solid var(--border-color, #3a3a3a);
+    border-right: 1px solid var(--border-primary);
     padding-right: 12px;
+    min-width: 0;
+    color: var(--text-primary);
+}
+.profile-detail {
+    min-width: 0;
+}
+/* Narrow the per-row label inside the profile detail so the input
+ * has room to breathe in a 400-ish px column. The default 120px
+ * span min-width from .settings-section applies here too; shrink
+ * it. align-items: center inherited from .settings-section label
+ * keeps the span text vertically centred against the input. */
+.profile-detail label span {
+    min-width: 100px;
+}
+.profile-detail input[type="text"],
+.profile-detail input[type="number"],
+.profile-detail input:not([type]),
+.profile-detail select {
+    flex: 1;
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+.profile-detail .budget-editor {
+    min-width: 0;
+}
+.profile-detail .budget-editor label {
+    flex-wrap: wrap;
 }
 .profile-list-row {
     display: flex;
@@ -545,22 +577,24 @@
     margin-bottom: 2px;
 }
 .profile-list-row:hover {
-    background: var(--bg-input, #2a2a2a);
+    background: var(--bg-hover);
 }
 .profile-list-row.selected {
-    background: var(--bg-input, #2a2a2a);
+    background: var(--bg-hover);
     font-weight: 500;
+    border: 1px solid var(--border-accent);
 }
 .profile-name {
     flex: 1;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    color: var(--text-primary);
 }
 .profile-default-tag {
     font-size: 10px;
-    color: var(--accent-color, #66aaee);
-    background: rgba(102, 170, 238, 0.1);
+    color: var(--text-link);
+    background: var(--bg-btn-primary);
     padding: 1px 6px;
     border-radius: 3px;
     margin-left: 6px;
@@ -571,14 +605,14 @@
     gap: 4px;
     margin-top: 10px;
     padding-top: 10px;
-    border-top: 1px solid var(--border-color, #3a3a3a);
+    border-top: 1px solid var(--border-primary);
 }
 .profile-detail h4 {
     margin: 16px 0 8px 0;
     font-size: 12px;
     text-transform: uppercase;
     letter-spacing: 0.04em;
-    color: var(--text-secondary, #aaa);
+    color: var(--text-secondary);
 }
 .profile-action-row {
     display: flex;
@@ -588,16 +622,34 @@
     margin: 8px 0 12px 0;
 }
 .profile-save-row {
+    /* Legacy class — kept for backwards compat with any external
+     * docs / screenshots that reference it. New live-apply flow
+     * doesn't render this row. */
     margin-top: 16px;
     padding-top: 12px;
-    border-top: 1px solid var(--border-color, #3a3a3a);
+    border-top: 1px solid var(--border-primary);
     display: flex;
     align-items: center;
     gap: 12px;
 }
+/* Header shows the section title alongside a live "Saved ✓"
+ * indicator that flashes after each commit. Matches the
+ * auto-save pattern used by the rest of the Settings dialog. */
+.profile-tab-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 4px;
+}
+.profile-tab-header h3 {
+    margin: 0;
+}
 .profile-save-status {
-    font-size: 12px;
-    color: var(--text-secondary, #888);
+    font-size: 11px;
+    color: var(--text-link);
+    font-style: italic;
+    transition: opacity 0.2s;
 }
 .danger {
     color: #dc322f;

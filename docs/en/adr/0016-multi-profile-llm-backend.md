@@ -263,48 +263,64 @@ guard naturally applies.
 
 ### 3.5 Profile CRUD via Settings
 
-Settings dialog gains a new "LLM Profiles" tab that replaces the
-existing "Local" + "Vertex AI" tabs:
+Settings dialog gains a new "LLM Profiles" tab; the legacy "Local LLM"
+and "Vertex AI" sections inside the "General" tab are removed in
+v0.12.0 (their data lives in profiles now, and editing them via
+two surfaces would be confusing).
 
 ```
-┌─ LLM Profiles ────────────────────────────────────────────┐
-│                                                           │
-│  Profiles:                                                │
-│    ● Default               (default)    [Edit] [Delete*]  │
-│    ○ Production GCP                     [Edit] [Delete]   │
-│    ○ Personal Lab                       [Edit] [Delete]   │
-│                                                           │
-│    [+ New profile from template ▼]                        │
-│         ├─ Default (LM Studio + gemini-2.5-flash)         │
-│         ├─ Clone of: Production GCP                       │
-│         └─ Empty                                          │
-│                                                           │
-│  Selected: Production GCP                                 │
-│  ──────────────────────────────────────────────────────── │
-│  Name:            [Production GCP        ]                │
-│  Default side:    ( ) Local  (•) Vertex AI                │
-│  Set as default profile:  [ ]                             │
-│                                                           │
-│  ┌─ Local ─────────────────────────────────────────────┐  │
-│  │ Endpoint, model, API key env, context budget, …    │  │
-│  └────────────────────────────────────────────────────┘  │
-│  ┌─ Vertex AI ────────────────────────────────────────┐  │
-│  │ Project ID, region, model, context budget, …       │  │
-│  └────────────────────────────────────────────────────┘  │
-│                                                           │
-│  [Cancel]                              [Save changes]     │
-└───────────────────────────────────────────────────────────┘
+┌─ LLM Profiles ────────────────────────────  Saved ✓ ─┐
+│                                                      │
+│  ● Default          (default)                        │
+│  ○ Production GCP                                    │
+│  ○ Personal Lab                                      │
+│  ───────────────                                     │
+│  [+ New empty]  [+ Clone selected]                   │
+│                                                      │
+│  Selected: Production GCP                            │
+│  ───────────────────────────────────────────────     │
+│  Name:           [Production GCP                  ]  │
+│  Default side:   ( ) Local LLM  (•) Vertex AI        │
+│  [Set as default]  [Delete profile]                  │
+│                                                      │
+│  LOCAL                                               │
+│  Endpoint        [http://localhost:1234/v1        ]  │
+│  Model           [google/gemma-4-26b-a4b          ]  │
+│  API key env     [SHELL_AGENT_API_KEY             ]  │
+│  Context budget  (Max context / warm / tool / out)   │
+│  Per-request timeout (seconds)  [300              ]  │
+│  Retry max attempts             [3                ]  │
+│                                                      │
+│  VERTEX AI                                           │
+│  Project ID      [my-gcp-project                  ]  │
+│  Region          [us-central1                     ]  │
+│  Model           [gemini-2.5-flash                ]  │
+│  Context budget, timeout, retry …                    │
+└──────────────────────────────────────────────────────┘
 ```
+
+**Live-apply, no Save button** (macOS-native convention, matching
+the rest of the Settings dialog):
+
+- Text inputs commit on **blur** — typing a new endpoint and
+  tabbing out (or clicking elsewhere) writes config.json
+  atomically. No Save / Cancel buttons; no dirty state to manage.
+- Dropdowns (Default side) commit on **change** — instantaneous.
+- The header shows a brief "Saved ✓" indicator (1.8s) after each
+  successful commit so the user knows the change went through.
+- Errors show longer (5s) so the user has time to read.
 
 \* The default profile's Delete button is disabled (tooltip:
 "This is the default profile. Pick a different default before
 deleting."). Setting another profile as default re-enables the
 old one's Delete.
 
-Edit flow: profile fields edit in-place; Save validates and
-rewrites `config.json` (atomic, existing `Save()`). Other sessions
-in memory are unaffected — they only see the change on next
-session load (since profile lookup happens at LoadSession).
+Edit flow: each blur / change triggers `Bindings.UpdateProfile(id,
+req)` which writes config.json atomically. Other sessions in memory
+are unaffected — they only see the change on next session load
+(since profile lookup happens at LoadSession). If editing the
+*currently active* profile, `UpdateProfile` calls `agent.RestartLLMBackend()`
+so endpoint / project ID / retry policy changes take effect live.
 
 **Name auto-disambiguation.** If the user attempts to Save (create
 or rename) a profile whose Name (case-insensitive) collides with
@@ -456,7 +472,7 @@ New events:
 
 | Event | Payload | When |
 |-------|---------|------|
-| `agent:profile:changed` | `{profile_id, profile_name, default_backend}` | After `/profile <name>`, `SwitchSessionProfile`, or session load resolves to a different profile than the one currently in `agent.session.ProfileID` |
+| `agent:profile:changed` | `{profile_id, profile_name, default_backend}` | After `/profile <name>`, `SwitchSessionProfile`, **or any LoadSession** (always, so the frontend status pill reflects the just-loaded session's profile even when activeProfileID didn't change — without this, switching between two sessions that share a profile would leave the pill stuck on the previous session's display). Also fires when a deleted-profile fallback happens during LoadSession. |
 | `agent:backend:changed` | `{backend}` | After `/model` or `SwitchSessionBackend` toggles the active backend within the current profile |
 | `config:profile:list_changed` | `{profile_ids: []string}` | After Settings save adds/removes/renames profiles |
 
@@ -471,32 +487,41 @@ listeners.
 
 ### 3.10 Status bar + Session Control Popover
 
-The status bar shows the current session's profile and backend
-side-by-side; both are interactive:
+The status bar carries a single unified pill — the active session's
+profile name and backend, joined by `/`, colour-coded to the
+current backend (Local = green, Vertex = blue):
 
 ```
-[Profile: Production GCP ▾] [Vertex AI · gemini-2.5-flash ▾]
+Local active:           [Default / Local]
+Vertex active:          [Production GCP / Vertex]
 ```
 
-Clicking either badge opens an inline **Session Control Popover**
+Implementation note: the design initially split this into two
+separate badges (profile + backend) per the original ADR draft. E2E
+feedback consolidated them — both badges opened the same popover,
+two affordances for one action read as duplicate. The merged pill
+keeps both pieces of information visible and the backend colour
+glanceable in one click target.
+
+Clicking the pill opens an inline **Session Control Popover**
 anchored below the status bar. Critically, this is *not* the full
 Settings dialog — it is a chat-local affordance for the two
 operations a user does often (switch profile, toggle Local↔Vertex)
 without context-switching out of the conversation.
 
-Mock (profile badge clicked):
+Mock (pill clicked):
 
 ```
 ┌─ Session Control ──────────────────────────────┐
-│  Profile                                       │
+│  PROFILE                                       │
 │  [Production GCP                          ▾]   │
-│    └ default side: Vertex AI                   │
+│    default side: Vertex AI                     │
 │                                                │
-│  Active backend (this session, ephemeral)      │
-│  ( ) Local       — google/gemma-4-26b-a4b      │
-│  (•) Vertex AI   — gemini-2.5-flash            │
+│  ACTIVE BACKEND (this session, ephemeral)      │
+│  ( ) Local       google/gemma-4-26b-a4b        │
+│  (•) Vertex AI   gemini-2.5-flash              │
 │                                                │
-│  [Edit profiles in Settings →]      [Close]    │
+│  [Edit profiles in Settings →]                 │
 └────────────────────────────────────────────────┘
 ```
 
@@ -541,10 +566,9 @@ Settings tab uses). The current selection is computed from
 existing `agent:profile:changed` / `agent:backend:changed`
 events.
 
-Rationale: the status badges are passive "what am I in?"
-information; the popover is the active "change it" surface. They
-share the same anchor and the same visual vocabulary so users
-don't need to learn two affordances.
+Rationale: the status pill is passive "what am I in?" information
+that doubles as the click target for the active "change it"
+surface. One affordance, one click.
 
 ---
 

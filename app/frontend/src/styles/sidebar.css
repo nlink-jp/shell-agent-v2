@@ -437,7 +437,8 @@
 
 /* ADR-0016: profile + backend badges are clickable to open the
    Session Control Popover. The chevron hint mirrors the macOS
-   menu-bar status item convention. */
+   menu-bar status item convention. (Kept for older code paths;
+   the v0.12 status bar uses the unified .session-badge below.) */
 .backend-badge.clickable, .profile-badge.clickable {
     cursor: pointer;
     user-select: none;
@@ -445,15 +446,54 @@
 .backend-badge.clickable:hover, .profile-badge.clickable:hover {
     filter: brightness(1.2);
 }
+
+/* Unified profile/backend pill — click opens Session Control
+   Popover. Whole pill takes the backend's colour (Local = green,
+   Vertex = blue) so the active backend stays glanceable;
+   "Profile Name / Local|Vertex" text shows both halves of the
+   binding without two competing badges. */
+.session-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 8px 2px 10px;
+    border: none;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    user-select: none;
+    font-family: inherit;
+    line-height: 1.4;
+}
+.session-badge.local {
+    background: #1a3a2a;
+    color: #66cc88;
+}
+.session-badge.vertex_ai {
+    background: #1a2a3a;
+    color: #66aaee;
+}
+.session-badge:hover {
+    filter: brightness(1.18);
+}
+.session-badge .sb-sep {
+    opacity: 0.5;
+    font-weight: 400;
+}
+/* Profile badge — visual peer of backend-badge. Same dimensions
+ * and font-weight; distinct purple palette so the two badges are
+ * easy to tell apart at a glance. Profile names are user-supplied
+ * mixed-case text ("Production GCP"), so text-transform stays as
+ * inherited (no uppercase). */
 .profile-badge {
     display: inline-block;
     padding: 2px 8px;
     border-radius: 4px;
     font-size: 11px;
-    font-weight: 500;
-    background: var(--bg-input, #2a2a2a);
-    color: var(--text-primary, #e0e0e0);
-    border: 1px solid var(--border-color, #3a3a3a);
+    font-weight: 600;
+    background: #2a1e3a;
+    color: #c4a3e0;
     margin-right: 4px;
 }
 .profile-badge .chevron {
@@ -469,12 +509,13 @@
     left: 6px;
     z-index: 1500;
     width: 320px;
-    background: var(--bg-msg, #1f1f1f);
-    border: 1px solid var(--border-color, #3a3a3a);
+    background: var(--bg-sidebar);
+    border: 1px solid var(--border-primary);
     border-radius: 8px;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
     padding: 10px 12px;
     font-size: 12px;
+    color: var(--text-primary);
 }
 .scp-header {
     display: flex;
@@ -486,26 +527,27 @@
     margin: 0;
     font-size: 13px;
     font-weight: 600;
-    color: var(--text-primary, #e0e0e0);
+    color: var(--text-primary);
 }
 .scp-close {
     background: none;
     border: none;
-    color: var(--text-secondary, #888);
+    color: var(--text-muted);
     cursor: pointer;
     font-size: 14px;
     padding: 0 4px;
 }
 .scp-close:hover {
-    color: var(--text-primary, #e0e0e0);
+    color: var(--text-primary);
 }
 .scp-busy-banner {
-    background: #4a3a1a;
-    color: #d4a64a;
+    background: var(--bg-mitl);
+    color: var(--text-primary);
     padding: 6px 8px;
     border-radius: 4px;
     margin-bottom: 8px;
     font-size: 11px;
+    border: 1px solid var(--border-mitl);
 }
 .scp-section {
     margin-bottom: 10px;
@@ -514,7 +556,7 @@
     display: block;
     font-size: 11px;
     font-weight: 600;
-    color: var(--text-secondary, #aaa);
+    color: var(--text-secondary);
     margin-bottom: 4px;
     text-transform: uppercase;
     letter-spacing: 0.04em;
@@ -522,15 +564,15 @@
 .scp-profile-select {
     width: 100%;
     padding: 4px 8px;
-    background: var(--bg-input, #2a2a2a);
-    color: var(--text-primary, #e0e0e0);
-    border: 1px solid var(--border-color, #3a3a3a);
+    background: var(--bg-input-field);
+    color: var(--text-primary);
+    border: 1px solid var(--border-input);
     border-radius: 4px;
     font-size: 12px;
 }
 .scp-hint {
     font-size: 10px;
-    color: var(--text-secondary, #888);
+    color: var(--text-muted);
     margin-top: 3px;
     margin-left: 2px;
 }
@@ -546,12 +588,14 @@
     padding: 6px 8px;
     border-radius: 4px;
     cursor: pointer;
+    color: var(--text-primary);
 }
 .scp-radio-row:hover {
-    background: var(--bg-input, #2a2a2a);
+    background: var(--bg-hover);
 }
 .scp-radio-row.selected {
-    background: var(--bg-input, #2a2a2a);
+    background: var(--bg-hover);
+    border: 1px solid var(--border-accent);
 }
 .scp-radio-row input[type="radio"] {
     margin: 0;
@@ -561,23 +605,23 @@
 }
 .scp-radio-label {
     font-weight: 500;
-    color: var(--text-primary, #e0e0e0);
+    color: var(--text-primary);
 }
 .scp-radio-model {
     margin-left: auto;
     font-size: 10px;
-    color: var(--text-secondary, #888);
+    color: var(--text-muted);
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 .scp-footer {
-    border-top: 1px solid var(--border-color, #3a3a3a);
+    border-top: 1px solid var(--border-primary);
     padding-top: 8px;
     margin-top: 8px;
 }
 .scp-settings-link {
     background: none;
     border: none;
-    color: var(--accent-color, #66aaee);
+    color: var(--text-link);
     cursor: pointer;
     font-size: 11px;
     padding: 0;

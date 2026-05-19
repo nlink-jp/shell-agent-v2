@@ -12,7 +12,8 @@ and hybrid LLM backend (Local + Vertex AI).
 - **Session-scoped analysis** — each session owns its own database, no cross-session state leakage
 - **Agent execution model** — Idle/Busy states with UI lockout during processing
 - **Hybrid LLM backend** — Local LLM (LM Studio) and Vertex AI (Gemini), switchable at runtime via `/model`
-- **Per-backend context budgets** — `ContextBudget` configured separately for Local and Vertex (Settings → Local/Vertex AI).
+- **Multi-profile LLM (v0.12.0)** — define multiple named `(Local, VertexAI)` profiles for billing attribution / GCP project isolation. Each session references one profile (persisted in `session.json`). Edit profiles in **Settings → LLM Profiles** (live-apply on blur, no Save button); switch a session via the status-bar pill popover or `/profile <name>` chat command. See [ADR-0016](docs/en/adr/0016-multi-profile-llm-backend.md).
+- **Per-backend context budgets** — `ContextBudget` configured separately for Local and Vertex inside each profile (Settings → LLM Profiles → pick profile → expand the Local / Vertex AI sections).
 - **Memory model (v0.2.0 rewrite)** — four facilities work together. Records (immutable conversation history) live in `chat.json`. **Session Memory** auto-extracts `fact` / `context` per session. **Findings** are session-scoped data-analysis discoveries surfaced in a dedicated chat-pane panel. **Global Memory** holds `preference` / `decision` across sessions. Auto-extraction routes by category; "Pin to Global Memory" is the explicit user action that promotes a Session Memory entry or a Finding into the cross-session pool. Context-budget enforcement is non-destructive (`internal/contextbuild` summary cache). See [memory-model.md](docs/en/memory-model.md).
 - **Container sandbox (opt-in)** — eight `sandbox-*` tools that execute shell or Python in a per-session `podman`/`docker` container with `/work` mounted from the session's data dir, MITL-gated, network-off by default. Includes `sandbox-load-into-analysis` (CSV/JSON in `/work` → DuckDB) and `sandbox-export-sql` (SQL query → CSV in `/work`) so query results flow between analysis and Python without round-tripping through chat. See [sandbox-execution.md](docs/en/history/sandbox-execution.md) for the macOS setup guide.
 - **Findings panel** — chat-pane disclosure with severity filter, free-text search, bulk delete, real-time refresh, and a Pin-to-Global-Memory star button per row.
@@ -55,9 +56,13 @@ Settings stored at `~/Library/Application Support/shell-agent-v2/config.json`.
 ```bash
 # In chat:
 /model           # Show current engine
-/model local     # Switch to local LLM
-/model vertex    # Switch to Vertex AI
+/model local     # Switch to local LLM (within the current profile)
+/model vertex    # Switch to Vertex AI (within the current profile)
+/profile         # List profiles, mark the current with ●
+/profile <name>  # Switch this session's profile binding
 ```
+
+Or use the **status-bar pill** (`[Profile / Local|Vertex]`) — clicking opens the Session Control Popover for one-click profile / backend switching.
 
 ### Vertex AI Setup
 

@@ -977,23 +977,31 @@ function App() {
                     </div>
                 )}
                 <div className="input-status-bar" style={{position: 'relative'}}>
-                    {profiles.length > 0 && currentProfileID && (
-                        <span
-                            className="profile-badge clickable"
-                            title="Active profile — click to switch"
-                            onClick={() => setShowSessionPopover(v => !v)}
-                        >
-                            {profiles.find(p => p.id === currentProfileID)?.name || 'Default'}
-                            <span className="chevron">{showSessionPopover ? '▾' : '▸'}</span>
-                        </span>
-                    )}
-                    <span
-                        className={`backend-badge clickable ${backend}`}
-                        title="Active backend — click to toggle"
-                        onClick={() => setShowSessionPopover(v => !v)}
-                    >
-                        {backend || '...'}
-                    </span>
+                    {(() => {
+                        // Unified profile/backend pill — both halves open
+                        // the same Session Control Popover, so one button
+                        // reads more naturally than two stacked badges
+                        // sharing an action. Whole pill inherits the
+                        // backend's colour (Local = green, Vertex = blue)
+                        // so the active backend stays glanceable.
+                        const prof = profiles.find(p => p.id === currentProfileID)
+                        const profileName = prof?.name || (currentProfileID ? 'Default' : '')
+                        const backendLabel = backend === 'vertex_ai' ? 'Vertex'
+                            : backend === 'local' ? 'Local'
+                            : ''
+                        return (
+                            <button
+                                type="button"
+                                className={`session-badge ${backend || ''}`}
+                                title="Session profile / active backend · click to switch"
+                                onClick={() => setShowSessionPopover(v => !v)}
+                            >
+                                {profileName && <span className="sb-profile">{profileName}</span>}
+                                {profileName && backendLabel && <span className="sb-sep">/</span>}
+                                {backendLabel && <span className="sb-backend">{backendLabel}</span>}
+                            </button>
+                        )
+                    })()}
                     {showSessionPopover && (
                         <SessionControlPopover
                             profiles={profiles}
@@ -1002,11 +1010,34 @@ function App() {
                             isBusy={state === 'busy' || extractionPending}
                             onSwitchProfile={async (id) => {
                                 if (!window.go) return
-                                await window.go.main.Bindings.SwitchSessionProfile(id)
+                                // Optimistic update: the popover's <select> is
+                                // controlled by currentProfileID. Without an
+                                // immediate React state update, the DOM
+                                // reverts to the controlled value before the
+                                // agent:profile:changed event arrives,
+                                // making the dropdown visually snap back to
+                                // the old profile. Update state first, then
+                                // let the event confirm (idempotent). On
+                                // error we revert.
+                                const prev = currentProfileID
+                                setCurrentProfileID(id)
+                                try {
+                                    await window.go.main.Bindings.SwitchSessionProfile(id)
+                                } catch (err) {
+                                    setCurrentProfileID(prev)
+                                    throw err
+                                }
                             }}
                             onSwitchBackend={async (b) => {
                                 if (!window.go) return
-                                await window.go.main.Bindings.SwitchSessionBackend(b)
+                                const prev = backend
+                                setBackend(b)
+                                try {
+                                    await window.go.main.Bindings.SwitchSessionBackend(b)
+                                } catch (err) {
+                                    setBackend(prev)
+                                    throw err
+                                }
                             }}
                             onClose={() => setShowSessionPopover(false)}
                             onOpenSettings={() => setShowSettings(true)}

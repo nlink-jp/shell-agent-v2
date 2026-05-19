@@ -46,10 +46,14 @@ laptop) coexisting in one config without hand-editing
   detail forms; per-row Delete (default profile is gated); Set
   as default. Duplicate names auto-disambiguate with `(2)`,
   `(3)` suffixes — macOS Finder convention — with a one-time
-  inline toast showing the rewrite.
-- **Status-bar profile badge.** Always shows the active session's
-  profile name next to the existing backend badge. Both badges
-  are clickable and open the Session Control Popover.
+  inline toast showing the rewrite. **Live-apply** like the rest
+  of the Settings dialog: text fields commit on blur, dropdowns
+  on change; brief `Saved ✓` indicator in the tab header after
+  each commit. No Save / Cancel buttons.
+- **Status-bar session pill.** A single colour-coded pill
+  showing `<Profile> / <Local|Vertex>` (green for Local, blue
+  for Vertex) replaces the previous separate Backend badge.
+  Click opens the Session Control Popover.
 - **Wails events.** `agent:profile:changed`, `agent:backend:changed`,
   `config:profile:list_changed` drive the badges, popover, and
   Settings tab refresh.
@@ -66,18 +70,44 @@ laptop) coexisting in one config without hand-editing
   profiles[]}`. A v0.11.x config is migrated on first v0.12.0
   load: a single profile named "Default" is synthesised from the
   legacy fields, and the legacy keys are dropped from the
-  on-disk JSON. Migration is structure-only — no value
-  transformation, no data loss.
+  on-disk JSON the first time Settings saves anything. Migration
+  is structure-only — no value transformation, no data loss.
+- **Settings dialog reorg.** The legacy "Local LLM" and "Vertex AI"
+  sections inside the "General" tab are removed. Their fields
+  (endpoint, model, project, region, budget, retry, …) all live
+  inside profiles now, edited via the new "LLM Profiles" tab. A
+  short pointer hint replaces them in General.
 - **`agent.backend` instantiation** now sources Local/VertexAI
   configs from the active session's profile (via `currentProfile()`),
   not the top-level config. `LoadSession` reads `session.json`,
   resolves the profile, and rebuilds the backend only when the
   profile actually changes — keeps test stubs alive and avoids
   needless retry/budget churn between sessions sharing a profile.
-- **`Send` "Default Backend" Settings field** now edits the
-  default profile's `default_backend` (the multi-profile
-  equivalent), so the single-profile workflow is unchanged for
-  v0.11.x users who don't open the new tab.
+- **`agent.LoadSession` emits `agent:profile:changed`** on every
+  load (always, not just on profile transition). Without this,
+  switching between two sessions that share a profile left the
+  frontend's status pill stuck on the previous session's display.
+
+### Fixed
+
+- **Settings → LLM Profiles tab overflow.** The two-pane CSS
+  grid uses `minmax(0, 1fr)` and `min-width: 0` on the children
+  so long input fields no longer blow out the column and
+  produce a horizontal scrollbar.
+- **Popover dropdown reverted after selection.** The popover's
+  controlled `<select>` was tied to `currentProfileID`, which
+  only updated on the asynchronous `agent:profile:changed`
+  event. Between selection and the event, React rolled the DOM
+  back to the old controlled value, making the switch appear
+  to fail. Now applied optimistically (React state updates
+  before the binding call); confirming event is idempotent;
+  errors revert.
+- **Theme-aware popover / profiles tab colours.** The initial
+  CSS used variable names that didn't exist in `themes.css`
+  (`--bg-msg`, `--border-color`, `--accent-color`); the actual
+  variables are `--bg-sidebar`, `--border-primary`, `--text-link`,
+  etc. Now uses real theme variables so the components match
+  every theme (dark / light / warm / midnight).
 
 ### Migration / compatibility
 
@@ -96,6 +126,21 @@ laptop) coexisting in one config without hand-editing
 - **Downgrading** from v0.12.0 back to v0.11.x is not supported
   without manual `config.json` rollback (the new shape parses as
   empty `LLMConfig` under v0.11.x).
+
+### Known issues (carried into v0.12.0)
+
+- **Test isolation in `internal/agent/e2e_test.go` and
+  `internal/agent/text_tools_test.go`.** A handful of test fixtures
+  (`newTestAgent` etc.) construct sessions named `e2e-test`,
+  `test`, `default`, `sess-a`, `sess-b`, `int-test`, `test-pin`
+  *without* `t.Setenv("HOME", t.TempDir())`, so writes land in the
+  user's real `~/Library/Application Support/shell-agent-v2/sessions/`
+  rather than a temp dir. This pre-dates v0.12.0 but is more
+  obviously load-bearing now because `agent.LoadSession` always
+  writes a `session.json` for new sessions. Workaround: if you
+  see polluted sessions in the sidebar, move the directories
+  matching the names above to a backup folder. Proper fix tracked
+  for a follow-up commit (refactor `newTestAgent` to set HOME).
 
 ### Tests
 

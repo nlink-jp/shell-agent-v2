@@ -165,13 +165,11 @@ export default function SettingsDialog({settings, tools, mcpStatus, onUpdate, on
                     {tab === 'general' && (<>
                         <div className="settings-section">
                             <h3>General</h3>
-                            <label>
-                                <span>Default Backend</span>
-                                <select value={settings.default_backend} onChange={e => onUpdate({default_backend: e.target.value})}>
-                                    <option value="local">Local LLM</option>
-                                    <option value="vertex_ai">Vertex AI</option>
-                                </select>
-                            </label>
+                            <p className="sidebar-hint">
+                                LLM backend settings moved to the <strong>LLM Profiles</strong> tab in v0.12.0. Multiple
+                                profiles let you attribute Vertex AI charges to different GCP projects and keep
+                                separate Local endpoints (see <code>docs/en/adr/0016-multi-profile-llm-backend.md</code>).
+                            </p>
                             <label>
                                 <span>Theme</span>
                                 <select value={settings.theme || 'dark'} onChange={e => {
@@ -210,59 +208,10 @@ export default function SettingsDialog({settings, tools, mcpStatus, onUpdate, on
                             </label>
                             <p className="sidebar-hint">Controls what reaches <code>app.log</code>. Default <strong>info</strong> keeps user messages, LLM responses, and tool arguments out of the log file. Switch to <strong>debug</strong> only when reproducing an issue, then switch back. See <code>docs/en/privacy-controls.md</code> §3.</p>
                         </div>
-                        {/* Sandbox section moved to dedicated tab in r3. */}
-                        <div className="settings-section">
-                            <h3>Local LLM</h3>
-                            <label>
-                                <span>Endpoint</span>
-                                <input value={settings.local_endpoint} onChange={e => onUpdate({local_endpoint: e.target.value})} />
-                            </label>
-                            <label>
-                                <span>Model</span>
-                                <input value={settings.local_model} onChange={e => onUpdate({local_model: e.target.value})} />
-                            </label>
-                            <BackendBudgetEditor
-                                budget={settings.local_budget}
-                                onChange={b => onUpdate({local_budget: b})}
-                            />
-                            <label>
-                                <span>Per-request timeout (seconds)</span>
-                                <input type="number" min={5} value={settings.local_timeout_seconds || 300} onChange={e => onUpdate({local_timeout_seconds: parseInt(e.target.value, 10) || 300})} />
-                            </label>
-                            <label>
-                                <span>Retry max attempts</span>
-                                <input type="number" min={1} max={10} value={settings.local_retry_max_attempts || 3} onChange={e => onUpdate({local_retry_max_attempts: parseInt(e.target.value, 10) || 3})} />
-                            </label>
-                            <p className="sidebar-hint">Total LLM call attempts including the first (1 = no retries). Defaults to 3. Backoff timing knobs (base / max / jitter) are config-only — see README.</p>
-                        </div>
-                        <div className="settings-section">
-                            <h3>Vertex AI</h3>
-                            <label>
-                                <span>Project ID</span>
-                                <input value={settings.vertex_project} onChange={e => onUpdate({vertex_project: e.target.value})} />
-                            </label>
-                            <label>
-                                <span>Region</span>
-                                <input value={settings.vertex_region} onChange={e => onUpdate({vertex_region: e.target.value})} />
-                            </label>
-                            <label>
-                                <span>Model</span>
-                                <input value={settings.vertex_model} onChange={e => onUpdate({vertex_model: e.target.value})} />
-                            </label>
-                            <BackendBudgetEditor
-                                budget={settings.vertex_budget}
-                                onChange={b => onUpdate({vertex_budget: b})}
-                            />
-                            <label>
-                                <span>Per-request timeout (seconds)</span>
-                                <input type="number" min={5} value={settings.vertex_timeout_seconds || 180} onChange={e => onUpdate({vertex_timeout_seconds: parseInt(e.target.value, 10) || 180})} />
-                            </label>
-                            <label>
-                                <span>Retry max attempts</span>
-                                <input type="number" min={1} max={10} value={settings.vertex_retry_max_attempts || 3} onChange={e => onUpdate({vertex_retry_max_attempts: parseInt(e.target.value, 10) || 3})} />
-                            </label>
-                            <p className="sidebar-hint">Total LLM call attempts including the first (1 = no retries). Defaults to 3. Backoff timing knobs (base / max / jitter) are config-only — see README.</p>
-                        </div>
+                        {/* v0.12.0: Local LLM + Vertex AI sections moved to the
+                            "LLM Profiles" tab (one editable form per profile).
+                            See ADR-0016. The General tab keeps only Theme /
+                            Location / Agent loop / Privacy / Logger. */}
                     </>)}
                     {tab === 'profiles' && <ProfilesTab />}
                     {tab === 'rules' && (<>
@@ -560,22 +509,25 @@ export default function SettingsDialog({settings, tools, mcpStatus, onUpdate, on
 
 // ProfilesTab — ADR-0016 §3.5 LLM Profiles UI.
 //
-// Self-contained component that lists profiles and lets the user
-// create / clone / rename / edit / delete / set-default. The full
-// per-profile detail form (Local + Vertex sections) mirrors the
-// legacy single-profile Settings layout, so a v0.11.x user reads
-// the same fields in the same order — just scoped to a selected
-// profile.
+// Live-apply per macOS convention: text fields commit on blur,
+// dropdowns commit on change, deletes / set-default commit on
+// click. No explicit Save button — the rest of the app's Settings
+// dialog also auto-saves on each change.
 //
-// Lives in the same file as the dialog body so it shares the
-// dialog's styling vocabulary; broken out only for state-locality.
+// A draftRef tracks the latest local state synchronously so blur /
+// change handlers commit the right values even when React's state
+// update is still in flight.
 function ProfilesTab() {
     const [profiles, setProfiles] = useState<main.ProfileSummary[]>([])
     const [selectedID, setSelectedID] = useState<string>('')
-    const [detail, setDetail] = useState<main.ProfileDetail | null>(null)
-    const [dirty, setDirty] = useState(false)
+    const [draft, setDraft] = useState<main.ProfileDetail | null>(null)
+    const draftRef = useRef<main.ProfileDetail | null>(null)
     const [status, setStatus] = useState<string>('')
     const [confirmDeleteID, setConfirmDeleteID] = useState<string>('')
+
+    useEffect(() => {
+        draftRef.current = draft
+    }, [draft])
 
     const refreshList = async () => {
         if (!window.go) return
@@ -596,34 +548,92 @@ function ProfilesTab() {
 
     useEffect(() => {
         if (!selectedID || !window.go) {
-            setDetail(null)
+            setDraft(null)
             return
         }
         window.go.main.Bindings.GetProfile(selectedID).then(d => {
-            setDetail(d)
-            setDirty(false)
+            setDraft(d)
         }).catch(e => console.error('GetProfile:', e))
     }, [selectedID])
 
-    // Two-click delete confirm matches the rest of the app
-    // (BulkActions / Findings / image-delete).
     useEffect(() => {
         if (!confirmDeleteID) return
         const t = setTimeout(() => setConfirmDeleteID(''), 3000)
         return () => clearTimeout(t)
     }, [confirmDeleteID])
 
+    // flashStatus shows a "Saved" / rename note briefly. Errors stay
+    // longer (5s) so the user has time to read them.
+    const flashStatus = (msg: string, ms = 1800) => {
+        setStatus(msg)
+        setTimeout(() => setStatus(s => (s === msg ? '' : s)), ms)
+    }
+
+    // commit reads the live draftRef (NOT the React state — which
+    // may be stale when blur fires right after a setDraft) and
+    // forwards it to UpdateProfile. After a successful commit the
+    // backend may have auto-renamed the profile (duplicate Name
+    // disambiguation); refetch to surface that change.
+    const commit = async () => {
+        const d = draftRef.current
+        if (!window.go || !d) return
+        try {
+            const res = await window.go.main.Bindings.UpdateProfile(d.id, {
+                name: d.name,
+                default_backend: d.default_backend,
+                local: d.local,
+                vertex: d.vertex,
+            } as main.UpdateProfileRequest)
+            await refreshList()
+            const fresh = await window.go.main.Bindings.GetProfile(d.id)
+            setDraft(fresh)
+            if (res.name_adjusted) {
+                flashStatus(`Renamed to "${res.profile.name}" (the name was taken)`, 4500)
+            } else {
+                flashStatus('Saved ✓')
+            }
+        } catch (e: any) {
+            flashStatus(`Save failed: ${String(e?.message || e)}`, 5000)
+        }
+    }
+
+    // commitWith is the immediate-commit path for selects / radios.
+    // It updates the draft and immediately persists, without
+    // waiting for React state to settle.
+    const commitWith = async (override: Partial<main.ProfileDetail>) => {
+        const current = draftRef.current
+        if (!current) return
+        const next = {...current, ...override} as main.ProfileDetail
+        setDraft(next)
+        draftRef.current = next
+        await commit()
+    }
+
+    // setLocal / setVertex / setName patch the draft only (no
+    // persistence). Blur handlers call commit() afterwards.
     const patch = (p: Partial<main.ProfileDetail>) => {
-        setDetail(prev => prev ? {...prev, ...p} as main.ProfileDetail : prev)
-        setDirty(true)
+        setDraft(prev => {
+            if (!prev) return prev
+            const next = {...prev, ...p} as main.ProfileDetail
+            draftRef.current = next
+            return next
+        })
     }
     const patchLocal = (p: Partial<main.LocalProfileFields>) => {
-        setDetail(prev => prev ? {...prev, local: {...prev.local, ...p}} as main.ProfileDetail : prev)
-        setDirty(true)
+        setDraft(prev => {
+            if (!prev) return prev
+            const next = {...prev, local: {...prev.local, ...p}} as main.ProfileDetail
+            draftRef.current = next
+            return next
+        })
     }
     const patchVertex = (p: Partial<main.VertexProfileFields>) => {
-        setDetail(prev => prev ? {...prev, vertex: {...prev.vertex, ...p}} as main.ProfileDetail : prev)
-        setDirty(true)
+        setDraft(prev => {
+            if (!prev) return prev
+            const next = {...prev, vertex: {...prev.vertex, ...p}} as main.ProfileDetail
+            draftRef.current = next
+            return next
+        })
     }
 
     const createNew = async (cloneFromID: string) => {
@@ -638,36 +648,12 @@ function ProfilesTab() {
             await refreshList()
             setSelectedID(res.profile.id)
             if (res.name_adjusted) {
-                setStatus(`Renamed to "${res.profile.name}" (a profile named "${res.original_name}" already existed).`)
-                setTimeout(() => setStatus(''), 5000)
-            }
-        } catch (e: any) {
-            setStatus(`Create failed: ${String(e?.message || e)}`)
-        }
-    }
-
-    const save = async () => {
-        if (!window.go || !detail) return
-        try {
-            const res = await window.go.main.Bindings.UpdateProfile(detail.id, {
-                name: detail.name,
-                default_backend: detail.default_backend,
-                local: detail.local,
-                vertex: detail.vertex,
-            } as main.UpdateProfileRequest)
-            await refreshList()
-            // Re-fetch the (possibly auto-renamed) detail.
-            const fresh = await window.go.main.Bindings.GetProfile(detail.id)
-            setDetail(fresh)
-            setDirty(false)
-            if (res.name_adjusted) {
-                setStatus(`Renamed to "${res.profile.name}" (a profile named "${res.original_name}" already existed).`)
+                flashStatus(`Created "${res.profile.name}" (the name was taken)`, 4500)
             } else {
-                setStatus('Saved')
+                flashStatus('Profile created')
             }
-            setTimeout(() => setStatus(''), 4000)
         } catch (e: any) {
-            setStatus(`Save failed: ${String(e?.message || e)}`)
+            flashStatus(`Create failed: ${String(e?.message || e)}`, 5000)
         }
     }
 
@@ -680,9 +666,9 @@ function ProfilesTab() {
                 const remaining = profiles.filter(p => p.id !== id)
                 setSelectedID(remaining.length > 0 ? remaining[0].id : '')
             }
+            flashStatus('Profile deleted')
         } catch (e: any) {
-            setStatus(`Delete failed: ${String(e?.message || e)}`)
-            setTimeout(() => setStatus(''), 5000)
+            flashStatus(`Delete failed: ${String(e?.message || e)}`, 5000)
         }
     }
 
@@ -691,20 +677,23 @@ function ProfilesTab() {
         try {
             await window.go.main.Bindings.SetDefaultProfile(id)
             await refreshList()
-            setStatus('Default profile updated')
-            setTimeout(() => setStatus(''), 3000)
+            flashStatus('Default profile updated')
         } catch (e: any) {
-            setStatus(`SetDefault failed: ${String(e?.message || e)}`)
+            flashStatus(`SetDefault failed: ${String(e?.message || e)}`, 5000)
         }
     }
 
     return (
         <div className="settings-section">
-            <h3>LLM Profiles</h3>
+            <div className="profile-tab-header">
+                <h3>LLM Profiles</h3>
+                {status && <span className="profile-save-status">{status}</span>}
+            </div>
             <p className="sidebar-hint">
                 Each profile is a pair of (Local, Vertex AI) configs plus a default side.
                 Sessions reference a profile; /model toggles between the pair within the
-                session's profile. See <code>docs/en/adr/0016-multi-profile-llm-backend.md</code>.
+                session's profile. Edits auto-save on blur (text) or change (dropdowns) —
+                no Save button. See <code>docs/en/adr/0016-multi-profile-llm-backend.md</code>.
             </p>
             <div className="profiles-layout">
                 <div className="profiles-list">
@@ -726,86 +715,140 @@ function ProfilesTab() {
                     </div>
                 </div>
                 <div className="profile-detail">
-                    {detail ? (
+                    {draft ? (
                         <>
                             <label>
                                 <span>Name</span>
-                                <input value={detail.name} onChange={e => patch({name: e.target.value})} />
+                                <input
+                                    value={draft.name}
+                                    onChange={e => patch({name: e.target.value})}
+                                    onBlur={commit}
+                                />
                             </label>
                             <label>
                                 <span>Default side (which backend /model lands on first)</span>
-                                <select value={detail.default_backend} onChange={e => patch({default_backend: e.target.value})}>
+                                <select
+                                    value={draft.default_backend}
+                                    onChange={e => commitWith({default_backend: e.target.value})}
+                                >
                                     <option value="local">Local LLM</option>
                                     <option value="vertex_ai">Vertex AI</option>
                                 </select>
                             </label>
                             <div className="profile-action-row">
-                                {!detail.is_default && (
-                                    <button onClick={() => setAsDefault(detail.id)}>Set as default</button>
+                                {!draft.is_default && (
+                                    <button onClick={() => setAsDefault(draft.id)}>Set as default</button>
                                 )}
-                                {!detail.is_default && (
-                                    confirmDeleteID === detail.id
-                                        ? <button className="danger-confirm" onClick={() => removeProfile(detail.id)}>Confirm delete</button>
-                                        : <button className="danger" onClick={() => setConfirmDeleteID(detail.id)}>Delete profile</button>
+                                {!draft.is_default && (
+                                    confirmDeleteID === draft.id
+                                        ? <button className="danger-confirm" onClick={() => removeProfile(draft.id)}>Confirm delete</button>
+                                        : <button className="danger" onClick={() => setConfirmDeleteID(draft.id)}>Delete profile</button>
                                 )}
-                                {detail.is_default && (
+                                {draft.is_default && (
                                     <span className="sidebar-hint">Default profiles cannot be deleted. Set a different default first.</span>
                                 )}
                             </div>
                             <h4>Local</h4>
                             <label>
                                 <span>Endpoint</span>
-                                <input value={detail.local.endpoint} onChange={e => patchLocal({endpoint: e.target.value})} />
+                                <input
+                                    value={draft.local.endpoint}
+                                    onChange={e => patchLocal({endpoint: e.target.value})}
+                                    onBlur={commit}
+                                />
                             </label>
                             <label>
                                 <span>Model</span>
-                                <input value={detail.local.model} onChange={e => patchLocal({model: e.target.value})} />
+                                <input
+                                    value={draft.local.model}
+                                    onChange={e => patchLocal({model: e.target.value})}
+                                    onBlur={commit}
+                                />
                             </label>
                             <label>
                                 <span>API key env var</span>
-                                <input value={detail.local.api_key_env} onChange={e => patchLocal({api_key_env: e.target.value})} />
+                                <input
+                                    value={draft.local.api_key_env}
+                                    onChange={e => patchLocal({api_key_env: e.target.value})}
+                                    onBlur={commit}
+                                />
                             </label>
-                            <BackendBudgetEditor
-                                budget={detail.local.context_budget}
-                                onChange={b => patchLocal({context_budget: b as any})}
-                            />
+                            {/* BackendBudgetEditor's inputs don't ship their own
+                                onBlur. Wrap so blur events from the embedded
+                                <input>s bubble here and trigger commit. */}
+                            <div onBlur={commit}>
+                                <BackendBudgetEditor
+                                    budget={draft.local.context_budget}
+                                    onChange={b => patchLocal({context_budget: b as any})}
+                                />
+                            </div>
                             <label>
                                 <span>Per-request timeout (seconds)</span>
-                                <input type="number" min={5} value={detail.local.request_timeout_seconds || 300} onChange={e => patchLocal({request_timeout_seconds: parseInt(e.target.value, 10) || 300})} />
+                                <input
+                                    type="number" min={5}
+                                    value={draft.local.request_timeout_seconds || 300}
+                                    onChange={e => patchLocal({request_timeout_seconds: parseInt(e.target.value, 10) || 300})}
+                                    onBlur={commit}
+                                />
                             </label>
                             <label>
                                 <span>Retry max attempts</span>
-                                <input type="number" min={1} max={10} value={detail.local.retry_max_attempts || 3} onChange={e => patchLocal({retry_max_attempts: parseInt(e.target.value, 10) || 3})} />
+                                <input
+                                    type="number" min={1} max={10}
+                                    value={draft.local.retry_max_attempts || 3}
+                                    onChange={e => patchLocal({retry_max_attempts: parseInt(e.target.value, 10) || 3})}
+                                    onBlur={commit}
+                                />
                             </label>
                             <h4>Vertex AI</h4>
                             <label>
                                 <span>Project ID</span>
-                                <input value={detail.vertex.project_id} onChange={e => patchVertex({project_id: e.target.value})} />
+                                <input
+                                    value={draft.vertex.project_id}
+                                    onChange={e => patchVertex({project_id: e.target.value})}
+                                    onBlur={commit}
+                                />
                             </label>
                             <label>
                                 <span>Region</span>
-                                <input value={detail.vertex.region} onChange={e => patchVertex({region: e.target.value})} />
+                                <input
+                                    value={draft.vertex.region}
+                                    onChange={e => patchVertex({region: e.target.value})}
+                                    onBlur={commit}
+                                />
                             </label>
                             <label>
                                 <span>Model</span>
-                                <input value={detail.vertex.model} onChange={e => patchVertex({model: e.target.value})} />
+                                <input
+                                    value={draft.vertex.model}
+                                    onChange={e => patchVertex({model: e.target.value})}
+                                    onBlur={commit}
+                                />
                             </label>
-                            <BackendBudgetEditor
-                                budget={detail.vertex.context_budget}
-                                onChange={b => patchVertex({context_budget: b as any})}
-                            />
+                            <div onBlur={commit}>
+                                <BackendBudgetEditor
+                                    budget={draft.vertex.context_budget}
+                                    onChange={b => patchVertex({context_budget: b as any})}
+                                />
+                            </div>
                             <label>
                                 <span>Per-request timeout (seconds)</span>
-                                <input type="number" min={5} value={detail.vertex.request_timeout_seconds || 180} onChange={e => patchVertex({request_timeout_seconds: parseInt(e.target.value, 10) || 180})} />
+                                <input
+                                    type="number" min={5}
+                                    value={draft.vertex.request_timeout_seconds || 180}
+                                    onChange={e => patchVertex({request_timeout_seconds: parseInt(e.target.value, 10) || 180})}
+                                    onBlur={commit}
+                                />
                             </label>
                             <label>
                                 <span>Retry max attempts</span>
-                                <input type="number" min={1} max={10} value={detail.vertex.retry_max_attempts || 3} onChange={e => patchVertex({retry_max_attempts: parseInt(e.target.value, 10) || 3})} />
+                                <input
+                                    type="number" min={1} max={10}
+                                    value={draft.vertex.retry_max_attempts || 3}
+                                    onChange={e => patchVertex({retry_max_attempts: parseInt(e.target.value, 10) || 3})}
+                                    onBlur={commit}
+                                />
                             </label>
-                            <div className="profile-save-row">
-                                <button onClick={save} disabled={!dirty}>Save changes</button>
-                                {status && <span className="profile-save-status">{status}</span>}
-                            </div>
                         </>
                     ) : (
                         <p className="sidebar-hint">Select a profile to edit.</p>

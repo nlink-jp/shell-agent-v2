@@ -1284,6 +1284,16 @@ func (a *Agent) LoadSession(session *memory.Session) error {
 		a.setBackend(resolved.DefaultBackend)
 		a.activeProfileID = resolved.ID
 	}
+	// Always emit agent:profile:changed on LoadSession so the
+	// frontend's status-bar badge and popover dropdown reflect the
+	// newly-loaded session's profile binding even when the
+	// activeProfileID didn't change (two sessions sharing a
+	// profile). Without this the badge stays stuck on whatever
+	// the previous session showed — the bug behind the user-
+	// reported "ロード直後だと旧来の表示状態" symptom.
+	if resolved != nil {
+		a.emitProfileChanged(resolved)
+	}
 	logger.Info("session loaded: id=%s private=%v profile=%s", session.ID, session.Private, session.ProfileID)
 
 	// v0.2.0: Findings and Session Memory are per-session.
