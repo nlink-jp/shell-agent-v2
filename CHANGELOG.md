@@ -5,6 +5,60 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.12.1] - 2026-05-20
+
+Post-release polish on the Settings dialog after the v0.12.0
+multi-profile rollout. No data-model or binding changes; UI only.
+
+### Fixed
+
+- **Settings dialog opened blank from the sidebar.** The sidebar's
+  Settings click forwarded a React event to `openSettings`, which
+  v0.12.0 had quietly retyped to accept an optional `initialTab`
+  string. The event object became the tab name, no tab matched,
+  the panel rendered with no active tab. Now: callers without a
+  tab preference pass nothing; SettingsDialog validates the
+  `initialTab` prop against a runtime allowlist and falls back to
+  'general' otherwise.
+- **"Edit profiles in Settings →" link in the Session Control
+  Popover did nothing.** The popover's onOpenSettings callback
+  only flipped `showSettings` true without fetching `settings`,
+  and the dialog is gated on both being non-null. Now routes
+  through the same `openSettings()` that the sidebar uses, and
+  passes `initialTab='profiles'` so the dialog lands on the
+  LLM Profiles tab.
+- **Sandbox tab checkbox far from its label.** Stale rule:
+  `.settings-section input { flex: 1 }` stretched the checkbox's
+  flex item box across the row even though the visible checkbox
+  stayed intrinsic-sized — pushing the trailing `<span>` label to
+  the right edge. Now the rule excludes
+  `input[type="checkbox"]` via `:not()` so checkboxes keep their
+  intrinsic width and the label hugs them.
+- **Tools tab: checked checkboxes rendered with two different
+  fills.** WebKit's default accent-color behaviour drifted between
+  the Enabled and MITL toggles depending on their flex context.
+  Normalised with an explicit `accent-color: var(--text-link)`
+  on all `.settings-section input[type="checkbox"]`.
+
+### Changed
+
+- **Settings dialog hint copy.** Reworked the per-section
+  `<p className="sidebar-hint">` strings across the dialog to
+  focus on "what this setting does" rather than design
+  justifications, version-history asides, or doc-path references
+  that end users can't follow ("see docs/en/adr/0016-...md", "See
+  ADR-0012", etc.). Now hints are short, action-oriented, and use
+  concrete examples where helpful (e.g. System Rules: "always
+  reply in Japanese").
+- **Sandbox tab heading.** Dropped the `(experimental)` suffix —
+  the sandbox has been in routine use since v0.1.7+.
+- **Settings hint typography.** Hints in the Settings dialog now
+  use a tab-local override: left-aligned, comfortable line-height
+  (1.5), and explicit top/bottom margins so the text doesn't
+  visually collide with adjacent labels. The shared
+  `.sidebar-hint` rule was designed for centred sidebar use and
+  produced cramped spacing in form contexts.
+
 ## [0.12.0] - 2026-05-19
 
 Multi-profile LLM backend support

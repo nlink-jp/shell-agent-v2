@@ -140,6 +140,56 @@
     flex-shrink: 0;
 }
 
+/* Checkbox rows — the shared `.settings-section label` rule sets
+ * gap:12px and `.settings-section label span` sets min-width:120px
+ * so text-input rows form a clean column. Those defaults push the
+ * span too far from the checkbox in checkbox rows. Override both
+ * for any label tagged `.checkbox-row` (set in JSX). The flex: 1
+ * stretch on `.settings-section input` is the deeper cause and is
+ * fixed by the `:not([type="checkbox"])` exclusion above; this
+ * block just tightens the gap and lets the span hug the text. */
+.settings-section .checkbox-row {
+    gap: 6px;
+}
+.settings-section .checkbox-row > input[type="checkbox"] {
+    margin: 0;
+}
+.settings-section .checkbox-row > span {
+    min-width: 0;
+}
+
+/* Normalise the checkbox accent across the dialog so checked
+ * boxes always render the same regardless of nesting / parent
+ * flex context. Without this, WebKit sometimes drew the Tools
+ * tab's Enabled and MITL checkboxes with different fills even
+ * though both were :checked. */
+.settings-section input[type="checkbox"] {
+    accent-color: var(--text-link, #6090d0);
+}
+
+/* In Settings, .sidebar-hint is reused as a per-section explanatory
+ * note. The shared sidebar version center-aligns and has only
+ * margin-top — too cramped against adjacent labels here. Override
+ * for left-align, comfortable spacing, and a readable line-height. */
+.settings-section .sidebar-hint {
+    text-align: left;
+    margin: 8px 0 16px;
+    line-height: 1.5;
+    font-size: 12px;
+    color: var(--text-muted, #8899aa);
+}
+/* Consecutive hint paragraphs (e.g. the two-line System Rules
+ * intro + storage note) collapse their gap so they read as one
+ * grouped note. */
+.settings-section .sidebar-hint + .sidebar-hint {
+    margin-top: -8px;
+}
+/* Hint that sits directly under an h3 needs a little breathing
+ * room from the rule below the heading. */
+.settings-section h3 + .sidebar-hint {
+    margin-top: 4px;
+}
+
 /* Sandbox image build status row + build-log overlay */
 .sandbox-image-status {
     display: flex;
@@ -287,7 +337,12 @@
     min-height: 260px;
 }
 
-.settings-section input,
+/* flex: 1 stretches the control to fill the remaining row width.
+ * Excludes checkboxes — they should stay at their intrinsic size;
+ * otherwise the flex box around the checkbox stretches and pushes
+ * the trailing <span> label far to the right (gap visible between
+ * the checkbox and its own text). */
+.settings-section input:not([type="checkbox"]),
 .settings-section select {
     flex: 1;
     padding: 7px 10px;

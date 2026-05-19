@@ -11,7 +11,7 @@ import BackendBudgetEditor from '../components/BackendBudgetEditor'
 import type {MCPProfile, MCPStatus, Settings, ToolInfo, SandboxImageStatus, SandboxImageInfo} from '../types'
 import type {main} from '../../wailsjs/go/models'
 
-type SettingsTab = 'general' | 'profiles' | 'rules' | 'tools' | 'mcp' | 'sandbox'
+export type SettingsTab = 'general' | 'profiles' | 'rules' | 'tools' | 'mcp' | 'sandbox'
 
 // Local-only frontend approximation of memory.EstimateTokens.
 // max(chars/4, words*1.3) — close enough for the advisory display
@@ -32,10 +32,22 @@ interface Props {
     onUpdate: (patch: Partial<Settings>) => void;
     onClose: () => void;
     onRestartMCP: () => Promise<void>;
+    initialTab?: SettingsTab;
 }
 
-export default function SettingsDialog({settings, tools, mcpStatus, onUpdate, onClose, onRestartMCP}: Props) {
-    const [tab, setTab] = useState<SettingsTab>('general')
+// validTabs is the runtime allowlist for the `initialTab` prop.
+// Defensive against callers that accidentally forward a React
+// SyntheticEvent (e.g. `onClick={openSettings}` instead of
+// `onClick={() => openSettings()}`) — without this, `tab` would
+// end up as an event object and no tab button would match.
+const validTabs: readonly SettingsTab[] = ['general', 'profiles', 'rules', 'tools', 'mcp', 'sandbox']
+
+export default function SettingsDialog({settings, tools, mcpStatus, onUpdate, onClose, onRestartMCP, initialTab}: Props) {
+    const [tab, setTab] = useState<SettingsTab>(
+        typeof initialTab === 'string' && validTabs.includes(initialTab as SettingsTab)
+            ? (initialTab as SettingsTab)
+            : 'general',
+    )
 
     // System Rules tab state (ADR-0012). The rules file lives at
     // <dataDir>/system_rules.md and is managed through dedicated
@@ -165,11 +177,6 @@ export default function SettingsDialog({settings, tools, mcpStatus, onUpdate, on
                     {tab === 'general' && (<>
                         <div className="settings-section">
                             <h3>General</h3>
-                            <p className="sidebar-hint">
-                                LLM backend settings moved to the <strong>LLM Profiles</strong> tab in v0.12.0. Multiple
-                                profiles let you attribute Vertex AI charges to different GCP projects and keep
-                                separate Local endpoints (see <code>docs/en/adr/0016-multi-profile-llm-backend.md</code>).
-                            </p>
                             <label>
                                 <span>Theme</span>
                                 <select value={settings.theme || 'dark'} onChange={e => {
@@ -193,7 +200,7 @@ export default function SettingsDialog({settings, tools, mcpStatus, onUpdate, on
                                 <span>Max tool rounds per message</span>
                                 <input type="number" min={1} value={settings.max_tool_rounds || 10} onChange={e => onUpdate({max_tool_rounds: parseInt(e.target.value, 10) || 10})} />
                             </label>
-                            <p className="sidebar-hint">Hard cap on tool-call rounds for one user message. Default 10. Loop detection (v0.1.16) catches stuck same-error stretches early; raise this only when a long, legitimate analysis legitimately needs more rounds.</p>
+                            <p className="sidebar-hint">Maximum tool calls the agent makes before being forced to reply. Raise it for long analyses that legitimately need more steps.</p>
                         </div>
                         <div className="settings-section">
                             <h3>Privacy</h3>
@@ -206,7 +213,7 @@ export default function SettingsDialog({settings, tools, mcpStatus, onUpdate, on
                                     <option value="error">error — errors only</option>
                                 </select>
                             </label>
-                            <p className="sidebar-hint">Controls what reaches <code>app.log</code>. Default <strong>info</strong> keeps user messages, LLM responses, and tool arguments out of the log file. Switch to <strong>debug</strong> only when reproducing an issue, then switch back. See <code>docs/en/privacy-controls.md</code> §3.</p>
+                            <p className="sidebar-hint">What gets written to <code>app.log</code>. <strong>info</strong> keeps conversation content out of the log; <strong>debug</strong> captures everything (use when reporting an issue).</p>
                         </div>
                         {/* v0.12.0: Local LLM + Vertex AI sections moved to the
                             "LLM Profiles" tab (one editable form per profile).
@@ -217,8 +224,8 @@ export default function SettingsDialog({settings, tools, mcpStatus, onUpdate, on
                     {tab === 'rules' && (<>
                         <div className="settings-section">
                             <h3>System Rules</h3>
-                            <p className="sidebar-hint">Standing instructions the agent follows in every session. Plain Markdown, injected near the top of the system prompt. See <code>docs/en/adr/0012-system-rules.md</code>.</p>
-                            <p className="sidebar-hint">Stored at <code>~/Library/Application Support/shell-agent-v2/system_rules.md</code>. Edits via external editor are picked up by <strong>Reload from disk</strong>.</p>
+                            <p className="sidebar-hint">Standing instructions the agent follows in every chat — e.g. &ldquo;always reply in Japanese&rdquo;, &ldquo;use a report for long answers&rdquo;.</p>
+                            <p className="sidebar-hint">Also editable in any text editor at <code>~/Library/Application Support/shell-agent-v2/system_rules.md</code>; click <strong>Reload from disk</strong> to pick up external changes.</p>
                             <textarea
                                 className="system-rules-editor"
                                 style={{width: '100%', minHeight: '18em', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: '0.85em'}}
@@ -372,8 +379,8 @@ export default function SettingsDialog({settings, tools, mcpStatus, onUpdate, on
                     </>)}
                     {tab === 'sandbox' && (<>
                         <div className="settings-section">
-                            <h3>Sandbox (experimental)</h3>
-                            <p className="sidebar-hint">Exposes the eight sandbox-* tools that run shell/Python inside a per-session container. Tools register only when an Active image exists, the engine has it locally, AND the checkbox below is on. See docs/en/sandbox-image-build.md.</p>
+                            <h3>Sandbox</h3>
+                            <p className="sidebar-hint">Runs shell scripts and Python code inside an isolated per-session container. Useful for one-off code execution and data wrangling that you don't want touching your real filesystem — only the session's <code>/work</code> directory is mounted, network is off by default.</p>
                             {imageStatus?.active_tag && !imageStatus.active_pinned_by_digest && (
                                 <p className="sidebar-hint" style={{borderLeft: '3px solid #b58900', paddingLeft: '0.5em', marginTop: '0.5em'}}>
                                     ⚠ Active image <code>{imageStatus.active_tag}</code> uses a mutable tag. A registry or network compromise could swap the image bytes the next time the engine pulls. Build locally (the Dockerfile flow below produces a content-addressed tag) or pin upstream by <code>@sha256:&lt;digest&gt;</code>.
@@ -382,7 +389,7 @@ export default function SettingsDialog({settings, tools, mcpStatus, onUpdate, on
                         </div>
                         <div className="settings-section">
                             <h3>Built images</h3>
-                            <p className="sidebar-hint">Locally-built sandbox images. Use to switch the Active one (no rebuild needed); Delete to free disk.</p>
+                            <p className="sidebar-hint">Sandbox container images you've built locally. The Active one is what tool calls actually run in.</p>
                             {(!imageStatus?.images || imageStatus.images.length === 0) ? (
                                 <p className="sidebar-hint">(none yet — edit the Dockerfile below and click Build)</p>
                             ) : (
@@ -427,14 +434,14 @@ export default function SettingsDialog({settings, tools, mcpStatus, onUpdate, on
                                     ))}
                                 </ul>
                             )}
-                            <label className={!imageStatus?.active_ready ? 'disabled-row' : ''} title={!imageStatus?.active_ready ? 'Pick an Active image first' : ''}>
+                            <label className={`checkbox-row ${!imageStatus?.active_ready ? 'disabled-row' : ''}`} title={!imageStatus?.active_ready ? 'Pick an Active image first' : ''}>
                                 <input type="checkbox" disabled={!imageStatus?.active_ready} checked={!!settings.sandbox?.enabled} onChange={e => onUpdate({sandbox: {...settings.sandbox, enabled: e.target.checked}})} />
                                 <span>Enable container sandbox</span>
                             </label>
                         </div>
                         <div className="settings-section">
                             <h3>Dockerfile</h3>
-                            <p className="sidebar-hint">Edit and click Build to produce a new image. The tag is derived from the Dockerfile content (sha256), so identical edits don't rebuild.</p>
+                            <p className="sidebar-hint">The Dockerfile used to build a sandbox image. Edit to add packages (e.g. Python libs you want available inside the container) and click <strong>Build</strong>.</p>
                             <textarea
                                 className="dockerfile-editor"
                                 rows={16}
@@ -453,7 +460,6 @@ export default function SettingsDialog({settings, tools, mcpStatus, onUpdate, on
                                     <button type="button" onClick={() => setBuildLogOpen(true)}>View build log</button>
                                 )}
                             </div>
-                            <p className="sidebar-hint">Build runs locally on your podman/docker. Takes a few minutes (apt-get + pip install).</p>
                         </div>
                         <div className="settings-section">
                             <h3>Container limits</h3>
@@ -465,7 +471,7 @@ export default function SettingsDialog({settings, tools, mcpStatus, onUpdate, on
                                     <option value="docker">docker</option>
                                 </select>
                             </label>
-                            <label>
+                            <label className="checkbox-row">
                                 <input type="checkbox" checked={!!settings.sandbox?.network} onChange={e => onUpdate({sandbox: {...settings.sandbox, network: e.target.checked}})} />
                                 <span>Allow network egress (default off)</span>
                             </label>
@@ -690,10 +696,9 @@ function ProfilesTab() {
                 {status && <span className="profile-save-status">{status}</span>}
             </div>
             <p className="sidebar-hint">
-                Each profile is a pair of (Local, Vertex AI) configs plus a default side.
-                Sessions reference a profile; /model toggles between the pair within the
-                session's profile. Edits auto-save on blur (text) or change (dropdowns) —
-                no Save button. See <code>docs/en/adr/0016-multi-profile-llm-backend.md</code>.
+                A profile bundles one Local LLM endpoint and one Vertex AI project. Each chat session
+                runs against one profile — use separate profiles to keep work / personal LLM accounts
+                and endpoints apart.
             </p>
             <div className="profiles-layout">
                 <div className="profiles-list">

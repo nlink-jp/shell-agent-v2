@@ -14,7 +14,7 @@ import QueuePill from './components/QueuePill'
 import SessionControlPopover from './components/SessionControlPopover'
 import type {main} from '../wailsjs/go/models'
 import Sidebar from './sidebar/Sidebar'
-import SettingsDialog from './dialogs/SettingsDialog'
+import SettingsDialog, {type SettingsTab} from './dialogs/SettingsDialog'
 import MITLDialog from './dialogs/MITLDialog'
 import Lightbox from './dialogs/Lightbox'
 import ReportViewer from './dialogs/ReportViewer'
@@ -97,6 +97,11 @@ function App() {
     const [dataRefreshTick, setDataRefreshTick] = useState(0)
     const [findings, setFindings] = useState<Finding[]>([])
     const [showSettings, setShowSettings] = useState(false)
+    // Optional initial tab — set by openSettings() callers that want
+    // the dialog to land on a specific tab (e.g. the Session Control
+    // Popover's "Edit profiles in Settings →" jump). Cleared on
+    // close so subsequent re-opens revert to General.
+    const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsTab | undefined>(undefined)
     // editingSession / editTitle state moved into Sidebar (rename
     // is a sidebar-local concern). Same for the bulk-select sets
     // for findings and global / session memory.
@@ -690,13 +695,14 @@ function App() {
         }
     }, [settings])
 
-    const openSettings = useCallback(async () => {
+    const openSettings = useCallback(async (initialTab?: SettingsTab) => {
         if (window.go) {
             const s = await window.go.main.Bindings.GetSettings()
             setSettings(s)
             window.go.main.Bindings.GetTools().then(setTools)
             window.go.main.Bindings.GetMCPStatus().then(s => setMcpStatus(s || []))
         }
+        setSettingsInitialTab(initialTab)
         setShowSettings(true)
     }, [])
 
@@ -879,7 +885,7 @@ function App() {
                     // finding) take the same path.
                     setPinDialog({kind: 'session_memory', id: fact, preview: fact})
                 }}
-                onOpenSettings={openSettings}
+                onOpenSettings={() => openSettings()}
             />
             <div className="main">
                 {currentSessionId && currentSessionPrivate && (
@@ -1040,7 +1046,7 @@ function App() {
                                 }
                             }}
                             onClose={() => setShowSessionPopover(false)}
-                            onOpenSettings={() => setShowSettings(true)}
+                            onOpenSettings={() => openSettings('profiles')}
                         />
                     )}
                     {profileToast && (
@@ -1118,8 +1124,9 @@ function App() {
                     settings={settings}
                     tools={tools}
                     mcpStatus={mcpStatus}
+                    initialTab={settingsInitialTab}
                     onUpdate={updateSetting}
-                    onClose={() => setShowSettings(false)}
+                    onClose={() => { setShowSettings(false); setSettingsInitialTab(undefined) }}
                     onRestartMCP={async () => {
                         if (!window.go) return
                         await window.go.main.Bindings.RestartMCP()
