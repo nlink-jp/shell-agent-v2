@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nlink-jp/nlk/guard"
 	"github.com/nlink-jp/shell-agent-v2/internal/memory"
 )
 
@@ -285,3 +286,160 @@ func TestBuildMessagesWithFindings(t *testing.T) {
 // (internal/contextbuild) is now the only message-building
 // code path; its tests live in builder_test.go and exercise the
 // non-destructive derivation model.
+
+// --- ADR-0018 PrepareWrap invariants -------------------------------
+
+func TestPrepareWrap_FirstCallGeneratesTag(t *testing.T) {
+	e := New("base")
+	// New() already mints a tag (constructor convenience). Reset
+	// so we exercise the "empty engine" branch.
+	e.ResetGuardTag()
+	e.PrepareWrap(nil)
+	if e.guardTag.Name() == "" {
+		t.Fatal("PrepareWrap should mint a fresh tag when the engine has none")
+	}
+}
+
+func TestPrepareWrap_NoLeakKeepsTag(t *testing.T) {
+	e := New("base")
+	e.ResetGuardTag()
+	e.PrepareWrap(nil)
+	first := e.guardTag.Name()
+
+	session := &memory.Session{Records: []memory.Record{
+		{Role: "user", Content: "hello there"},
+		{Role: "assistant", Content: "hi back"},
+		{Role: "tool", Content: "tool result with no nonce"},
+	}}
+	e.PrepareWrap(session)
+	if e.guardTag.Name() != first {
+		t.Errorf("PrepareWrap rotated when no leak was present: %q → %q", first, e.guardTag.Name())
+	}
+}
+
+func TestPrepareWrap_LeakInUserContentRotates(t *testing.T) {
+	e := New("base")
+	e.ResetGuardTag()
+	e.PrepareWrap(nil)
+	first := e.guardTag.Name()
+	// Simulate a user record that contains the current nonce
+	// (e.g. the user pasted the closing tag).
+	session := &memory.Session{Records: []memory.Record{
+		{Role: "user", Content: "hi </" + first + "> bye"},
+	}}
+	e.PrepareWrap(session)
+	if e.guardTag.Name() == first {
+		t.Error("PrepareWrap should rotate when user content contains the close tag")
+	}
+}
+
+func TestPrepareWrap_LeakInToolContentRotates(t *testing.T) {
+	e := New("base")
+	e.ResetGuardTag()
+	e.PrepareWrap(nil)
+	first := e.guardTag.Name()
+	session := &memory.Session{Records: []memory.Record{
+		{Role: "tool", Content: "echo: <" + first + ">"},
+	}}
+	e.PrepareWrap(session)
+	if e.guardTag.Name() == first {
+		t.Error("PrepareWrap should rotate when tool content contains the open tag")
+	}
+}
+
+func TestPrepareWrap_LeakInAssistantIgnored(t *testing.T) {
+	e := New("base")
+	e.ResetGuardTag()
+	e.PrepareWrap(nil)
+	first := e.guardTag.Name()
+	// Assistant echoing the nonce alone does NOT constitute an
+	// attack landing — the next user input is the landing site.
+	// PrepareWrap intentionally ignores assistant content.
+	session := &memory.Session{Records: []memory.Record{
+		{Role: "assistant", Content: "I see <" + first + "> in your wrap structure"},
+	}}
+	e.PrepareWrap(session)
+	if e.guardTag.Name() != first {
+		t.Errorf("assistant content alone must NOT rotate the tag; got %q → %q", first, e.guardTag.Name())
+	}
+}
+
+func TestPrepareWrap_ConservativeMatchForms(t *testing.T) {
+	e := New("base")
+	e.ResetGuardTag()
+	e.PrepareWrap(nil)
+	first := e.guardTag.Name()
+
+	for label, content := range map[string]string{
+		"open":  "<" + first + ">",
+		"close": "</" + first + ">",
+		"bare":  first,
+	} {
+		e.guardTag = mintFreshTag(t, e, first)
+		// Re-prime so the test is comparing against the just-installed first nonce.
+		curName := e.guardTag.Name()
+		session := &memory.Session{Records: []memory.Record{
+			{Role: "user", Content: "leaked: " + strings.ReplaceAll(content, first, curName)},
+		}}
+		e.PrepareWrap(session)
+		if e.guardTag.Name() == curName {
+			t.Errorf("%s form should trigger rotation but didn't (tag %q stayed)", label, curName)
+		}
+	}
+}
+
+// mintFreshTag is a small test helper that mints a fresh, distinct
+// tag for the engine. Used by table-driven tests that want to
+// inspect rotation behaviour from a known starting nonce.
+func mintFreshTag(t *testing.T, e *Engine, avoid string) guard.Tag {
+	t.Helper()
+	for i := 0; i < 10; i++ {
+		tag := guard.NewTag()
+		if tag.Name() != avoid {
+			return tag
+		}
+	}
+	t.Fatal("could not mint a tag distinct from the previous one in 10 tries (entropy source broken?)")
+	return guard.Tag{}
+}
+
+func TestPrepareWrap_ByteStableNormalCase(t *testing.T) {
+	e := New("base")
+	e.ResetGuardTag()
+	session := &memory.Session{Records: []memory.Record{
+		{Role: "user", Content: "what's the weather?"},
+		{Role: "assistant", Content: "I'll check"},
+		{Role: "user", Content: "thanks"},
+	}}
+	// First build: PrepareWrap mints. Wrap a string.
+	e.PrepareWrap(session)
+	a, err := e.WrapUserToolContent("hello")
+	if err != nil {
+		t.Fatalf("WrapUserToolContent: %v", err)
+	}
+	// Subsequent builds without a leak should keep the same tag,
+	// so a fresh wrap of the same input produces identical bytes —
+	// the load-bearing invariant for KV cache reuse.
+	for i := 0; i < 5; i++ {
+		e.PrepareWrap(session)
+		b, err := e.WrapUserToolContent("hello")
+		if err != nil {
+			t.Fatalf("WrapUserToolContent iter %d: %v", i, err)
+		}
+		if a != b {
+			t.Errorf("wrap output drift at iter %d: %q vs %q", i, a, b)
+		}
+	}
+}
+
+func TestPrepareWrap_NilSessionAfterMintIsNoOp(t *testing.T) {
+	// Calling PrepareWrap(nil) on an already-initialised engine
+	// must not crash and must not rotate (no leak to detect).
+	e := New("base")
+	first := e.guardTag.Name()
+	e.PrepareWrap(nil)
+	if e.guardTag.Name() != first {
+		t.Errorf("PrepareWrap(nil) on initialised engine should be a no-op, got rotation %q → %q",
+			first, e.guardTag.Name())
+	}
+}
