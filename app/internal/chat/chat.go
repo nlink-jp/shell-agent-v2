@@ -66,6 +66,65 @@ func (e *Engine) SetSandboxEnabled(enabled bool) {
 	e.sandboxEnabled = enabled
 }
 
+// PrepareWrap is the scan-and-rotate hook for the prompt-injection
+// guard nonce (ADR-0018). The agent calls it before each
+// buildMessagesV2 round.
+//
+// The nonce that wraps every untrusted (user / tool) record's
+// content used to rotate on every BuildSystemPrompt call (one new
+// random nonce per LLM round). That defeated llama.cpp prefix-cache
+// reuse for the entire conversation history — the design fix from
+// ADR-0017 silently lost in production.
+//
+// PrepareWrap holds the nonce stable for the session and only
+// rotates it when the current nonce string literally appears inside
+// untrusted record content. That's the only state under which a
+// leaked-nonce prompt injection can land, so rotating at exactly
+// that moment is functionally equivalent to per-round rotation for
+// defence purposes — but byte-stable across the normal turns where
+// no leak happened. See ADR-0018 §3.1-§3.5 for the threat-model
+// derivation.
+//
+// Postcondition: after PrepareWrap returns, e.guardTag is the
+// nonce to use for every WrapUserToolContent call in the current
+// build. There is no mixed-nonce output within a single build.
+func (e *Engine) PrepareWrap(session *memory.Session) {
+	if e.guardTag.Name() == "" {
+		// Engine just constructed or the tag was reset; mint one.
+		e.guardTag = guard.NewTag()
+		return
+	}
+	if session == nil {
+		return
+	}
+	name := e.guardTag.Name()
+	// Conservative scan: check the open tag, the close tag, and
+	// the bare nonce substring. A 16-byte hex string has zero
+	// false-positive risk in benign content; the three forms
+	// cover both the precise attack vector (</nonce>) and the
+	// looser "the nonce was leaked into prose" case.
+	openTag := "<" + name + ">"
+	closeTag := "</" + name + ">"
+	for _, r := range session.Records {
+		if r.Role != "user" && r.Role != "tool" {
+			continue
+		}
+		if strings.Contains(r.Content, closeTag) ||
+			strings.Contains(r.Content, openTag) ||
+			strings.Contains(r.Content, name) {
+			e.guardTag = guard.NewTag()
+			return
+		}
+	}
+}
+
+// ResetGuardTag forces a fresh guard nonce on the next wrap. Called
+// by agent.LoadSession so a session switch always starts with its
+// own nonce (ADR-0018 §4.4 — defensive isolation).
+func (e *Engine) ResetGuardTag() {
+	e.guardTag = guard.Tag{}
+}
+
 // sandboxGuidance is the system-prompt section that appears when the
 // sandbox is enabled. It tells the model how to chain the six
 // sandbox-* tools so they aren't a black box at the start of a
@@ -135,7 +194,6 @@ func sanitizeSystemContext(s string, maxLen int) string {
 //   - findingsContext: current-session data-analysis discoveries
 //   - systemRules: user-authored standing instructions (ADR-0012)
 func (e *Engine) BuildSystemPrompt(globalMemoryContext, sessionMemoryContext, findingsContext, systemRules string) string {
-	e.guardTag = guard.NewTag()
 	full := e.systemPrompt
 	if rules := strings.TrimSpace(systemRules); rules != "" {
 		full += "\n\nThe user has defined the following standing instructions. " +
@@ -208,12 +266,14 @@ func (e *Engine) StripCurrentGuardTags(s string) string {
 // silently feeding unwrapped untrusted content into the LLM context
 // (security-hardening-2.md L1).
 func (e *Engine) BuildMessages(session *memory.Session, pinnedContext, findingsContext string) ([]llm.Message, error) {
-	// Rotate guard nonce each call
-	e.guardTag = guard.NewTag()
-
 	// v0.13.0 (ADR-0017): temporal context no longer injected here.
 	// See BuildSystemPrompt for the rationale; this legacy path is
 	// kept in sync so we don't ship two layouts.
+	//
+	// v0.13.1 (ADR-0018): guard tag rotation moved to PrepareWrap.
+	// This legacy path stays compatible: if a caller never calls
+	// PrepareWrap, the first wrap below will run with whatever tag
+	// the Engine was constructed with (a fresh one from New()).
 	fullSystem := e.systemPrompt
 	if e.location != "" {
 		fullSystem += "\n\nLocation: " + e.location

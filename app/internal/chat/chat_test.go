@@ -201,7 +201,12 @@ func TestBuildSystemPrompt_SandboxGuidanceConditional(t *testing.T) {
 	}
 }
 
-func TestWrapUserToolContent_RotatesWithSystemPrompt(t *testing.T) {
+// TestWrapUserToolContent_StableBetweenBuilds pins the ADR-0018
+// invariant: BuildSystemPrompt no longer rotates the guard nonce.
+// Two consecutive Build / Wrap cycles on a clean session produce
+// identical bytes — that's what lets the server-side prefix cache
+// fire.
+func TestWrapUserToolContent_StableBetweenBuilds(t *testing.T) {
 	e := New("base")
 	_ = e.BuildSystemPrompt("", "", "", "")
 	wrapped1, err := e.WrapUserToolContent("hi")
@@ -211,15 +216,13 @@ func TestWrapUserToolContent_RotatesWithSystemPrompt(t *testing.T) {
 	if wrapped1 == "hi" {
 		t.Error("expected wrap to add markers")
 	}
-	// Building the system prompt again rotates the guard tag, so a
-	// previously-wrapped string from the old tag would no longer match.
 	_ = e.BuildSystemPrompt("", "", "", "")
 	wrapped2, err := e.WrapUserToolContent("hi")
 	if err != nil {
 		t.Fatalf("WrapUserToolContent (2): %v", err)
 	}
-	if wrapped1 == wrapped2 {
-		t.Error("guard tag should rotate per BuildSystemPrompt call")
+	if wrapped1 != wrapped2 {
+		t.Errorf("guard tag should be stable across builds (ADR-0018) — got %q vs %q", wrapped1, wrapped2)
 	}
 }
 
@@ -248,12 +251,16 @@ func TestStripCurrentGuardTags(t *testing.T) {
 	}
 
 	// A different turn's tag must NOT be touched (precision check) —
-	// rotate the engine's tag, then ask it to strip a previous-turn
-	// envelope. The previous nonce no longer matches, so the text
-	// survives. This is the property that distinguishes targeted
+	// force a fresh tag via ResetGuardTag + BuildSystemPrompt (which
+	// no longer rotates on its own as of ADR-0018; we use the new
+	// PrepareWrap path here just to trigger the rotation
+	// explicitly). The previous nonce no longer matches the current
+	// engine state, so the stale envelope survives the strip pass.
+	// This is the property that distinguishes targeted
 	// nonce-stripping from a generic regex sweep over the family.
-	staleEnvelope := wrapped // produced under the now-rotated tag
-	_ = e.BuildSystemPrompt("", "", "", "")
+	staleEnvelope := wrapped // produced under the now-stale tag
+	e.ResetGuardTag()
+	e.PrepareWrap(nil)
 	stillThere := e.StripCurrentGuardTags(staleEnvelope)
 	if !strings.Contains(stillThere, "user_data_") {
 		t.Errorf("previous-turn envelope should be left alone after rotation: %q", stillThere)
