@@ -141,6 +141,8 @@ type Agent struct {
 	bgTaskHandler     BgTaskHandler
 	extractionHandler func(ExtractionEvent) // ADR-0015
 	queueHandler      func(QueuedEvent)     // ADR-0015
+	profileChangedHandler func(ProfileChangedEvent) // ADR-0016
+	backendChangedHandler func(BackendChangedEvent) // ADR-0016
 	toolRegistry    *toolcall.Registry
 	guardians       map[string]*mcp.Guardian
 	guardiansMu     sync.RWMutex
@@ -562,6 +564,67 @@ func (a *Agent) SetQueueHandler(h func(QueuedEvent)) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.queueHandler = h
+}
+
+// ProfileChangedEvent describes a transition of the active
+// session's profile binding. Fires after /profile, after
+// SwitchSessionProfile, and after a deleted-profile fallback
+// during LoadSession (ADR-0016 §3.9).
+type ProfileChangedEvent struct {
+	ProfileID      string
+	ProfileName    string
+	DefaultBackend string
+}
+
+// BackendChangedEvent describes a /model toggle (Local↔Vertex)
+// within the current profile, or the implicit toggle that
+// accompanies a /profile switch (ADR-0016 §3.9).
+type BackendChangedEvent struct {
+	Backend string // "local" | "vertex_ai"
+}
+
+// SetProfileChangedHandler registers a callback for
+// agent:profile:changed fan-out.
+func (a *Agent) SetProfileChangedHandler(h func(ProfileChangedEvent)) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.profileChangedHandler = h
+}
+
+// SetBackendChangedHandler registers a callback for
+// agent:backend:changed fan-out.
+func (a *Agent) SetBackendChangedHandler(h func(BackendChangedEvent)) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.backendChangedHandler = h
+}
+
+// emitProfileChanged / emitBackendChanged read the handler WITHOUT
+// re-locking a.mu, because they may be called from paths that
+// already hold the mutex (LoadSession, RestartLLMBackend, the
+// Switch* helpers). The handler fields are only written by the
+// Set*Handler methods during startup, before the agent processes
+// any work; subsequent reads are safe-by-construction even without
+// the lock. Calling out to the handler (potentially expensive Wails
+// event emission) happens after we've snapshotted the function
+// pointer, so the lock holder is not blocked on UI dispatch.
+func (a *Agent) emitProfileChanged(profile *config.LLMProfile) {
+	h := a.profileChangedHandler
+	if h == nil || profile == nil {
+		return
+	}
+	h(ProfileChangedEvent{
+		ProfileID:      profile.ID,
+		ProfileName:    profile.Name,
+		DefaultBackend: string(profile.DefaultBackend),
+	})
+}
+
+func (a *Agent) emitBackendChanged(backend config.LLMBackend) {
+	h := a.backendChangedHandler
+	if h != nil {
+		h(BackendChangedEvent{Backend: string(backend)})
+	}
 }
 
 func (a *Agent) emitExtractionStarted() {
@@ -2476,6 +2539,7 @@ func (a *Agent) applyProfileSwitch(profile *config.LLMProfile) error {
 	a.setBackend(profile.DefaultBackend)
 	a.activeProfileID = profile.ID
 	logger.Info("profile switched: session=%s profile=%s side=%s", a.session.ID, profile.ID, profile.DefaultBackend)
+	a.emitProfileChanged(profile)
 	return nil
 }
 
@@ -2516,6 +2580,87 @@ func (a *Agent) handleModelCommand(args []string) (string, error) {
 	default:
 		return fmt.Sprintf("Unknown backend: %s. Available: local, vertex", target), nil
 	}
+}
+
+// ActiveSession returns the currently-loaded *memory.Session, or
+// nil when none is loaded. Used by bindings to read session-level
+// state (e.g. ProfileID) for the popover.
+func (a *Agent) ActiveSession() *memory.Session {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.session
+}
+
+// CurrentBackendName returns the active backend's name string
+// ("local" or "vertex_ai"). Used by the Session Control Popover
+// to render the radio's initial state.
+func (a *Agent) CurrentBackendName() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.backend != nil {
+		return a.backend.Name()
+	}
+	return string(a.currentProfile().DefaultBackend)
+}
+
+// SwitchProfileByID is the Bindings-facing entry point for the
+// Session Control Popover's profile dropdown. Resolves the ID to
+// a profile and calls applyProfileSwitch with the agent's mutex
+// held. The caller (bindings.SwitchSessionProfile) is responsible
+// for the busy-state gate.
+func (a *Agent) SwitchProfileByID(profileID string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.session == nil {
+		return fmt.Errorf("no active session")
+	}
+	profile := a.cfg.LLM.ResolveProfile(profileID)
+	if profile == nil || (profileID != "" && profile.ID != profileID) {
+		return fmt.Errorf("profile not found: %s", profileID)
+	}
+	if profile.ID == a.session.ProfileID {
+		return nil
+	}
+	return a.applyProfileSwitch(profile)
+}
+
+// SwitchBackend is the Bindings-facing entry point for the popover's
+// Local/Vertex radio. Calls setBackend with the agent's mutex held.
+// Mirrors what /model does at the chat-command layer.
+func (a *Agent) SwitchBackend(backend config.LLMBackend) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.setBackend(backend)
+}
+
+// ReapplyProfile resolves the current session's profile from cfg
+// and rebuilds the backend against it. Triggered by bindings when
+// a profile is deleted from Settings and the active session must
+// fall back to the default (ADR-0016 §3.3 step 3b live application).
+// Caller must NOT hold a.mu.
+func (a *Agent) ReapplyProfile() error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.session == nil {
+		return nil
+	}
+	resolved := a.cfg.LLM.ResolveProfile(a.session.ProfileID)
+	if resolved == nil {
+		return fmt.Errorf("no profiles in config (repairProfiles failure)")
+	}
+	if resolved.ID == a.activeProfileID && resolved.ID == a.session.ProfileID {
+		return nil // already on the right profile
+	}
+	if resolved.ID != a.session.ProfileID {
+		a.session.ProfileID = resolved.ID
+		if err := memory.SaveSessionConfig(a.session.ID, memory.SessionConfig{ProfileID: resolved.ID}); err != nil {
+			logger.Error("agent: ReapplyProfile SaveSessionConfig: %v", err)
+		}
+	}
+	a.setBackend(resolved.DefaultBackend)
+	a.activeProfileID = resolved.ID
+	a.emitProfileChanged(resolved)
+	return nil
 }
 
 // RestartLLMBackend rebuilds a.backend from the current cfg so
@@ -2573,6 +2718,9 @@ func (a *Agent) setBackend(backend config.LLMBackend) {
 		})
 	}
 	a.backend = llm.WithRetry(inner, policy)
+	// Fire backend:changed so the popover / status bar update.
+	// Safe to call from any caller (no-op when handler unregistered).
+	a.emitBackendChanged(backend)
 }
 
 // generateTitleIfNeeded generates a session title from the first user message.

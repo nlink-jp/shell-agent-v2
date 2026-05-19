@@ -125,6 +125,20 @@ func (b *Bindings) startup(ctx context.Context) {
 			"success": ev.Success,
 		})
 	})
+	// ADR-0016 profile / backend change lifecycle events. Drive the
+	// status-bar badges and the Session Control Popover.
+	b.agent.SetProfileChangedHandler(func(ev agent.ProfileChangedEvent) {
+		wailsRuntime.EventsEmit(b.ctx, "agent:profile:changed", map[string]any{
+			"profile_id":      ev.ProfileID,
+			"profile_name":    ev.ProfileName,
+			"default_backend": ev.DefaultBackend,
+		})
+	})
+	b.agent.SetBackendChangedHandler(func(ev agent.BackendChangedEvent) {
+		wailsRuntime.EventsEmit(b.ctx, "agent:backend:changed", map[string]any{
+			"backend": ev.Backend,
+		})
+	})
 	b.agent.SetQueueHandler(func(ev agent.QueuedEvent) {
 		if ev.Cleared {
 			wailsRuntime.EventsEmit(b.ctx, "agent:queue_cleared", map[string]any{})
@@ -909,14 +923,6 @@ func (b *Bindings) GetSettings() SettingsData {
 	profiles := make([]MCPProfileData, len(b.cfg.Tools.MCPProfiles))
 	for i, p := range b.cfg.Tools.MCPProfiles {
 		profiles[i] = MCPProfileData{Name: p.Name, Binary: p.Binary, ProfilePath: p.ProfilePath, Enabled: p.Enabled}
-	}
-	toBudget := func(b config.ContextBudgetConfig) BackendBudgetData {
-		return BackendBudgetData{
-			MaxContextTokens:    b.MaxContextTokens,
-			MaxWarmTokens:       b.MaxWarmTokens,
-			MaxToolResultTokens: b.MaxToolResultTokens,
-			OutputReserve:       b.OutputReserveResolved(),
-		}
 	}
 	resolveAttempts := func(v int) int {
 		if v <= 0 {
