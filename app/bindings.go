@@ -914,19 +914,23 @@ func (b *Bindings) GetSettings() SettingsData {
 		}
 		return v
 	}
+	// v0.12.0 (ADR-0016): Settings dialog still exposes one (Local,
+	// Vertex) pair; in commit 1 it operates on the default profile.
+	// The full multi-profile UI lands in commit 6.
+	prof := b.cfg.LLM.DefaultProfile()
 	return SettingsData{
-		DefaultBackend:        string(b.cfg.LLM.DefaultBackend),
-		LocalEndpoint:         b.cfg.LLM.Local.Endpoint,
-		LocalModel:            b.cfg.LLM.Local.Model,
-		LocalBudget:           toBudget(b.cfg.LLM.Local.ContextBudget),
-		LocalTimeoutSeconds:   b.cfg.LLM.Local.LocalRequestTimeout(),
-		LocalRetryMaxAttempts: resolveAttempts(b.cfg.LLM.Local.RetryMaxAttempts),
-		VertexProject:         b.cfg.LLM.VertexAI.ProjectID,
-		VertexRegion:          b.cfg.LLM.VertexAI.Region,
-		VertexModel:           b.cfg.LLM.VertexAI.Model,
-		VertexBudget:          toBudget(b.cfg.LLM.VertexAI.ContextBudget),
-		VertexTimeoutSeconds:  b.cfg.LLM.VertexAI.VertexRequestTimeout(),
-		VertexRetryMaxAttempts: resolveAttempts(b.cfg.LLM.VertexAI.RetryMaxAttempts),
+		DefaultBackend:        string(prof.DefaultBackend),
+		LocalEndpoint:         prof.Local.Endpoint,
+		LocalModel:            prof.Local.Model,
+		LocalBudget:           toBudget(prof.Local.ContextBudget),
+		LocalTimeoutSeconds:   prof.Local.LocalRequestTimeout(),
+		LocalRetryMaxAttempts: resolveAttempts(prof.Local.RetryMaxAttempts),
+		VertexProject:         prof.VertexAI.ProjectID,
+		VertexRegion:          prof.VertexAI.Region,
+		VertexModel:           prof.VertexAI.Model,
+		VertexBudget:          toBudget(prof.VertexAI.ContextBudget),
+		VertexTimeoutSeconds:  prof.VertexAI.VertexRequestTimeout(),
+		VertexRetryMaxAttempts: resolveAttempts(prof.VertexAI.RetryMaxAttempts),
 		Theme:          b.cfg.UI.Theme,
 		Location:       b.cfg.Location,
 		MCPProfiles:    profiles,
@@ -950,35 +954,41 @@ func (b *Bindings) GetSettings() SettingsData {
 // SaveSettings persists updated settings.
 func (b *Bindings) SaveSettings(s SettingsData) error {
 	prevSandbox := b.cfg.Sandbox
-	// Snapshot LLM config so we can detect any change (model
-	// name, endpoint, retry policy, context budget, …) and
-	// rebuild the backend live. Without this the SettingsDialog
+	// Snapshot the default profile (deep copy via value semantics
+	// — LLMProfile contains no slices/maps) so we can detect any
+	// change (model name, endpoint, retry policy, context budget,
+	// …) and rebuild the backend live. Without this the SettingsDialog
 	// silently saved to disk but the running agent kept calling
 	// the previous Local/Vertex client until the next app restart.
-	prevLLM := b.cfg.LLM
+	//
+	// v0.12.0 (ADR-0016): the settings dialog still operates on a
+	// single (Local, Vertex) pair; in commit 1 it edits the default
+	// profile. Multi-profile editing lands in commit 6.
+	prof := b.cfg.LLM.DefaultProfile()
+	prevProfile := *prof
 
-	b.cfg.LLM.DefaultBackend = config.LLMBackend(s.DefaultBackend)
-	b.cfg.LLM.Local.Endpoint = s.LocalEndpoint
-	b.cfg.LLM.Local.Model = s.LocalModel
-	b.cfg.LLM.Local.ContextBudget = config.ContextBudgetConfig{
+	prof.DefaultBackend = config.LLMBackend(s.DefaultBackend)
+	prof.Local.Endpoint = s.LocalEndpoint
+	prof.Local.Model = s.LocalModel
+	prof.Local.ContextBudget = config.ContextBudgetConfig{
 		MaxContextTokens:    s.LocalBudget.MaxContextTokens,
 		MaxWarmTokens:       s.LocalBudget.MaxWarmTokens,
 		MaxToolResultTokens: s.LocalBudget.MaxToolResultTokens,
 		OutputReserve:       s.LocalBudget.OutputReserve,
 	}
-	b.cfg.LLM.Local.RequestTimeoutSeconds = s.LocalTimeoutSeconds
-	b.cfg.LLM.Local.RetryMaxAttempts = s.LocalRetryMaxAttempts
-	b.cfg.LLM.VertexAI.ProjectID = s.VertexProject
-	b.cfg.LLM.VertexAI.Region = s.VertexRegion
-	b.cfg.LLM.VertexAI.Model = s.VertexModel
-	b.cfg.LLM.VertexAI.ContextBudget = config.ContextBudgetConfig{
+	prof.Local.RequestTimeoutSeconds = s.LocalTimeoutSeconds
+	prof.Local.RetryMaxAttempts = s.LocalRetryMaxAttempts
+	prof.VertexAI.ProjectID = s.VertexProject
+	prof.VertexAI.Region = s.VertexRegion
+	prof.VertexAI.Model = s.VertexModel
+	prof.VertexAI.ContextBudget = config.ContextBudgetConfig{
 		MaxContextTokens:    s.VertexBudget.MaxContextTokens,
 		MaxWarmTokens:       s.VertexBudget.MaxWarmTokens,
 		MaxToolResultTokens: s.VertexBudget.MaxToolResultTokens,
 		OutputReserve:       s.VertexBudget.OutputReserve,
 	}
-	b.cfg.LLM.VertexAI.RequestTimeoutSeconds = s.VertexTimeoutSeconds
-	b.cfg.LLM.VertexAI.RetryMaxAttempts = s.VertexRetryMaxAttempts
+	prof.VertexAI.RequestTimeoutSeconds = s.VertexTimeoutSeconds
+	prof.VertexAI.RetryMaxAttempts = s.VertexRetryMaxAttempts
 	b.cfg.UI.Theme = s.Theme
 	b.cfg.Location = s.Location
 	b.cfg.Agent.MaxToolRounds = s.MaxToolRounds
@@ -1030,8 +1040,9 @@ func (b *Bindings) SaveSettings(s SettingsData) error {
 	}
 	// Same idea for the LLM backend: rebuild it whenever the
 	// model, endpoint, retry policy, context budget, etc. changed.
-	// LLMConfig is a struct of comparable types, so == suffices.
-	if b.agent != nil && prevLLM != b.cfg.LLM {
+	// LLMProfile is a struct of comparable types (no slices/maps),
+	// so == suffices for value comparison.
+	if b.agent != nil && *b.cfg.LLM.DefaultProfile() != prevProfile {
 		b.agent.RestartLLMBackend()
 	}
 	return nil

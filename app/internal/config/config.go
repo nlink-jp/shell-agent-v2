@@ -97,10 +97,16 @@ func (c VertexAIConfig) VertexRequestTimeout() int {
 }
 
 // LLMConfig holds all LLM backend settings.
+//
+// v0.12.0 (ADR-0016): the single (Local, VertexAI, default_backend)
+// triple is replaced by a list of named profiles + a default-profile
+// pointer. Profile contents (LocalConfig / VertexAIConfig) keep their
+// v0.11.x shape, so per-backend retry / timeout / context-budget
+// knobs work unchanged inside each profile. UnmarshalJSON in
+// profile.go migrates v0.11.x configs on first load.
 type LLMConfig struct {
-	DefaultBackend LLMBackend     `json:"default_backend"`
-	Local          LocalConfig    `json:"local"`
-	VertexAI       VertexAIConfig `json:"vertex_ai"`
+	DefaultProfileID string       `json:"default_profile_id"`
+	Profiles         []LLMProfile `json:"profiles"`
 }
 
 // MemoryConfig holds cross-session memory settings.
@@ -267,33 +273,39 @@ func (c *Config) LogLevelString() string {
 
 // Default returns a Config with default values.
 func Default() *Config {
+	defaultProfile := LLMProfile{
+		ID:             NewProfileID(),
+		Name:           DefaultProfileName,
+		DefaultBackend: BackendLocal,
+		Local: LocalConfig{
+			Endpoint:              "http://localhost:1234/v1",
+			Model:                 "google/gemma-4-26b-a4b",
+			APIKeyEnv:             "SHELL_AGENT_API_KEY",
+			RequestTimeoutSeconds: LocalRequestTimeoutDefault,
+			ContextBudget: ContextBudgetConfig{
+				MaxContextTokens:    16384,
+				MaxWarmTokens:       1024,
+				MaxToolResultTokens: 2048,
+				OutputReserve:       DefaultOutputReserve,
+			},
+		},
+		VertexAI: VertexAIConfig{
+			ProjectID:             "",
+			Region:                "us-central1",
+			Model:                 "gemini-2.5-flash",
+			RequestTimeoutSeconds: VertexRequestTimeoutDefault,
+			ContextBudget: ContextBudgetConfig{
+				MaxContextTokens:    524288,
+				MaxWarmTokens:       16384,
+				MaxToolResultTokens: 32768,
+				OutputReserve:       DefaultOutputReserve,
+			},
+		},
+	}
 	return &Config{
 		LLM: LLMConfig{
-			DefaultBackend: BackendLocal,
-			Local: LocalConfig{
-				Endpoint:              "http://localhost:1234/v1",
-				Model:                 "google/gemma-4-26b-a4b",
-				APIKeyEnv:             "SHELL_AGENT_API_KEY",
-				RequestTimeoutSeconds: LocalRequestTimeoutDefault,
-				ContextBudget: ContextBudgetConfig{
-					MaxContextTokens:    16384,
-					MaxWarmTokens:       1024,
-					MaxToolResultTokens: 2048,
-					OutputReserve:       DefaultOutputReserve,
-				},
-			},
-			VertexAI: VertexAIConfig{
-				ProjectID:             "",
-				Region:                "us-central1",
-				Model:                 "gemini-2.5-flash",
-				RequestTimeoutSeconds: VertexRequestTimeoutDefault,
-				ContextBudget: ContextBudgetConfig{
-					MaxContextTokens:    524288,
-					MaxWarmTokens:       16384,
-					MaxToolResultTokens: 32768,
-					OutputReserve:       DefaultOutputReserve,
-				},
-			},
+			DefaultProfileID: defaultProfile.ID,
+			Profiles:         []LLMProfile{defaultProfile},
 		},
 		Memory: MemoryConfig{
 			MaxPinnedFacts: 100,
@@ -388,8 +400,26 @@ func Load() (*Config, error) {
 	if err := json.Unmarshal(data, cfg); err != nil {
 		return nil, err
 	}
+	cfg.repairProfiles()
 	cfg.applyBackendInheritance()
 	return cfg, nil
+}
+
+// repairProfiles fills in defaults when the loaded config has an
+// empty or dangling LLM profile list. Guarantees that callers can
+// rely on len(LLM.Profiles) >= 1 and that DefaultProfileID resolves
+// to an existing entry. ADR-0016 §3.1 invariants.
+func (c *Config) repairProfiles() {
+	if len(c.LLM.Profiles) == 0 {
+		// Empty {"llm":{}} or missing block — fall back to the
+		// canonical single-profile default.
+		c.LLM = Default().LLM
+		return
+	}
+	// Dangling DefaultProfileID → repair to the first profile.
+	if !c.LLM.HasProfile(c.LLM.DefaultProfileID) {
+		c.LLM.DefaultProfileID = c.LLM.Profiles[0].ID
+	}
 }
 
 // applyBackendInheritance fills zero per-backend ContextBudget
@@ -398,6 +428,7 @@ func Load() (*Config, error) {
 //
 // v0.2.0: HotTokenLimit-based inheritance is gone (the field
 // itself was deleted from MemoryConfig).
+// v0.12.0 (ADR-0016): iterates every profile, not just one pair.
 func (c *Config) applyBackendInheritance() {
 	resolve := func(b *ContextBudgetConfig) {
 		if b.MaxContextTokens == 0 {
@@ -410,19 +441,29 @@ func (c *Config) applyBackendInheritance() {
 			b.MaxToolResultTokens = c.ContextBudget.MaxToolResultTokens
 		}
 	}
-	resolve(&c.LLM.Local.ContextBudget)
-	resolve(&c.LLM.VertexAI.ContextBudget)
+	for i := range c.LLM.Profiles {
+		resolve(&c.LLM.Profiles[i].Local.ContextBudget)
+		resolve(&c.LLM.Profiles[i].VertexAI.ContextBudget)
+	}
 }
 
-// ContextBudgetFor returns the active backend's ContextBudget, falling back
-// per-field to the legacy top-level ContextBudget for any zero value.
+// ContextBudgetFor returns the active backend's ContextBudget for the
+// default profile, falling back per-field to the legacy top-level
+// ContextBudget for any zero value.
+//
+// v0.12.0 (ADR-0016): commits-1 form reads from the default profile.
+// Commit 3 plumbs the active session's profile through agent so the
+// session-bound profile is honoured for /model toggling.
 func (c *Config) ContextBudgetFor(backend LLMBackend) ContextBudgetConfig {
+	profile := c.LLM.DefaultProfile()
 	var b ContextBudgetConfig
-	switch backend {
-	case BackendVertexAI:
-		b = c.LLM.VertexAI.ContextBudget
-	default:
-		b = c.LLM.Local.ContextBudget
+	if profile != nil {
+		switch backend {
+		case BackendVertexAI:
+			b = profile.VertexAI.ContextBudget
+		default:
+			b = profile.Local.ContextBudget
+		}
 	}
 	if b.MaxContextTokens == 0 {
 		b.MaxContextTokens = c.ContextBudget.MaxContextTokens

@@ -32,10 +32,11 @@ func newVertexAgent(t *testing.T) *Agent {
 	}
 
 	cfg := config.Default()
-	cfg.LLM.DefaultBackend = config.BackendVertexAI
-	cfg.LLM.VertexAI.ProjectID = project
-	cfg.LLM.VertexAI.Region = "us-central1"
-	cfg.LLM.VertexAI.Model = "gemini-2.5-pro"
+	prof := cfg.LLM.DefaultProfile()
+	prof.DefaultBackend = config.BackendVertexAI
+	prof.VertexAI.ProjectID = project
+	prof.VertexAI.Region = "us-central1"
+	prof.VertexAI.Model = "gemini-2.5-pro"
 
 	a := New(cfg)
 	a.session = &memory.Session{

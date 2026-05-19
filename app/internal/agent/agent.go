@@ -244,7 +244,7 @@ func New(cfg *config.Config) *Agent {
 	}
 	a.startGuardians()
 	a.maybeStartSandbox()
-	a.setBackend(cfg.LLM.DefaultBackend)
+	a.setBackend(cfg.LLM.DefaultProfile().DefaultBackend)
 	_ = a.globalMemory.Load()
 	_ = a.sysRules.Load()
 	// v0.6: populate the tool-descriptor registry. Builtin
@@ -734,11 +734,12 @@ func (a *Agent) buildMessagesV2(ctx context.Context, budget config.ContextBudget
 
 // currentModelName returns the active backend's configured model string.
 func (a *Agent) currentModelName() string {
+	prof := a.cfg.LLM.DefaultProfile()
 	switch a.currentBackendKey() {
 	case config.BackendVertexAI:
-		return a.cfg.LLM.VertexAI.Model
+		return prof.VertexAI.Model
 	default:
-		return a.cfg.LLM.Local.Model
+		return prof.Local.Model
 	}
 }
 
@@ -746,7 +747,7 @@ func (a *Agent) currentModelName() string {
 // Caller must already hold a.mu, or accept a stale read.
 func (a *Agent) currentBackendKey() config.LLMBackend {
 	if a.backend == nil {
-		return a.cfg.LLM.DefaultBackend
+		return a.cfg.LLM.DefaultProfile().DefaultBackend
 	}
 	return config.LLMBackend(a.backend.Name())
 }
@@ -2386,24 +2387,28 @@ func (a *Agent) RestartLLMBackend() {
 }
 
 func (a *Agent) setBackend(backend config.LLMBackend) {
+	// v0.12.0 (ADR-0016): commit 1 reads the default profile. Commit 3
+	// plumbs the active session's profile through so each session can
+	// run against its own (Local, Vertex) pair.
+	prof := a.cfg.LLM.DefaultProfile()
 	var inner llm.Backend
 	var timeoutSec int
 	var maxAttempts, backoffBaseSec, backoffMaxSec, jitterSec int
 	switch backend {
 	case config.BackendVertexAI:
-		inner = llm.NewVertex(a.cfg.LLM.VertexAI)
-		timeoutSec = a.cfg.LLM.VertexAI.VertexRequestTimeout()
-		maxAttempts = a.cfg.LLM.VertexAI.RetryMaxAttempts
-		backoffBaseSec = a.cfg.LLM.VertexAI.RetryBackoffBaseSeconds
-		backoffMaxSec = a.cfg.LLM.VertexAI.RetryBackoffMaxSeconds
-		jitterSec = a.cfg.LLM.VertexAI.RetryJitterSeconds
+		inner = llm.NewVertex(prof.VertexAI)
+		timeoutSec = prof.VertexAI.VertexRequestTimeout()
+		maxAttempts = prof.VertexAI.RetryMaxAttempts
+		backoffBaseSec = prof.VertexAI.RetryBackoffBaseSeconds
+		backoffMaxSec = prof.VertexAI.RetryBackoffMaxSeconds
+		jitterSec = prof.VertexAI.RetryJitterSeconds
 	default:
-		inner = llm.NewLocal(a.cfg.LLM.Local)
-		timeoutSec = a.cfg.LLM.Local.LocalRequestTimeout()
-		maxAttempts = a.cfg.LLM.Local.RetryMaxAttempts
-		backoffBaseSec = a.cfg.LLM.Local.RetryBackoffBaseSeconds
-		backoffMaxSec = a.cfg.LLM.Local.RetryBackoffMaxSeconds
-		jitterSec = a.cfg.LLM.Local.RetryJitterSeconds
+		inner = llm.NewLocal(prof.Local)
+		timeoutSec = prof.Local.LocalRequestTimeout()
+		maxAttempts = prof.Local.RetryMaxAttempts
+		backoffBaseSec = prof.Local.RetryBackoffBaseSeconds
+		backoffMaxSec = prof.Local.RetryBackoffMaxSeconds
+		jitterSec = prof.Local.RetryJitterSeconds
 	}
 	policy := llm.RetryPolicyFrom(
 		time.Duration(timeoutSec)*time.Second,
