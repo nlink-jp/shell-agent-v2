@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.14.3] - 2026-05-21
+
+### Changed
+
+- **Decompose `agent.go` into two responsibility-aligned files
+  ([#10](https://github.com/nlink-jp/shell-agent-v2/issues/10),
+  [ADR-0022](docs/en/adr/0022-agent-file-decomposition.md)).** Issue #10
+  proposed splitting the 3,700-LOC `agent.go` into 8 files. After
+  evaluating which clusters were truly orthogonal vs. which were
+  central to the Agent's send / loop / lifecycle core, the
+  ADR-0022 decision is to extract only the two clearest wins:
+  - `agent_mcp.go` (~250 LOC) — MCP guardian management
+    (startGuardians, spawnGuardian, validateBinaryPath /
+    ProfilePath, MCPStatuses, stopGuardians, RestartGuardians,
+    restartGuardian, splitMCPName, MCPStatus type). Fully
+    orthogonal subsystem; readers focused on the core can skip
+    this file entirely.
+  - `agent_extract.go` (~470 LOC) — Memory-extraction algorithm
+    (extractMemories, parseExtractionLine, looksLikeTurnToken,
+    matchFactToUserTurn, detectUserLanguageHint, hasSignificantCJK,
+    extractCJKNgrams, extractKeywords, parseTurnToken,
+    stripGemmaToolCallTags). Pure algorithm + helpers; agentLoop
+    readers no longer scroll past ~600 lines of CJK / Jaccard
+    code.
+
+  `agent.go` drops from 3,697 LOC to 2,865 LOC. No behaviour change;
+  no API change; pure file moves with same `*Agent` receiver and
+  same lock discipline. The other six clusters from Issue #10's
+  proposal were considered and rejected — see ADR-0022 §3 for the
+  reasoning, so a future re-evaluation can build on the catalogue
+  rather than starting fresh.
+
 ## [0.14.2] - 2026-05-20
 
 ### Changed
