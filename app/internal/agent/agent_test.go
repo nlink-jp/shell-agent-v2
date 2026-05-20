@@ -289,10 +289,12 @@ func captureBgEvents(a *Agent) func() []BgTaskEvent {
 		mu     sync.Mutex
 		events []BgTaskEvent
 	)
-	a.SetBgTaskHandler(func(e BgTaskEvent) {
-		mu.Lock()
-		defer mu.Unlock()
-		events = append(events, e)
+	a.SetHandlers(HandlerSet{
+		BgTask: func(e BgTaskEvent) {
+			mu.Lock()
+			defer mu.Unlock()
+			events = append(events, e)
+		},
 	})
 	return func() []BgTaskEvent {
 		mu.Lock()

@@ -95,126 +95,132 @@ func (b *Bindings) startup(ctx context.Context) {
 	// extraction completes (the ctx that queued the SEND is
 	// already cancelled by then).
 	b.agent.SetBaseContext(b.ctx)
-	b.agent.SetStreamHandler(func(token string, done bool) {
-		wailsRuntime.EventsEmit(b.ctx, "agent:stream", map[string]any{
-			"token": token,
-			"done":  done,
-		})
-	})
-	b.agent.SetTitleHandler(func(sessionID, title string) {
-		wailsRuntime.EventsEmit(b.ctx, "session:title", map[string]any{
-			"session_id": sessionID,
-			"title":      title,
-		})
-	})
-	b.agent.SetGlobalMemoryHandler(func() {
-		wailsRuntime.EventsEmit(b.ctx, "global_memory:updated", nil)
-	})
-	b.agent.SetSessionMemoryHandler(func() {
-		wailsRuntime.EventsEmit(b.ctx, "session_memory:updated", nil)
-	})
-	b.agent.SetFindingsHandler(func() {
-		wailsRuntime.EventsEmit(b.ctx, "findings:updated", nil)
-	})
-	// ADR-0015 deferred-extraction lifecycle events. The frontend
-	// listens to these to switch the input bar between Ready /
-	// Extracting visuals and to render the queue pill.
-	b.agent.SetExtractionHandler(func(ev agent.ExtractionEvent) {
-		wailsRuntime.EventsEmit(b.ctx, "agent:extraction:"+string(ev.Phase), map[string]any{
-			"phase":   string(ev.Phase),
-			"success": ev.Success,
-		})
-	})
-	// ADR-0016 profile / backend change lifecycle events. Drive the
-	// status-bar badges and the Session Control Popover.
-	b.agent.SetProfileChangedHandler(func(ev agent.ProfileChangedEvent) {
-		wailsRuntime.EventsEmit(b.ctx, "agent:profile:changed", map[string]any{
-			"profile_id":      ev.ProfileID,
-			"profile_name":    ev.ProfileName,
-			"default_backend": ev.DefaultBackend,
-		})
-	})
-	b.agent.SetBackendChangedHandler(func(ev agent.BackendChangedEvent) {
-		wailsRuntime.EventsEmit(b.ctx, "agent:backend:changed", map[string]any{
-			"backend": ev.Backend,
-		})
-	})
-	b.agent.SetQueueHandler(func(ev agent.QueuedEvent) {
-		if ev.Cleared {
-			wailsRuntime.EventsEmit(b.ctx, "agent:queue_cleared", map[string]any{})
-			return
-		}
-		if ev.Dispatched {
-			// ADR-0021 follow-up: extraction is done and the queued
-			// SEND is about to start a new turn. Frontend uses this
-			// to switch its "Thinking…" indicator on, since the
-			// auto-dispatched turn doesn't trigger the optimistic
-			// state transition that the user-initiated handleSend
-			// path does.
-			wailsRuntime.EventsEmit(b.ctx, "agent:queue_dispatched", map[string]any{
+	// Issue #11: one literal documents the full event-bus contract
+	// in one place. Pre-consolidation there were 13 sequential
+	// SetXxxHandler calls; the consolidated form is also one lock
+	// acquisition instead of 13.
+	b.agent.SetHandlers(agent.HandlerSet{
+		Stream: func(token string, done bool) {
+			wailsRuntime.EventsEmit(b.ctx, "agent:stream", map[string]any{
+				"token": token,
+				"done":  done,
+			})
+		},
+		Title: func(sessionID, title string) {
+			wailsRuntime.EventsEmit(b.ctx, "session:title", map[string]any{
+				"session_id": sessionID,
+				"title":      title,
+			})
+		},
+		GlobalMemory: func() {
+			wailsRuntime.EventsEmit(b.ctx, "global_memory:updated", nil)
+		},
+		SessionMemory: func() {
+			wailsRuntime.EventsEmit(b.ctx, "session_memory:updated", nil)
+		},
+		Findings: func() {
+			wailsRuntime.EventsEmit(b.ctx, "findings:updated", nil)
+		},
+		// ADR-0015 deferred-extraction lifecycle events. The
+		// frontend listens to these to switch the input bar
+		// between Ready / Extracting visuals and to render the
+		// queue pill.
+		Extraction: func(ev agent.ExtractionEvent) {
+			wailsRuntime.EventsEmit(b.ctx, "agent:extraction:"+string(ev.Phase), map[string]any{
+				"phase":   string(ev.Phase),
+				"success": ev.Success,
+			})
+		},
+		// ADR-0016 profile / backend change lifecycle events. Drive
+		// the status-bar badges and the Session Control Popover.
+		ProfileChanged: func(ev agent.ProfileChangedEvent) {
+			wailsRuntime.EventsEmit(b.ctx, "agent:profile:changed", map[string]any{
+				"profile_id":      ev.ProfileID,
+				"profile_name":    ev.ProfileName,
+				"default_backend": ev.DefaultBackend,
+			})
+		},
+		BackendChanged: func(ev agent.BackendChangedEvent) {
+			wailsRuntime.EventsEmit(b.ctx, "agent:backend:changed", map[string]any{
+				"backend": ev.Backend,
+			})
+		},
+		Queue: func(ev agent.QueuedEvent) {
+			if ev.Cleared {
+				wailsRuntime.EventsEmit(b.ctx, "agent:queue_cleared", map[string]any{})
+				return
+			}
+			if ev.Dispatched {
+				// ADR-0021 follow-up: extraction is done and the queued
+				// SEND is about to start a new turn. Frontend uses this
+				// to switch its "Thinking…" indicator on, since the
+				// auto-dispatched turn doesn't trigger the optimistic
+				// state transition that the user-initiated handleSend
+				// path does.
+				wailsRuntime.EventsEmit(b.ctx, "agent:queue_dispatched", map[string]any{
+					"message": ev.Message,
+				})
+				return
+			}
+			if ev.DispatchedReply {
+				// ADR-0021 follow-up: the auto-dispatched turn's final
+				// reply arrives via this event so the frontend can
+				// append it as an assistant bubble. Pre-fix the reply
+				// only surfaced after a session reload.
+				wailsRuntime.EventsEmit(b.ctx, "agent:queue_dispatched_reply", map[string]any{
+					"reply": ev.Reply,
+				})
+				return
+			}
+			wailsRuntime.EventsEmit(b.ctx, "agent:queued", map[string]any{
+				"at":      ev.At.Format("2006-01-02T15:04:05Z07:00"),
 				"message": ev.Message,
 			})
-			return
-		}
-		if ev.DispatchedReply {
-			// ADR-0021 follow-up: the auto-dispatched turn's final
-			// reply arrives via this event so the frontend can
-			// append it as an assistant bubble. Pre-fix the reply
-			// only surfaced after a session reload.
-			wailsRuntime.EventsEmit(b.ctx, "agent:queue_dispatched_reply", map[string]any{
-				"reply": ev.Reply,
+		},
+		Report: func(title, content string) {
+			wailsRuntime.EventsEmit(b.ctx, "report:created", map[string]any{
+				"title":   title,
+				"content": content,
 			})
-			return
-		}
-		wailsRuntime.EventsEmit(b.ctx, "agent:queued", map[string]any{
-			"at":      ev.At.Format("2006-01-02T15:04:05Z07:00"),
-			"message": ev.Message,
-		})
-	})
+		},
+		Activity: func(ev agent.ActivityEvent) {
+			payload := map[string]any{
+				"type":   ev.Type,
+				"detail": ev.Detail,
+			}
+			if ev.Status != "" {
+				payload["status"] = string(ev.Status)
+			}
+			if ev.ToolCallID != "" {
+				payload["tool_call_id"] = ev.ToolCallID
+			}
+			wailsRuntime.EventsEmit(b.ctx, "agent:activity", payload)
+		},
+		BgTask: func(e agent.BgTaskEvent) {
+			wailsRuntime.EventsEmit(b.ctx, "bg-task:"+e.Phase, map[string]any{
+				"name":  e.Name,
+				"error": e.Error,
+			})
+		},
+		MITL: func(req agent.MITLRequest) agent.MITLResponse {
+			ch := make(chan agent.MITLResponse, 1)
+			b.mitlMu.Lock()
+			b.mitlReq = &mitlSlot{req: req, ch: ch}
+			b.mitlMu.Unlock()
 
-	b.agent.SetReportHandler(func(title, content string) {
-		wailsRuntime.EventsEmit(b.ctx, "report:created", map[string]any{
-			"title":   title,
-			"content": content,
-		})
-	})
-	b.agent.SetActivityHandler(func(ev agent.ActivityEvent) {
-		payload := map[string]any{
-			"type":   ev.Type,
-			"detail": ev.Detail,
-		}
-		if ev.Status != "" {
-			payload["status"] = string(ev.Status)
-		}
-		if ev.ToolCallID != "" {
-			payload["tool_call_id"] = ev.ToolCallID
-		}
-		wailsRuntime.EventsEmit(b.ctx, "agent:activity", payload)
-	})
-	b.agent.SetBgTaskHandler(func(e agent.BgTaskEvent) {
-		wailsRuntime.EventsEmit(b.ctx, "bg-task:"+e.Phase, map[string]any{
-			"name":  e.Name,
-			"error": e.Error,
-		})
-	})
-	b.agent.SetMITLHandler(func(req agent.MITLRequest) agent.MITLResponse {
-		ch := make(chan agent.MITLResponse, 1)
-		b.mitlMu.Lock()
-		b.mitlReq = &mitlSlot{req: req, ch: ch}
-		b.mitlMu.Unlock()
+			wailsRuntime.EventsEmit(b.ctx, "mitl:request", map[string]any{
+				"tool_name": req.ToolName,
+				"arguments": req.Arguments,
+				"category":  req.Category,
+			})
 
-		wailsRuntime.EventsEmit(b.ctx, "mitl:request", map[string]any{
-			"tool_name": req.ToolName,
-			"arguments": req.Arguments,
-			"category":  req.Category,
-		})
+			resp := <-ch
 
-		resp := <-ch
-
-		b.mitlMu.Lock()
-		b.mitlReq = nil
-		b.mitlMu.Unlock()
-		return resp
+			b.mitlMu.Lock()
+			b.mitlReq = nil
+			b.mitlMu.Unlock()
+			return resp
+		},
 	})
 
 	// Restore window position and size

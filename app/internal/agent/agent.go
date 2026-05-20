@@ -125,25 +125,19 @@ type Agent struct {
 	sysRules      *sysrules.Store             // v0.7.0: user-authored standing instructions (ADR-0012)
 	objects       *objstore.Store
 
-	streamHandler        StreamHandler
-	titleHandler         TitleHandler
-	mitlHandler          MITLHandler
-	reportHandler        func(title, content string)
+	// handlers consolidates all 13 frontend-facing event callbacks
+	// the bindings layer registers at startup (#11). Folding them
+	// into a single field cuts ~12 struct fields and ~13 method
+	// shapes from the Agent surface, and the single SetHandlers
+	// call gives bindings.go one literal that documents the full
+	// event-bus contract.
+	handlers HandlerSet
 	// pendingReport, when set by toolCreateReport, holds a report
 	// that should be flushed to the frontend AFTER the tool_end
 	// activity event for the call. The flush happens in the agent
 	// loop right after AddToolResult/emit tool_end so the chat
 	// pane sees "tool-event bubble → report bubble" in order.
-	pendingReport        *pendingReport
-	globalMemoryHandler        func()
-	findingsHandler      func()
-	sessionMemoryHandler func()
-	activityHandler   func(ActivityEvent)
-	bgTaskHandler     BgTaskHandler
-	extractionHandler func(ExtractionEvent) // ADR-0015
-	queueHandler      func(QueuedEvent)     // ADR-0015
-	profileChangedHandler func(ProfileChangedEvent) // ADR-0016
-	backendChangedHandler func(BackendChangedEvent) // ADR-0016
+	pendingReport *pendingReport
 	toolRegistry    *toolcall.Registry
 	guardians       map[string]*mcp.Guardian
 	guardiansMu     sync.RWMutex
@@ -349,50 +343,42 @@ func (a *Agent) State() State {
 	return a.state
 }
 
-// SetStreamHandler sets the callback for streaming tokens.
-func (a *Agent) SetStreamHandler(h StreamHandler) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.streamHandler = h
+// HandlerSet bundles every frontend-facing callback the bindings
+// layer registers at agent startup (#11). Zero-valued (nil) fields
+// are treated as "not set" — every notifier inside the agent guards
+// on nil, same as the pre-consolidation per-field behaviour.
+//
+// The bindings layer constructs one HandlerSet literal at startup
+// and calls SetHandlers exactly once. There is no per-handler
+// re-registration API by design: all 13 handlers are owned by the
+// same bindings instance, set together, and never changed during
+// a session. Tests construct partial HandlerSet literals with only
+// the fields they need.
+type HandlerSet struct {
+	Stream         StreamHandler
+	Title          TitleHandler
+	MITL           MITLHandler
+	Report         func(title, content string)
+	GlobalMemory   func()
+	Findings       func()
+	SessionMemory  func()
+	Activity       func(ActivityEvent)
+	BgTask         BgTaskHandler
+	Extraction     func(ExtractionEvent)     // ADR-0015
+	Queue          func(QueuedEvent)         // ADR-0015
+	ProfileChanged func(ProfileChangedEvent) // ADR-0016
+	BackendChanged func(BackendChangedEvent) // ADR-0016
 }
 
-// SetTitleHandler sets the callback for auto-generated session titles.
-func (a *Agent) SetTitleHandler(h TitleHandler) {
+// SetHandlers installs the full HandlerSet under one lock
+// acquisition. Replaces 13 individual SetXxxHandler methods (#11).
+// Safe to call multiple times — later calls overwrite earlier ones
+// wholesale, which mirrors the historical "last writer wins"
+// behaviour of the per-field setters.
+func (a *Agent) SetHandlers(h HandlerSet) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.titleHandler = h
-}
-
-// SetMITLHandler sets the callback for tool approval requests.
-func (a *Agent) SetMITLHandler(h MITLHandler) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.mitlHandler = h
-}
-
-// SetReportHandler sets the callback for report creation.
-func (a *Agent) SetReportHandler(h func(title, content string)) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.reportHandler = h
-}
-
-// SetGlobalMemoryHandler sets the callback for global memory updates.
-func (a *Agent) SetGlobalMemoryHandler(h func()) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.globalMemoryHandler = h
-}
-
-// SetFindingsHandler sets the callback for findings updates. The
-// callback is invoked after every successful findings.Add (whether
-// triggered by promote-finding, /finding slash, or analyze-data
-// auto-promote) so the frontend sidebar can refresh in real time
-// instead of waiting for a session switch. Mirrors SetGlobalMemoryHandler.
-func (a *Agent) SetFindingsHandler(h func()) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.findingsHandler = h
+	a.handlers = h
 }
 
 // notifyFindingsUpdated invokes the registered findings handler if
@@ -400,26 +386,18 @@ func (a *Agent) SetFindingsHandler(h func()) {
 // out to Wails events).
 func (a *Agent) notifyFindingsUpdated() {
 	a.mu.Lock()
-	h := a.findingsHandler
+	h := a.handlers.Findings
 	a.mu.Unlock()
 	if h != nil {
 		h()
 	}
 }
 
-// SetSessionMemoryHandler sets the callback for session-memory
-// updates (v0.2.0). Mirrors SetGlobalMemoryHandler / SetFindingsHandler.
-func (a *Agent) SetSessionMemoryHandler(h func()) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.sessionMemoryHandler = h
-}
-
 // notifySessionMemoryUpdated fires the session-memory handler if
 // registered. Same nil-safe pattern as the other notify helpers.
 func (a *Agent) notifySessionMemoryUpdated() {
 	a.mu.Lock()
-	h := a.sessionMemoryHandler
+	h := a.handlers.SessionMemory
 	a.mu.Unlock()
 	if h != nil {
 		h()
@@ -459,7 +437,7 @@ func (a *Agent) flushPendingReport() {
 	a.mu.Lock()
 	pending := a.pendingReport
 	a.pendingReport = nil
-	h := a.reportHandler
+	h := a.handlers.Report
 	a.mu.Unlock()
 	if pending == nil {
 		return
@@ -505,20 +483,8 @@ type ActivityEvent struct {
 // Replaces the previous func(actType, detail string) signature
 // so a tool_end event can carry success / failure status without
 // the bindings layer having to guess.
-func (a *Agent) SetActivityHandler(h func(ActivityEvent)) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.activityHandler = h
-}
-
-// SetBgTaskHandler registers a handler for post-response background
-// task lifecycle events. The bindings layer uses this to forward
-// start/end events into the Wails event bus.
-func (a *Agent) SetBgTaskHandler(h BgTaskHandler) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.bgTaskHandler = h
-}
+// (Pre-#11 individual SetActivityHandler / SetBgTaskHandler setters
+// were merged into SetHandlers above.)
 
 // ExtractionPhase tags the lifecycle position of a memory-
 // extraction goroutine. ADR-0015 §3.5: the frontend uses this
@@ -563,25 +529,8 @@ type QueuedEvent struct {
 	Reply            string
 }
 
-// SetExtractionHandler registers a callback invoked when memory
-// extraction transitions in or out of its in-flight window.
-// Used by the bindings layer to fan out the agent:extraction:*
-// Wails events (ADR-0015 §3.5).
-func (a *Agent) SetExtractionHandler(h func(ExtractionEvent)) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.extractionHandler = h
-}
-
-// SetQueueHandler registers a callback invoked when the single-
-// slot send queue gains a SEND, gets overwritten, or is drained
-// (Abort / auto-dispatch). Used by the bindings layer to fan
-// out the agent:queued and agent:queue_cleared Wails events.
-func (a *Agent) SetQueueHandler(h func(QueuedEvent)) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.queueHandler = h
-}
+// (Pre-#11 SetExtractionHandler / SetQueueHandler setters merged
+// into SetHandlers above.)
 
 // ProfileChangedEvent describes a transition of the active
 // session's profile binding. Fires after /profile, after
@@ -600,21 +549,8 @@ type BackendChangedEvent struct {
 	Backend string // "local" | "vertex_ai"
 }
 
-// SetProfileChangedHandler registers a callback for
-// agent:profile:changed fan-out.
-func (a *Agent) SetProfileChangedHandler(h func(ProfileChangedEvent)) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.profileChangedHandler = h
-}
-
-// SetBackendChangedHandler registers a callback for
-// agent:backend:changed fan-out.
-func (a *Agent) SetBackendChangedHandler(h func(BackendChangedEvent)) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.backendChangedHandler = h
-}
+// (Pre-#11 SetProfileChangedHandler / SetBackendChangedHandler
+// setters merged into SetHandlers above.)
 
 // emitProfileChanged / emitBackendChanged read the handler WITHOUT
 // re-locking a.mu, because they may be called from paths that
@@ -626,7 +562,7 @@ func (a *Agent) SetBackendChangedHandler(h func(BackendChangedEvent)) {
 // event emission) happens after we've snapshotted the function
 // pointer, so the lock holder is not blocked on UI dispatch.
 func (a *Agent) emitProfileChanged(profile *config.LLMProfile) {
-	h := a.profileChangedHandler
+	h := a.handlers.ProfileChanged
 	if h == nil || profile == nil {
 		return
 	}
@@ -638,7 +574,7 @@ func (a *Agent) emitProfileChanged(profile *config.LLMProfile) {
 }
 
 func (a *Agent) emitBackendChanged(backend config.LLMBackend) {
-	h := a.backendChangedHandler
+	h := a.handlers.BackendChanged
 	if h != nil {
 		h(BackendChangedEvent{Backend: string(backend)})
 	}
@@ -646,7 +582,7 @@ func (a *Agent) emitBackendChanged(backend config.LLMBackend) {
 
 func (a *Agent) emitExtractionStarted() {
 	a.mu.Lock()
-	h := a.extractionHandler
+	h := a.handlers.Extraction
 	a.mu.Unlock()
 	if h != nil {
 		h(ExtractionEvent{Phase: ExtractionPhaseStarted})
@@ -655,7 +591,7 @@ func (a *Agent) emitExtractionStarted() {
 
 func (a *Agent) emitExtractionDone(success bool) {
 	a.mu.Lock()
-	h := a.extractionHandler
+	h := a.handlers.Extraction
 	a.mu.Unlock()
 	if h != nil {
 		h(ExtractionEvent{Phase: ExtractionPhaseDone, Success: success})
@@ -664,7 +600,7 @@ func (a *Agent) emitExtractionDone(success bool) {
 
 func (a *Agent) emitQueued(message string, at time.Time) {
 	a.mu.Lock()
-	h := a.queueHandler
+	h := a.handlers.Queue
 	a.mu.Unlock()
 	if h != nil {
 		h(QueuedEvent{At: at, Message: message})
@@ -673,7 +609,7 @@ func (a *Agent) emitQueued(message string, at time.Time) {
 
 func (a *Agent) emitQueueCleared() {
 	a.mu.Lock()
-	h := a.queueHandler
+	h := a.handlers.Queue
 	a.mu.Unlock()
 	if h != nil {
 		h(QueuedEvent{Cleared: true})
@@ -687,7 +623,7 @@ func (a *Agent) emitQueueCleared() {
 // produce an assistant reply seemingly out of nowhere.
 func (a *Agent) emitQueueDispatched(message string) {
 	a.mu.Lock()
-	h := a.queueHandler
+	h := a.handlers.Queue
 	a.mu.Unlock()
 	if h != nil {
 		h(QueuedEvent{Dispatched: true, Message: message})
@@ -703,7 +639,7 @@ func (a *Agent) emitQueueDispatched(message string) {
 // follow-up.
 func (a *Agent) emitQueueDispatchedReply(reply string) {
 	a.mu.Lock()
-	h := a.queueHandler
+	h := a.handlers.Queue
 	a.mu.Unlock()
 	if h != nil {
 		h(QueuedEvent{DispatchedReply: true, Reply: reply})
@@ -727,7 +663,7 @@ func (a *Agent) SetBaseContext(ctx context.Context) {
 // can't block other agent operations.
 func (a *Agent) notifyBg(e BgTaskEvent) {
 	a.mu.Lock()
-	h := a.bgTaskHandler
+	h := a.handlers.BgTask
 	a.mu.Unlock()
 	if h != nil {
 		h(e)
@@ -775,8 +711,8 @@ func (a *Agent) trackBg(ctx context.Context, name string, fn func() error) {
 // emitActivity is a small helper so we don't repeat the
 // nil-check at every call site.
 func (a *Agent) emitActivity(ev ActivityEvent) {
-	if a.activityHandler != nil {
-		a.activityHandler(ev)
+	if a.handlers.Activity != nil {
+		a.handlers.Activity(ev)
 	}
 }
 
@@ -1964,7 +1900,7 @@ func (a *Agent) PromoteSessionMemoryToGlobal(fact, category string) error {
 		return err
 	}
 	a.mu.Lock()
-	h := a.globalMemoryHandler
+	h := a.handlers.GlobalMemory
 	a.mu.Unlock()
 	if h != nil {
 		h()
@@ -2009,7 +1945,7 @@ func (a *Agent) PromoteFindingToGlobal(id, category string) error {
 		return err
 	}
 	a.mu.Lock()
-	h := a.globalMemoryHandler
+	h := a.handlers.GlobalMemory
 	a.mu.Unlock()
 	if h != nil {
 		h()
@@ -2167,7 +2103,7 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 		canStream := false
 		if canStream {
 			resp, err = a.backend.ChatStream(ctx, messages, nil, func(token string, _ []llm.ToolCall, done bool) {
-				a.streamHandler(token, done)
+				a.handlers.Stream(token, done)
 			})
 		} else {
 			resp, err = a.backend.Chat(ctx, messages, tools)
@@ -2462,7 +2398,7 @@ func (a *Agent) resetStateMachine() {
 // or a rejection message for the LLM if rejected.
 func (a *Agent) requestMITL(toolName, arguments, category string) string {
 	a.mu.Lock()
-	h := a.mitlHandler
+	h := a.handlers.MITL
 	a.mu.Unlock()
 	if h == nil {
 		return "" // no handler = auto-approve
@@ -3114,7 +3050,7 @@ func (a *Agent) generateTitleIfNeeded(ctx context.Context) error {
 	_ = a.session.Save()
 
 	a.mu.Lock()
-	h := a.titleHandler
+	h := a.handlers.Title
 	a.mu.Unlock()
 	if h != nil {
 		h(a.session.ID, title)
@@ -3439,7 +3375,7 @@ Already known:
 		logger.Info("extractMemories: added %d facts to global memory", addedToPinned)
 		_ = a.globalMemory.Save()
 		a.mu.Lock()
-		h := a.globalMemoryHandler
+		h := a.handlers.GlobalMemory
 		a.mu.Unlock()
 		if h != nil {
 			h()

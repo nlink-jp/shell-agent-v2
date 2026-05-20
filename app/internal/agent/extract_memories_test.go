@@ -586,7 +586,7 @@ func TestPromoteFinding_TriggersFindingsHandler(t *testing.T) {
 	a.session = &memory.Session{ID: "h-test", Title: "Handler Test", Records: []memory.Record{}}
 
 	calls := 0
-	a.SetFindingsHandler(func() { calls++ })
+	a.SetHandlers(HandlerSet{Findings: func() { calls++ }})
 
 	args := `{"content":"important insight","tags":["high"]}`
 	if _, err := a.toolPromoteFinding(args); err != nil {

@@ -160,12 +160,14 @@ func TestE2E_MITLApprove(t *testing.T) {
 	a.session = &memory.Session{ID: "test", Title: "Test", Records: []memory.Record{}}
 
 	mitlCalled := false
-	a.SetMITLHandler(func(req MITLRequest) MITLResponse {
-		mitlCalled = true
-		if req.Category != "write" {
-			t.Errorf("category = %v, want write", req.Category)
-		}
-		return MITLResponse{Approved: true}
+	a.SetHandlers(HandlerSet{
+		MITL: func(req MITLRequest) MITLResponse {
+			mitlCalled = true
+			if req.Category != "write" {
+				t.Errorf("category = %v, want write", req.Category)
+			}
+			return MITLResponse{Approved: true}
+		},
 	})
 
 	// Simulate a write tool call
@@ -183,13 +185,15 @@ func TestE2E_MITLReject(t *testing.T) {
 	a.findings = findings.NewStore("test")
 	a.session = &memory.Session{ID: "test", Title: "Test", Records: []memory.Record{}}
 
-	a.SetMITLHandler(func(req MITLRequest) MITLResponse {
-		return MITLResponse{Approved: false}
+	a.SetHandlers(HandlerSet{
+		MITL: func(req MITLRequest) MITLResponse {
+			return MITLResponse{Approved: false}
+		},
 	})
 
 	// Can't easily test with shell scripts without a real script,
 	// but verify the handler is set
-	if a.mitlHandler == nil {
+	if a.handlers.MITL == nil {
 		t.Error("MITL handler not set")
 	}
 }

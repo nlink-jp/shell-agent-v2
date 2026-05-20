@@ -336,10 +336,12 @@ func TestE2E_NonStreamingAgentLoop(t *testing.T) {
 	a := newTestAgent(t, mock)
 
 	var tokens []string
-	a.SetStreamHandler(func(token string, done bool) {
-		if token != "" {
-			tokens = append(tokens, token)
-		}
+	a.SetHandlers(HandlerSet{
+		Stream: func(token string, done bool) {
+			if token != "" {
+				tokens = append(tokens, token)
+			}
+		},
 	})
 
 	result, err := a.Send(context.Background(), "Test")

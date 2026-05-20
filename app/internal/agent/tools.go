@@ -291,7 +291,7 @@ func (a *Agent) toolRememberFact(argsJSON string) (string, error) {
 		}
 		_ = a.globalMemory.Save()
 		a.mu.Lock()
-		h := a.globalMemoryHandler
+		h := a.handlers.GlobalMemory
 		a.mu.Unlock()
 		if h != nil {
 			h()

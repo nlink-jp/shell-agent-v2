@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.14.2] - 2026-05-20
+
+### Changed
+
+- **Consolidate 13 `Set*Handler` setters into one `SetHandlers` call
+  (#11).** The `Agent` struct used to expose 13 individual handler
+  registration methods, each one taking the mutex around an
+  identical single-field assign. They were all called exactly once,
+  sequentially, in `bindings.startup`. The new `HandlerSet` value-
+  type bundles them; `bindings.go` becomes a single literal that
+  documents the full event-bus contract in one place. Cuts about
+  90 LOC and 12 struct fields. Tests construct partial `HandlerSet`
+  literals with only the fields they need.
+
+  No behaviour change — zero-valued (nil) handler fields are still
+  treated as "not set" by every notifier, same as the
+  pre-consolidation per-field behaviour.
+
 ## [0.14.1] - 2026-05-20
 
 ### Added
