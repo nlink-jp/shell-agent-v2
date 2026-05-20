@@ -18,7 +18,6 @@ interface Props {
 function ChatInput({onSend, disabled}: Props) {
     const [input, setInput] = useState('')
     const [pendingImages, setPendingImages] = useState<PendingAttachment[]>([])
-    const composingRef = useRef(false)
     const textareaRef = useRef<HTMLTextAreaElement>(null)
     const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -56,12 +55,16 @@ function ChatInput({onSend, disabled}: Props) {
     }
 
     function handleKeyDown(e: React.KeyboardEvent) {
-        if (e.key === 'Enter' && e.metaKey && !composingRef.current) {
+        // IME guard: see issue #7 / Sidebar.tsx. The IME-confirming
+        // ENTER must not trigger send or history nav. isComposing +
+        // 229 covers modern + legacy WebKit.
+        const isComposing = (e.nativeEvent as KeyboardEvent).isComposing || e.keyCode === 229
+        if (e.key === 'Enter' && e.metaKey && !isComposing) {
             e.preventDefault()
             handleSend()
             return
         }
-        if (e.key === 'ArrowUp' && !composingRef.current) {
+        if (e.key === 'ArrowUp' && !isComposing) {
             const textarea = e.target as HTMLTextAreaElement
             if (textarea.selectionStart === 0) {
                 e.preventDefault()
@@ -73,7 +76,7 @@ function ChatInput({onSend, disabled}: Props) {
                 setInput(hist[nextIdx])
             }
         }
-        if (e.key === 'ArrowDown' && !composingRef.current) {
+        if (e.key === 'ArrowDown' && !isComposing) {
             // ArrowDown は「履歴ナビ中」の時だけ反応する。
             // historyIndexRef.current === -1 は履歴をたどっていない
             // 通常入力状態。この場合に走らせると、空の draftRef で
@@ -228,8 +231,6 @@ function ChatInput({onSend, disabled}: Props) {
                         onChange={e => { setInput(e.target.value); historyIndexRef.current = -1 }}
                         onKeyDown={handleKeyDown}
                         onPaste={handlePaste}
-                        onCompositionStart={() => { composingRef.current = true }}
-                        onCompositionEnd={() => { setTimeout(() => { composingRef.current = false }, 50) }}
                         placeholder={disabled ? 'Agent is busy...' : 'Type a message... (Cmd+Enter to send)'}
                         disabled={disabled}
                         rows={3}

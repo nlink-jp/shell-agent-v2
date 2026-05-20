@@ -5,7 +5,7 @@
 // calls go through props so the dialog has no direct
 // dependency on the bindings layer.
 
-import {useRef, useState} from 'react'
+import {useState} from 'react'
 import type {MITLRequest} from '../types'
 
 interface Props {
@@ -17,13 +17,6 @@ interface Props {
 
 export default function MITLDialog({request, onApprove, onReject, onRejectWithFeedback}: Props) {
     const [feedback, setFeedback] = useState('')
-    // IME composition guard. Same pattern as ChatInput: WebKit
-    // fires compositionEnd before the conversion-confirm Enter
-    // keydown, so a 50ms timeout defers the flag clear past
-    // that keydown and stops the dialog from submitting on
-    // every kanji conversion confirmation.
-    const composingRef = useRef(false)
-
     const submitReject = () => {
         const trimmed = feedback.trim()
         setFeedback('')
@@ -130,13 +123,18 @@ export default function MITLDialog({request, onApprove, onReject, onRejectWithFe
                         value={feedback}
                         onChange={e => setFeedback(e.target.value)}
                         onKeyDown={e => {
-                            if (e.key === 'Enter' && !composingRef.current && feedback.trim()) {
+                            // IME guard: see Sidebar.tsx for the rationale.
+                            // isComposing + 229 covers modern + legacy WebKit;
+                            // preventDefault on the post-composition Enter
+                            // keeps macOS from emitting the "key rejected" beep
+                            // when the input gets unmounted mid-event.
+                            if (e.nativeEvent.isComposing || e.keyCode === 229) return
+                            if (e.key === 'Enter' && feedback.trim()) {
+                                e.preventDefault()
                                 onRejectWithFeedback(feedback.trim())
                                 setFeedback('')
                             }
                         }}
-                        onCompositionStart={() => { composingRef.current = true }}
-                        onCompositionEnd={() => { setTimeout(() => { composingRef.current = false }, 50) }}
                     />
                 </div>
             </div>

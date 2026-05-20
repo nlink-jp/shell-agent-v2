@@ -102,9 +102,6 @@ export default function Sidebar({
     // Sidebar-local: rename UI
     const [editingSession, setEditingSession] = useState<string | null>(null)
     const [editTitle, setEditTitle] = useState('')
-    // IME composition guard so Enter during conversion doesn't
-    // commit a half-typed Japanese title.
-    const composingRef = useRef(false)
 
     // Sidebar-local: 2-click confirm + delete-in-flight states
     // (v0.4.2 #6). At most one row can be in confirm at a time;
@@ -236,11 +233,19 @@ export default function Sidebar({
                                             onChange={e => setEditTitle(e.target.value)}
                                             onBlur={commitRename}
                                             onKeyDown={e => {
-                                                if (e.key === 'Enter' && !composingRef.current) commitRename()
-                                                if (e.key === 'Escape') setEditingSession(null)
+                                                // IME composition guard: the ENTER that confirms a
+                                                // Japanese candidate must not commit the rename. We use
+                                                // the native `isComposing` flag plus the keyCode === 229
+                                                // legacy guard so both modern and older WebKit honour
+                                                // the IME state. preventDefault on the post-composition
+                                                // ENTER is what kills the macOS "rejected key" beep —
+                                                // without it, the ENTER bubbles into the unhandled
+                                                // default action on the now-detached input. See issue
+                                                // #7 for the reproduction.
+                                                if (e.nativeEvent.isComposing || e.keyCode === 229) return
+                                                if (e.key === 'Enter') { e.preventDefault(); commitRename() }
+                                                if (e.key === 'Escape') { e.preventDefault(); setEditingSession(null) }
                                             }}
-                                            onCompositionStart={() => { composingRef.current = true }}
-                                            onCompositionEnd={() => { setTimeout(() => { composingRef.current = false }, 50) }}
                                             autoFocus
                                             onClick={e => e.stopPropagation()}
                                         />
