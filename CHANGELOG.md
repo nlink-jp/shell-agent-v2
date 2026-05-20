@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.13.3] - 2026-05-20
+
+### Fixed
+
+- **IME composition beep on session rename (#7).** The macOS
+  "rejected key" system beep that sounded on the second Enter
+  after confirming Japanese IME input. Root cause: the 50 ms
+  `setTimeout` debounce on `compositionend` was racing the
+  post-IME Enter keydown unreliably on WebKit, so the event
+  sometimes fell through to a default action on a now-detached
+  input. Replaced with native `KeyboardEvent.isComposing` plus
+  `preventDefault()` on the post-composition Enter. Applied to
+  the three inputs that shared the buggy pattern: sidebar
+  session-rename, MITL feedback, and ChatInput (Cmd+Enter +
+  ↑/↓ history nav).
+
 ## [0.13.2] - 2026-05-20
 
 Closes the gap left after v0.13.0 + v0.13.1: even with a byte-
