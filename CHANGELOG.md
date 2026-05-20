@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.14.1] - 2026-05-20
+
+### Added
+
+- **Export button in the image lightbox (#8).** Clicking a chat
+  image to open the lightbox now offers an Export action in the
+  top-right alongside Close, routing through the same
+  `Bindings.ExportObject` native-save-dialog path the Data panel
+  uses. Lightboxes opened with a raw URL (no object handle) skip
+  the Export button.
+
+### Fixed
+
+- **Save dialog double-fire on Enter (#9).** Pressing Enter in the
+  native Save dialog re-triggered the still-focused Save button in
+  the React app, opening the dialog again. The Copy / Save buttons
+  in the report viewer and inline report card now blur immediately
+  on click so the dialog-confirming Enter doesn't bounce back into
+  the button. The lightbox Export button uses the same guard.
+- **Missing file extension on Export.** `ExportObject` now ensures
+  the default filename carries a MimeType-derived extension and
+  passes `Filters` to the save dialog so macOS auto-appends the
+  extension when the user clears it. Belt-and-suspenders: the
+  returned path is also extension-corrected before
+  `os.WriteFile` so a manually-typed bare filename still saves with
+  the right extension. Supports PNG / JPEG / GIF / WebP / MD /
+  JSON / TXT.
+
 ## [0.14.0] - 2026-05-20
 
 State-machine consistency overhaul ([ADR-0021](docs/en/adr/0021-state-machine-consistency.md)).

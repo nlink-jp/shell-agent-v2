@@ -39,7 +39,16 @@ export default function ReportViewer({report, onClose, onLightbox, onExpandRepor
                     <span className="report-title">{report.title}</span>
                     <div className="report-actions">
                         <button onClick={(e) => { navigator.clipboard.writeText(report.content); const b = e.currentTarget; b.textContent = 'Copied!'; setTimeout(() => b.textContent = 'Copy', 1000) }}>Copy</button>
-                        <button onClick={() => onSaveReport(report.content, 'report.md')}>Save</button>
+                        <button onClick={(e) => {
+                            // Issue #9: blur immediately so the Enter
+                            // the user pressed inside the native save
+                            // dialog doesn't bubble back into a focused
+                            // button and re-fire onSaveReport. Without
+                            // this the dialog reopens right after the
+                            // first save completes.
+                            e.currentTarget.blur()
+                            onSaveReport(report.content, 'report.md')
+                        }}>Save</button>
                         <button onClick={onClose}>Close</button>
                     </div>
                 </div>

@@ -21,7 +21,7 @@ const MD_REHYPE_PLUGINS = [rehypeHighlight, rehypeKatex]
 
 interface MessageItemProps {
     msg: ChatMessage;
-    onLightbox: (url: string) => void;
+    onLightbox: (url: string, objectId?: string) => void;
     onExpandReport: (r: {title: string; content: string}) => void;
     onToolEventClick?: (toolCallId: string) => void;
 }
@@ -123,7 +123,15 @@ const MessageItem = memo(function MessageItem({msg, onLightbox, onExpandReport, 
                     <div className="report-actions">
                         <button onClick={() => onExpandReport({title, content: msg.content})}>Expand</button>
                         <button onClick={(e) => { navigator.clipboard.writeText(msg.content); const b = e.currentTarget; b.textContent = 'Copied!'; setTimeout(() => b.textContent = 'Copy', 1000) }}>Copy</button>
-                        <button onClick={() => window.go?.main.Bindings.SaveReport(msg.content, 'report.md')}>Save</button>
+                        <button onClick={(e) => {
+                            // Issue #9: see ReportViewer.tsx — blur
+                            // before the native save dialog opens so
+                            // the dialog-confirming Enter doesn't
+                            // re-trigger this button when focus
+                            // returns to the browser.
+                            e.currentTarget.blur()
+                            window.go?.main.Bindings.SaveReport(msg.content, 'report.md')
+                        }}>Save</button>
                     </div>
                 </div>
                 <div className="report-content" onClick={() => onExpandReport({title, content: msg.content})}>

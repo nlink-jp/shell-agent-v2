@@ -116,7 +116,17 @@ function App() {
     // bulk selection, confirmation, and the global object list now live
     // inside the per-session DataDisclosure component.
     const [llmStatus, setLLMStatus] = useState<LLMStatus | null>(null)
-    const [lightboxImage, setLightboxImage] = useState<string | null>(null)
+    // Issue #8: lightbox needs the object ID alongside the display URL
+    // so the Export button can route through Bindings.ExportObject.
+    // objectId is optional — raw data URLs (paste-from-clipboard
+    // pre-persist) lack a backend handle and skip the Export button.
+    const [lightboxImage, setLightboxImage] = useState<{src: string; objectId?: string} | null>(null)
+    // Compatibility shim for callers that only pass a URL (e.g. data
+    // URLs in user-typed messages). New callers should use the full
+    // (src, objectId) form via setLightboxImageFull below.
+    const openLightbox = useCallback((src: string, objectId?: string) => {
+        setLightboxImage({src, objectId})
+    }, [])
     const [blobPreview, setBlobPreview] = useState<BlobPreviewData | null>(null)
     const [expandedReport, setExpandedReport] = useState<ExpandedReport | null>(null)
     // Shared object-aware ReactMarkdown components map used by the
@@ -125,7 +135,7 @@ function App() {
     // all three call sites delegate to objectMarkdown.tsx so the
     // override surface stays in one place (ADR-0014).
     const markdownComponents = useMemo(
-        () => objectComponents({onLightbox: setLightboxImage, onExpandReport: setExpandedReport}),
+        () => objectComponents({onLightbox: openLightbox, onExpandReport: setExpandedReport}),
         [],
     )
     // Tool-event detail overlay: holds the tool_call_id for the
@@ -981,7 +991,7 @@ function App() {
                             try {
                                 if (obj.type === 'image') {
                                     const url = await window.go.main.Bindings.GetImageDataURL(obj.id)
-                                    setLightboxImage(url)
+                                    openLightbox(url, obj.id)
                                 } else if (obj.type === 'report' || obj.type === 'markdown') {
                                     // v0.5: TypeMarkdown joins the report branch
                                     // — both are markdown strings in objstore,
@@ -1029,7 +1039,7 @@ function App() {
                 <div className="messages" ref={messagesContainerRef}>
                     {messages.filter(msg => msg.role !== 'tool').map((msg, i) => (
                         <div key={i} className={`message ${msg.role}`}>
-                            <MessageItem msg={msg} onLightbox={setLightboxImage} onExpandReport={setExpandedReport} onToolEventClick={setInspectingToolCallId} />
+                            <MessageItem msg={msg} onLightbox={openLightbox} onExpandReport={setExpandedReport} onToolEventClick={setInspectingToolCallId} />
                         </div>
                     ))}
                     {streaming && (
@@ -1215,7 +1225,7 @@ function App() {
             )}
 
             {lightboxImage && (
-                <Lightbox src={lightboxImage} onClose={() => setLightboxImage(null)} />
+                <Lightbox src={lightboxImage.src} objectId={lightboxImage.objectId} onClose={() => setLightboxImage(null)} />
             )}
 
             {blobPreview && (
@@ -1226,7 +1236,7 @@ function App() {
                 <ReportViewer
                     report={expandedReport}
                     onClose={() => setExpandedReport(null)}
-                    onLightbox={setLightboxImage}
+                    onLightbox={openLightbox}
                     onExpandReport={setExpandedReport}
                     onSaveReport={(content, filename) => window.go?.main.Bindings.SaveReport(content, filename)}
                 />

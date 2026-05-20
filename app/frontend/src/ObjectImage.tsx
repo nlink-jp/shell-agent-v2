@@ -6,7 +6,10 @@ const objectCache: Record<string, string> = {}
 interface Props {
     id: string
     alt?: string
-    onClick?: (src: string) => void
+    // Issue #8: pass the object id alongside the resolved data URL
+    // so the lightbox can offer Export. Callers that don't need the
+    // id can ignore the second arg.
+    onClick?: (src: string, objectId?: string) => void
 }
 
 // ObjectImage resolves object:ID URLs to data URLs via the backend.
@@ -53,7 +56,7 @@ export default function ObjectImage({id, alt, onClick}: Props) {
     if (!src) {
         return <span className="object-loading">Loading...</span>
     }
-    return <img src={src} alt={alt || ''} className="message-image" onClick={() => onClick?.(src)} />
+    return <img src={src} alt={alt || ''} className="message-image" onClick={() => onClick?.(src, id)} />
 }
 
 // clearObjectCache clears the cache (call on session switch)

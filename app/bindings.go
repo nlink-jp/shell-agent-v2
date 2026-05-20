@@ -1647,14 +1647,27 @@ func (b *Bindings) ExportObject(id string) error {
 	}
 	defaultName := meta.OrigName
 	if defaultName == "" {
-		defaultName = id + extensionForMime(meta.MimeType)
+		defaultName = id
 	}
+	// Issue (post-#8): ensure the default filename carries an
+	// extension matching the object's MimeType. Otherwise the user
+	// gets a file with no extension and downstream apps can't
+	// recognise the type (Finder Quick Look, Mail attachment view,
+	// etc.). The save dialog's Filters argument tells macOS to
+	// auto-append the extension when the user clears or alters it
+	// in the dialog.
+	defaultName = ensureExtensionForMime(defaultName, meta.MimeType)
 	path, err := wailsRuntime.SaveFileDialog(b.ctx, wailsRuntime.SaveDialogOptions{
 		DefaultFilename: defaultName,
+		Filters:         fileFiltersForMime(meta.MimeType),
 	})
 	if err != nil || path == "" {
 		return err
 	}
+	// Belt-and-suspenders: if macOS dropped the extension anyway
+	// (user typed a bare name and the dialog didn't enforce filters
+	// the way we expected), re-add it on the way out.
+	path = ensureExtensionForMime(path, meta.MimeType)
 	src := b.objects.DataPath(id)
 	data, err := os.ReadFile(src)
 	if err != nil {
@@ -1684,6 +1697,49 @@ func extensionForMime(mime string) string {
 		return ".txt"
 	}
 	return ""
+}
+
+// ensureExtensionForMime appends the MimeType-derived extension to
+// the path/name if not already present (case-insensitive). For
+// JPEGs we accept either .jpg or .jpeg as already-correct.
+// MIMEs without a known extension pass through unchanged.
+func ensureExtensionForMime(name, mime string) string {
+	ext := extensionForMime(mime)
+	if ext == "" {
+		return name
+	}
+	lower := strings.ToLower(name)
+	if strings.HasSuffix(lower, ext) {
+		return name
+	}
+	if (mime == "image/jpeg" || mime == "image/jpg") && strings.HasSuffix(lower, ".jpeg") {
+		return name
+	}
+	return name + ext
+}
+
+// fileFiltersForMime returns Wails save-dialog filters appropriate
+// for the MimeType. macOS uses this to auto-append the extension
+// when the user-typed filename omits it. Returning nil lets the
+// dialog accept any extension (fallback for unknown types).
+func fileFiltersForMime(mime string) []wailsRuntime.FileFilter {
+	switch mime {
+	case "image/png":
+		return []wailsRuntime.FileFilter{{DisplayName: "PNG Image", Pattern: "*.png"}}
+	case "image/jpeg", "image/jpg":
+		return []wailsRuntime.FileFilter{{DisplayName: "JPEG Image", Pattern: "*.jpg;*.jpeg"}}
+	case "image/gif":
+		return []wailsRuntime.FileFilter{{DisplayName: "GIF Image", Pattern: "*.gif"}}
+	case "image/webp":
+		return []wailsRuntime.FileFilter{{DisplayName: "WebP Image", Pattern: "*.webp"}}
+	case "text/markdown":
+		return []wailsRuntime.FileFilter{{DisplayName: "Markdown", Pattern: "*.md"}}
+	case "application/json":
+		return []wailsRuntime.FileFilter{{DisplayName: "JSON", Pattern: "*.json"}}
+	case "text/plain":
+		return []wailsRuntime.FileFilter{{DisplayName: "Text", Pattern: "*.txt"}}
+	}
+	return nil
 }
 
 // --- Report bindings ---

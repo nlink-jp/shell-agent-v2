@@ -114,7 +114,7 @@ export function useObjectMeta(id: string): {
 // renders, otherwise ReactMarkdown would re-parse the message
 // on every parent re-render.
 interface FactoryOpts {
-    onLightbox: (src: string) => void;
+    onLightbox: (src: string, objectId?: string) => void;
     onExpandReport: (r: {title: string; content: string}) => void;
 }
 
@@ -181,7 +181,7 @@ export function objectComponents(opts: FactoryOpts): Components {
 function ObjectRef({id, label, onLightbox, onExpandReport}: {
     id: string;
     label: ReactNode;
-    onLightbox: (src: string) => void;
+    onLightbox: (src: string, objectId?: string) => void;
     onExpandReport: (r: {title: string; content: string}) => void;
 }) {
     const {meta, loading, error} = useObjectMeta(id)

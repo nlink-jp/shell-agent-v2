@@ -20,24 +20,47 @@
     box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
 }
 
-.lightbox-close {
+/* Issue #8: lightbox-actions wraps Close + (optional) Export so the
+ * two share consistent top-right placement and styling. The
+ * container is non-clickable through to the overlay (stopPropagation
+ * in JSX), so its bounding box doesn't accidentally dismiss the
+ * lightbox when the user mouses to the Export button. */
+.lightbox-actions {
     position: fixed;
     top: 16px;
     right: 16px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.lightbox-close,
+.lightbox-export {
     border: none;
     background: rgba(255, 255, 255, 0.15);
     color: white;
-    font-size: 20px;
-    width: 36px;
-    height: 36px;
-    border-radius: 50%;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
 }
 
-.lightbox-close:hover {
+.lightbox-close {
+    font-size: 20px;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+}
+
+.lightbox-export {
+    font-size: 14px;
+    padding: 0 14px;
+    height: 36px;
+    border-radius: 18px;
+}
+
+.lightbox-close:hover,
+.lightbox-export:hover {
     background: rgba(255, 255, 255, 0.3);
 }
 
