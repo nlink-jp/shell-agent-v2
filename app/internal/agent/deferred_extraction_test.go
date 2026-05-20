@@ -22,7 +22,7 @@ import (
 // short-circuits on nil session and returns immediately, which
 // is exactly what we want for the title side.
 func TestDeferredExtraction_UIUnlocksBeforeExtraction(t *testing.T) {
-	a := New(config.Default())
+	a := New(withAutoExtract(config.Default()))
 
 	// Hold the extraction in flight until the test releases the
 	// channel. The override is invoked under trackBg, so the
@@ -89,10 +89,65 @@ func TestDeferredExtraction_UIUnlocksBeforeExtraction(t *testing.T) {
 // backend, but we can assert the override slot is nil after
 // New() so we don't accidentally ship the test hook engaged.
 func TestDeferredExtraction_RealExtractorPathIsDefault(t *testing.T) {
-	a := New(config.Default())
+	a := New(withAutoExtract(config.Default()))
 	if a.extractMemoriesOverride != nil {
 		t.Fatal("New() must not pre-populate extractMemoriesOverride")
 	}
+}
+
+// TestAutoExtractDisabled_SkipsExtraction is the ADR-0019 §3.2
+// invariant: when the active profile's active backend has
+// AutoExtract off, postResponseTasks must not set extractionInFlight,
+// must not invoke extractMemories, and must not emit extraction:*
+// events. Title generation still runs (verified by absence of crash;
+// generateTitleIfNeeded is nil-session-safe).
+func TestAutoExtractDisabled_SkipsExtraction(t *testing.T) {
+	// config.Default() already has local=off; we use it as-is here
+	// (no withAutoExtract) so the test mirrors a fresh-install user.
+	a := New(config.Default())
+
+	var extractCalls atomic.Int64
+	a.extractMemoriesOverride = func(ctx context.Context) error {
+		extractCalls.Add(1)
+		return nil
+	}
+
+	a.mu.Lock()
+	a.state = StateBusy
+	a.mu.Unlock()
+
+	a.postResponseTasks(context.Background())
+
+	// Give bg goroutines a window to start (they shouldn't).
+	time.Sleep(50 * time.Millisecond)
+
+	a.mu.Lock()
+	inFlight := a.extractionInFlight
+	state := a.state
+	a.mu.Unlock()
+
+	if inFlight {
+		t.Errorf("extractionInFlight = true, want false when AutoExtract is off")
+	}
+	if state != StateIdle {
+		t.Errorf("state = %q, want StateIdle", state)
+	}
+	if got := extractCalls.Load(); got != 0 {
+		t.Errorf("extractMemories was called %d time(s) despite AutoExtract being off", got)
+	}
+}
+
+// withAutoExtract turns AutoExtractEnabled on for both backends of
+// the default profile. ADR-0019 flipped the local default to off, so
+// tests that exercise the deferred-extraction state machine must
+// opt in explicitly; the alternative would be to rely on an implicit
+// per-test config-mutation idiom.
+func withAutoExtract(cfg *config.Config) *config.Config {
+	on := true
+	prof := &cfg.LLM.Profiles[0]
+	prof.Local.AutoExtractEnabled = &on
+	prof.VertexAI.AutoExtractEnabled = &on
+	return cfg
 }
 
 // waitFor polls fn at interval until it returns true or timeout
@@ -128,7 +183,7 @@ func (e *eventCounter) Count() int64  { return e.n.Load() }
 // queue slot rather than starting (or being rejected with
 // ErrBusy). Auto-dispatch is exercised by the next test.
 func TestQueuedSend_HeldDuringExtraction(t *testing.T) {
-	a := New(config.Default())
+	a := New(withAutoExtract(config.Default()))
 	a.baseCtx = context.Background()
 
 	release := make(chan struct{})
@@ -177,7 +232,7 @@ func TestQueuedSend_HeldDuringExtraction(t *testing.T) {
 // rapid succession while extraction is held; only the most
 // recent should end up in the queue slot.
 func TestQueuedSend_OverwriteMostRecentWins(t *testing.T) {
-	a := New(config.Default())
+	a := New(withAutoExtract(config.Default()))
 	a.baseCtx = context.Background()
 
 	release := make(chan struct{})
@@ -221,7 +276,7 @@ func TestQueuedSend_OverwriteMostRecentWins(t *testing.T) {
 // TestAbortClearsQueue verifies Abort drops both the in-flight
 // extraction and any pending queued SEND (ADR-0015 §3.4).
 func TestAbortClearsQueue(t *testing.T) {
-	a := New(config.Default())
+	a := New(withAutoExtract(config.Default()))
 	a.baseCtx = context.Background()
 
 	released := make(chan struct{})
@@ -277,7 +332,7 @@ func TestAbortClearsQueue(t *testing.T) {
 // Bindings.IsBusy ORs these together to gate app-quit, so this
 // is the load-bearing invariant for the OnBeforeClose path.
 func TestIsBusyDuringExtraction(t *testing.T) {
-	a := New(config.Default())
+	a := New(withAutoExtract(config.Default()))
 	a.baseCtx = context.Background()
 
 	release := make(chan struct{})
@@ -334,7 +389,7 @@ func TestIsBusyDuringExtraction(t *testing.T) {
 // quickly with an error of its own — that's fine for this
 // test; we only care that the dispatch attempt happens.
 func TestQueuedSend_ExtractionErrorStillDispatches(t *testing.T) {
-	a := New(config.Default())
+	a := New(withAutoExtract(config.Default()))
 	a.baseCtx = context.Background()
 
 	a.extractMemoriesOverride = func(ctx context.Context) error {

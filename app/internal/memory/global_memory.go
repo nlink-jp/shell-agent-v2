@@ -36,6 +36,11 @@ const (
 	GlobalSourceManual                 = "manual"
 	GlobalSourcePromotedFromSession    = "promoted_from_session_memory"
 	GlobalSourcePromotedFromFinding    = "promoted_from_finding"
+	// GlobalSourceToolCall: written via the remember-fact builtin
+	// tool (ADR-0019). Trust-tagged as [derived] since the
+	// assistant chose to save it; the actual user statement, if
+	// any, lives one turn earlier in the conversation.
+	GlobalSourceToolCall = "tool_call"
 )
 
 // GlobalMemoryEntry is a cross-session user-identity fact.

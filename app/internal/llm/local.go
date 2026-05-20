@@ -191,6 +191,7 @@ func validateToolCallArgs(name, args string, maxBytes int) error {
 // ChatStream sends messages and streams the response via callback.
 func (l *Local) ChatStream(ctx context.Context, messages []Message, tools []ToolDef, cb StreamCallback) (*Response, error) {
 	body := l.buildRequest(messages, tools, true)
+	dumpRequestBody("local", body)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, l.cfg.Endpoint+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
@@ -404,6 +405,7 @@ func (l *Local) buildRequest(messages []Message, tools []ToolDef, stream bool) [
 const MaxLocalResponseBytes = 16 * 1024 * 1024
 
 func (l *Local) doRequest(ctx context.Context, body []byte) ([]byte, error) {
+	dumpRequestBody("local", body)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, l.cfg.Endpoint+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
 		return nil, err

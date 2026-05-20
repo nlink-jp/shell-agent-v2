@@ -805,6 +805,28 @@ function ProfilesTab() {
                                     onBlur={commit}
                                 />
                             </label>
+                            <label className="checkbox-row">
+                                <input
+                                    type="checkbox"
+                                    checked={draft.local.auto_extract_enabled}
+                                    onChange={e => { patchLocal({auto_extract_enabled: e.target.checked}); commit(); }}
+                                />
+                                <span>
+                                    Auto-extract memories after each turn
+                                    <small>Local default: off. When on, the <code>remember-fact</code> tool is hidden.</small>
+                                </span>
+                            </label>
+                            <label className="checkbox-row">
+                                <input
+                                    type="checkbox"
+                                    checked={draft.local.auto_title_enabled}
+                                    onChange={e => { patchLocal({auto_title_enabled: e.target.checked}); commit(); }}
+                                />
+                                <span>
+                                    Auto-generate session titles
+                                    <small>Local default: off. When off, sessions stay untitled until renamed (skips one LLM call per session).</small>
+                                </span>
+                            </label>
                             <h4>Vertex AI</h4>
                             <label>
                                 <span>Project ID</span>
@@ -853,6 +875,28 @@ function ProfilesTab() {
                                     onChange={e => patchVertex({retry_max_attempts: parseInt(e.target.value, 10) || 3})}
                                     onBlur={commit}
                                 />
+                            </label>
+                            <label className="checkbox-row">
+                                <input
+                                    type="checkbox"
+                                    checked={draft.vertex.auto_extract_enabled}
+                                    onChange={e => { patchVertex({auto_extract_enabled: e.target.checked}); commit(); }}
+                                />
+                                <span>
+                                    Auto-extract memories after each turn
+                                    <small>Vertex default: on. When on, the <code>remember-fact</code> tool is hidden.</small>
+                                </span>
+                            </label>
+                            <label className="checkbox-row">
+                                <input
+                                    type="checkbox"
+                                    checked={draft.vertex.auto_title_enabled}
+                                    onChange={e => { patchVertex({auto_title_enabled: e.target.checked}); commit(); }}
+                                />
+                                <span>
+                                    Auto-generate session titles
+                                    <small>Vertex default: on. When off, sessions stay untitled until renamed.</small>
+                                </span>
                             </label>
                         </>
                     ) : (

@@ -11,6 +11,7 @@ import (
 	"github.com/nlink-jp/shell-agent-v2/internal/analysis"
 	"github.com/nlink-jp/shell-agent-v2/internal/findings"
 	"github.com/nlink-jp/shell-agent-v2/internal/llm"
+	"github.com/nlink-jp/shell-agent-v2/internal/memory"
 	"github.com/nlink-jp/shell-agent-v2/internal/objstore"
 	"github.com/nlink-jp/shell-agent-v2/internal/sandbox"
 )
@@ -233,6 +234,84 @@ func (a *Agent) toolPromoteFinding(argsJSON string) (string, error) {
 	a.notifyFindingsUpdated()
 
 	return fmt.Sprintf("Finding promoted: %s (%s)", f.Content, f.CreatedLabel), nil
+}
+
+// toolRememberFact backs the remember-fact builtin (ADR-0019).
+// LLM-driven memory: when the assistant judges a user fact worth
+// persisting, it calls this tool. The fact is routed by category
+// using the same allowlist as auto-extraction (preference/decision
+// → GlobalMemory, fact/context → SessionMemory) and goes through
+// the same IsSelfReferential filter that protects against THINK-
+// leakage facts. Source = ToolCall so the audit trail distinguishes
+// it from auto-extracted records.
+//
+// Returned strings are LLM-visible — they double as feedback that
+// the call succeeded (LLM can stop trying to remember the same
+// thing) or failed for a structural reason (LLM can rephrase).
+func (a *Agent) toolRememberFact(argsJSON string) (string, error) {
+	var args struct {
+		Fact     string `json:"fact"`
+		Category string `json:"category"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return "", fmt.Errorf("invalid arguments: %w", err)
+	}
+	fact := strings.TrimSpace(args.Fact)
+	if fact == "" {
+		return "", fmt.Errorf("fact is required and must be non-empty")
+	}
+	if !memory.ValidExtractionCategories[args.Category] {
+		return "", fmt.Errorf("category must be one of preference, decision, fact, context (got %q)", args.Category)
+	}
+	if memory.IsSelfReferential(fact) {
+		// Reject with feedback so the LLM can rephrase if the fact
+		// was a legitimate user statement that happened to mention
+		// the assistant. Same defence as extractMemories.
+		return "", fmt.Errorf("rejected: fact appears to describe the assistant or its internals, not the user")
+	}
+	if a.session == nil {
+		return "", fmt.Errorf("no session loaded")
+	}
+
+	isGlobal := args.Category == "preference" || args.Category == "decision"
+	if isGlobal && a.session.Private {
+		// Mirrors extractMemories' privacy gate: private sessions
+		// do not promote facts to the cross-session store.
+		return "", fmt.Errorf("rejected: this session is marked private; preference/decision facts cannot be saved cross-session")
+	}
+	if isGlobal {
+		added := a.globalMemory.Add(memory.GlobalMemoryEntry{
+			Fact:      fact,
+			Category:  args.Category,
+			SessionID: a.session.ID,
+			Source:    memory.GlobalSourceToolCall,
+		})
+		if !added {
+			return fmt.Sprintf("Fact already recorded (deduplicated): %q. No new entry created.", fact), nil
+		}
+		_ = a.globalMemory.Save()
+		a.mu.Lock()
+		h := a.globalMemoryHandler
+		a.mu.Unlock()
+		if h != nil {
+			h()
+		}
+		return fmt.Sprintf("Saved to global memory (%s): %q", args.Category, fact), nil
+	}
+	if a.sessionMemory == nil {
+		return "", fmt.Errorf("session memory store unavailable")
+	}
+	added := a.sessionMemory.Add(memory.SessionMemoryEntry{
+		Fact:     fact,
+		Category: args.Category,
+		Source:   memory.SessionSourceToolCall,
+	})
+	if !added {
+		return fmt.Sprintf("Fact already recorded (deduplicated): %q. No new entry created.", fact), nil
+	}
+	_ = a.sessionMemory.Save()
+	a.notifySessionMemoryUpdated()
+	return fmt.Sprintf("Saved to session memory (%s): %q", args.Category, fact), nil
 }
 
 func (a *Agent) toolQueryPreview(ctx context.Context, argsJSON string) (string, error) {

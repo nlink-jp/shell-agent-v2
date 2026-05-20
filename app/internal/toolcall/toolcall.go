@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -103,12 +104,25 @@ func (r *Registry) Get(name string) (*Tool, bool) {
 	return t, ok
 }
 
-// All returns all registered tools.
+// All returns all registered tools sorted by Name.
+//
+// The sort matters: the agent's buildToolDefs emits this list into
+// the JSON tools array sent to the LLM, and any per-turn reorder of
+// the tools array breaks llama.cpp's prompt-prefix KV cache (the
+// divergence falls just past the messages array). Map iteration is
+// not deterministic in Go, so without an explicit sort consecutive
+// turns produce structurally-different bytes after the messages
+// payload — undoing ADR-0017 / 0018 / 0019's byte-stability work.
+// See docs/en/adr/0019-llm-driven-memory-tool.md §1 for the
+// production diagnosis.
 func (r *Registry) All() []*Tool {
 	result := make([]*Tool, 0, len(r.tools))
 	for _, t := range r.tools {
 		result = append(result, t)
 	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Name < result[j].Name
+	})
 	return result
 }
 

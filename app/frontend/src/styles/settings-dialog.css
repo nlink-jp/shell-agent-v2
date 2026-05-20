@@ -156,6 +156,25 @@
 }
 .settings-section .checkbox-row > span {
     min-width: 0;
+    /* Allow the span to shrink inside the flex parent so long
+     * descriptive labels (e.g. ADR-0019's Auto-extract row) wrap
+     * to the dialog's content width instead of forcing a
+     * horizontal scrollbar. flex-shrink:0 inherited from
+     * `.settings-section label span` is the immediate cause. */
+    flex: 1 1 auto;
+    flex-shrink: 1;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+}
+/* Embedded <small> under a checkbox row reads as a sub-line of
+ * description; render it on its own line so the main label stays
+ * crisp. */
+.settings-section .checkbox-row > span small {
+    display: block;
+    margin-top: 2px;
+    color: var(--text-muted, #6b7c8c);
+    font-size: 12px;
+    line-height: 1.4;
 }
 
 /* Normalise the checkbox accent across the dialog so checked

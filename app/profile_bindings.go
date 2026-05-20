@@ -50,6 +50,14 @@ type LocalProfileFields struct {
 	ContextBudget         BackendBudgetData `json:"context_budget"`
 	RequestTimeoutSeconds int        `json:"request_timeout_seconds"`
 	RetryMaxAttempts      int        `json:"retry_max_attempts"`
+	// AutoExtractEnabled — ADR-0019. The DTO uses a plain bool
+	// (not *bool) so the frontend's checkbox binds cleanly; the
+	// binding always writes through to config.LocalConfig with an
+	// explicit *bool so the on-disk JSON records the user's choice
+	// rather than relying on the missing-field default.
+	AutoExtractEnabled    bool       `json:"auto_extract_enabled"`
+	// AutoTitleEnabled — ADR-0020. Same *bool round-trip pattern.
+	AutoTitleEnabled      bool       `json:"auto_title_enabled"`
 }
 
 // VertexProfileFields mirrors config.VertexAIConfig.
@@ -60,6 +68,10 @@ type VertexProfileFields struct {
 	ContextBudget         BackendBudgetData `json:"context_budget"`
 	RequestTimeoutSeconds int        `json:"request_timeout_seconds"`
 	RetryMaxAttempts      int        `json:"retry_max_attempts"`
+	// AutoExtractEnabled — see LocalProfileFields.
+	AutoExtractEnabled    bool       `json:"auto_extract_enabled"`
+	// AutoTitleEnabled — see LocalProfileFields.
+	AutoTitleEnabled      bool       `json:"auto_title_enabled"`
 }
 
 // CreateProfileRequest is the input for CreateProfile.
@@ -137,6 +149,8 @@ func profileToDetail(p *config.LLMProfile, isDefault bool) ProfileDetail {
 			ContextBudget:         toBudget(p.Local.ContextBudget),
 			RequestTimeoutSeconds: p.Local.LocalRequestTimeout(),
 			RetryMaxAttempts:      resolveProfileAttempts(p.Local.RetryMaxAttempts),
+			AutoExtractEnabled:    p.Local.AutoExtract(),
+			AutoTitleEnabled:      p.Local.AutoTitle(),
 		},
 		Vertex: VertexProfileFields{
 			ProjectID:             p.VertexAI.ProjectID,
@@ -145,6 +159,8 @@ func profileToDetail(p *config.LLMProfile, isDefault bool) ProfileDetail {
 			ContextBudget:         toBudget(p.VertexAI.ContextBudget),
 			RequestTimeoutSeconds: p.VertexAI.VertexRequestTimeout(),
 			RetryMaxAttempts:      resolveProfileAttempts(p.VertexAI.RetryMaxAttempts),
+			AutoExtractEnabled:    p.VertexAI.AutoExtract(),
+			AutoTitleEnabled:      p.VertexAI.AutoTitle(),
 		},
 	}
 }
@@ -302,6 +318,13 @@ func (b *Bindings) UpdateProfile(id string, req UpdateProfileRequest) (UpdatePro
 	target.Local.ContextBudget = budgetFromData(req.Local.ContextBudget)
 	target.Local.RequestTimeoutSeconds = req.Local.RequestTimeoutSeconds
 	target.Local.RetryMaxAttempts = req.Local.RetryMaxAttempts
+	// Always write the user's choice through as an explicit *bool so
+	// the on-disk JSON records it; nil would mean "use backend default"
+	// and we want the Settings toggle to be authoritative.
+	localExtract := req.Local.AutoExtractEnabled
+	target.Local.AutoExtractEnabled = &localExtract
+	localTitle := req.Local.AutoTitleEnabled
+	target.Local.AutoTitleEnabled = &localTitle
 
 	target.VertexAI.ProjectID = req.Vertex.ProjectID
 	target.VertexAI.Region = req.Vertex.Region
@@ -309,6 +332,10 @@ func (b *Bindings) UpdateProfile(id string, req UpdateProfileRequest) (UpdatePro
 	target.VertexAI.ContextBudget = budgetFromData(req.Vertex.ContextBudget)
 	target.VertexAI.RequestTimeoutSeconds = req.Vertex.RequestTimeoutSeconds
 	target.VertexAI.RetryMaxAttempts = req.Vertex.RetryMaxAttempts
+	vertexExtract := req.Vertex.AutoExtractEnabled
+	target.VertexAI.AutoExtractEnabled = &vertexExtract
+	vertexTitle := req.Vertex.AutoTitleEnabled
+	target.VertexAI.AutoTitleEnabled = &vertexTitle
 
 	if err := b.cfg.Save(); err != nil {
 		*target = prevProfile

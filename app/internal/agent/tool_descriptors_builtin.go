@@ -37,7 +37,7 @@ import (
 // "analysis" because that's where the ListTools section
 // lived.
 func (a *Agent) builtinDescriptors() []ToolDescriptor {
-	return []ToolDescriptor{
+	out := []ToolDescriptor{
 		{
 			Name:        "resolve-date",
 			Description: "Resolve relative date expressions to absolute dates. Use when you need to calculate dates like 'last Thursday', '3 weeks ago', 'first Monday of last month'.",
@@ -126,4 +126,37 @@ func (a *Agent) builtinDescriptors() []ToolDescriptor {
 			},
 		},
 	}
+	// ADR-0019: remember-fact is always registered as a descriptor
+	// so the dispatcher can route the call if the LLM ever emits
+	// the name. Whether the LLM SEES it in its tool list is decided
+	// at buildToolDefs time via autoExtractEnabled() — the live
+	// gate respects per-profile and /model switches without rebuilding
+	// the descriptor cache.
+	out = append(out, ToolDescriptor{
+		Name:        "remember-fact",
+		Description: "Save a fact about the user to memory so it persists across turns and (for preference/decision) sessions. Use when the user states a stable preference, makes an explicit decision, or shares a fact about themselves that will matter later. Do NOT use for transient context or anything already obvious from the conversation history. Aim for at most a few calls per session.",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"fact": map[string]any{
+					"type":        "string",
+					"description": "Concise statement of the fact (one sentence). Written in the user's own words when possible.",
+				},
+				"category": map[string]any{
+					"type":        "string",
+					"enum":        []string{"preference", "decision", "fact", "context"},
+					"description": "preference/decision persist cross-session in Global Memory; fact/context stay in the current session's memory.",
+				},
+			},
+			"required": []string{"fact", "category"},
+		},
+		Category:            "write",
+		Source:              "builtin",
+		MITLDefault:         false,
+		HideUntilDataLoaded: false,
+		Handle: wrapErrHandler(func(_ context.Context, args string) (string, error) {
+			return a.toolRememberFact(args)
+		}),
+	})
+	return out
 }

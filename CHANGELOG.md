@@ -5,6 +5,90 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.13.2] - 2026-05-20
+
+Closes the gap left after v0.13.0 + v0.13.1: even with a byte-
+stable system prompt and a stable guard nonce, production
+turn-to-turn latency was still ~28 s on 15 K-token local sessions.
+Debug-log instrumentation (`SHELL_AGENT_DEBUG_LLM=1`) plus
+direct curl experiments identified the culprit as the per-turn
+auto-extraction LLM call evicting llama.cpp's single
+prefix-KV-cache slot between every turn ([ADR-0019](docs/en/adr/0019-llm-driven-memory-tool.md)).
+
+### Added
+
+- **`remember-fact` builtin tool.** Lets the assistant
+  explicitly persist a user fact to memory during a turn, with
+  category routing identical to auto-extraction
+  (`preference` / `decision` → `GlobalMemory`,
+  `fact` / `context` → `SessionMemory`). The same
+  `IsSelfReferential` filter protects against THINK-leakage
+  facts. Audit-friendly: every saved fact is visible as a tool
+  call in the conversation transcript.
+- **Per-backend `auto_extract_enabled` setting.** Local default
+  is **off** (cache preservation wins on llama.cpp); Vertex
+  default is **on** (its KV cache is per-request-stream and
+  unaffected by auxiliary calls). Configurable from the
+  Settings → Profile editor on each backend section.
+- **Source provenance for tool-saved facts.** New
+  `GlobalSourceToolCall` / `SessionSourceToolCall` constants so
+  the audit trail distinguishes assistant-tool saves from
+  auto-extracted records.
+
+### Changed
+
+- `postResponseTasks` skips the extraction goroutine, the
+  `extractionInFlight` flag, and the `agent:extraction:*`
+  events when AutoExtract is off — no UI "Extracting…" state,
+  no queued-send hold-up. Title generation still runs.
+- `buildToolDefs` hides `remember-fact` from the LLM-presented
+  tool list when AutoExtract is on; the two paths address the
+  same need and offering both creates duplication risk. The
+  descriptor itself is always registered so the dispatcher can
+  route a call if the LLM ever emits the name.
+- System prompt: added a short usage hint for `remember-fact`
+  (active only when the tool is in the LLM's tool list; ~50
+  tokens always-on cost).
+
+### Migration
+
+Existing configs upgrade silently: the missing
+`auto_extract_enabled` field resolves to the backend default
+via accessor methods. Local users get the cache-preservation
+default automatically; opt back in via Settings if recall
+matters more than latency for your workflow.
+
+### Fixed (post-release diagnosis, same version)
+
+Diagnostic-log inspection after v0.13.2's first build revealed
+that the `tools` array in each LLM request was being emitted in
+non-deterministic order — `toolcall.Registry.All()` and the MCP
+guardian map were both iterated without sorting. The JSON body
+therefore diverged byte-for-byte just past the messages array on
+every turn, which defeats llama.cpp's prefix-cache reuse even
+when the system block and the messages array themselves are
+byte-stable. ADR-0017 / 0018 / 0019 all targeted the messages
+half of the body and missed the tools half. Fixed by sorting
+both: `Registry.All()` returns tools by Name, and `buildToolDefs`
+iterates the guardian map in sorted name order. Measured impact:
+turn-N round-1 → round-2 latency 29 s → 2 s.
+
+### Added (ADR-0020)
+
+- **`auto_title_enabled` per-backend setting.** Mirrors
+  `auto_extract_enabled` (ADR-0019). Local default: off; Vertex
+  default: on. When off, `generateTitleIfNeeded` returns early
+  and the session keeps its `"New Session"` placeholder title
+  until the user renames it via the Sessions list.
+
+### Changed
+
+- Skipping the title-gen LLM call eliminates the only remaining
+  per-session auxiliary call between turn 1 and turn 2 on local.
+  Turn 2 latency should now drop from ~28 s to sub-second on
+  fresh sessions (same prefix-cache mechanism that already showed
+  the 14× speedup for turn-N rounds).
+
 ## [0.13.1] - 2026-05-20
 
 Real-world activation of the v0.13.0 prompt-prefix-stability

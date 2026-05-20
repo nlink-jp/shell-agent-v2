@@ -54,6 +54,8 @@ func (v *Vertex) Chat(ctx context.Context, messages []Message, tools []ToolDef) 
 
 	contents := v.buildContents(messages)
 
+	dumpVertexRequest(gcConfig, contents)
+
 	resp, err := client.Models.GenerateContent(ctx, v.cfg.Model, contents, gcConfig)
 	if err != nil {
 		return nil, fmt.Errorf("vertex AI: %w", err)
@@ -87,6 +89,8 @@ func (v *Vertex) ChatStream(ctx context.Context, messages []Message, tools []Too
 	}
 
 	contents := v.buildContents(messages)
+
+	dumpVertexRequest(gcConfig, contents)
 
 	iter := client.Models.GenerateContentStream(ctx, v.cfg.Model, contents, gcConfig)
 

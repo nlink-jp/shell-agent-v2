@@ -41,6 +41,49 @@ type LocalConfig struct {
 	RetryBackoffBaseSeconds int `json:"retry_backoff_base_seconds,omitempty"`
 	RetryBackoffMaxSeconds  int `json:"retry_backoff_max_seconds,omitempty"`
 	RetryJitterSeconds      int `json:"retry_jitter_seconds,omitempty"`
+
+	// AutoExtractEnabled gates the after-turn memory-extraction LLM
+	// call (ADR-0015). nil → use backend default (local: off).
+	// Default false for local: the extraction call evicts llama.cpp's
+	// single prefix-KV-cache slot and forces the next turn into a
+	// cold re-encode of the whole history (ADR-0019 §1). Users who
+	// prefer recall over latency can opt in via Settings.
+	AutoExtractEnabled *bool `json:"auto_extract_enabled,omitempty"`
+
+	// AutoTitleEnabled gates the after-first-turn title-generation
+	// LLM call. Same cache-eviction concern as AutoExtractEnabled but
+	// limited to turn 2 (title gen is one-shot per session). When
+	// off, the session stays untitled until the user renames it.
+	// See ADR-0020.
+	AutoTitleEnabled *bool `json:"auto_title_enabled,omitempty"`
+}
+
+// LocalAutoExtractDefault is the default for LocalConfig.
+// AutoExtractEnabled when the field is absent. False because the
+// extraction call destroys local KV-cache prefix reuse (ADR-0019).
+const LocalAutoExtractDefault = false
+
+// LocalAutoTitleDefault is the default for LocalConfig.AutoTitleEnabled
+// when the field is absent. False for the same prefix-cache reason as
+// LocalAutoExtractDefault (ADR-0020).
+const LocalAutoTitleDefault = false
+
+// AutoExtract resolves the effective AutoExtractEnabled value,
+// falling back to LocalAutoExtractDefault when nil.
+func (c LocalConfig) AutoExtract() bool {
+	if c.AutoExtractEnabled == nil {
+		return LocalAutoExtractDefault
+	}
+	return *c.AutoExtractEnabled
+}
+
+// AutoTitle resolves the effective AutoTitleEnabled value,
+// falling back to LocalAutoTitleDefault when nil.
+func (c LocalConfig) AutoTitle() bool {
+	if c.AutoTitleEnabled == nil {
+		return LocalAutoTitleDefault
+	}
+	return *c.AutoTitleEnabled
 }
 
 // VertexAIConfig holds Vertex AI settings.
@@ -62,6 +105,44 @@ type VertexAIConfig struct {
 	RetryBackoffBaseSeconds int `json:"retry_backoff_base_seconds,omitempty"`
 	RetryBackoffMaxSeconds  int `json:"retry_backoff_max_seconds,omitempty"`
 	RetryJitterSeconds      int `json:"retry_jitter_seconds,omitempty"`
+
+	// AutoExtractEnabled — see LocalConfig. nil → use backend default
+	// (vertex: on). Default true for Vertex because its server-side
+	// KV cache is per-request-stream and is not evicted by auxiliary
+	// extraction calls (ADR-0019 §1).
+	AutoExtractEnabled *bool `json:"auto_extract_enabled,omitempty"`
+
+	// AutoTitleEnabled — see LocalConfig. nil → use backend default
+	// (vertex: on). Default true for Vertex because the title-gen
+	// LLM call doesn't penalise its cache model (ADR-0020).
+	AutoTitleEnabled *bool `json:"auto_title_enabled,omitempty"`
+}
+
+// VertexAutoExtractDefault is the default for VertexAIConfig.
+// AutoExtractEnabled when the field is absent. True because Vertex's
+// cache model does not penalise an auxiliary extraction call.
+const VertexAutoExtractDefault = true
+
+// VertexAutoTitleDefault is the default for VertexAIConfig.
+// AutoTitleEnabled when the field is absent (ADR-0020).
+const VertexAutoTitleDefault = true
+
+// AutoExtract resolves the effective AutoExtractEnabled value,
+// falling back to VertexAutoExtractDefault when nil.
+func (c VertexAIConfig) AutoExtract() bool {
+	if c.AutoExtractEnabled == nil {
+		return VertexAutoExtractDefault
+	}
+	return *c.AutoExtractEnabled
+}
+
+// AutoTitle resolves the effective AutoTitleEnabled value,
+// falling back to VertexAutoTitleDefault when nil.
+func (c VertexAIConfig) AutoTitle() bool {
+	if c.AutoTitleEnabled == nil {
+		return VertexAutoTitleDefault
+	}
+	return *c.AutoTitleEnabled
 }
 
 // LocalRequestTimeoutDefault is the fallback per-request timeout
@@ -273,6 +354,10 @@ func (c *Config) LogLevelString() string {
 
 // Default returns a Config with default values.
 func Default() *Config {
+	localExtract := LocalAutoExtractDefault
+	vertexExtract := VertexAutoExtractDefault
+	localTitle := LocalAutoTitleDefault
+	vertexTitle := VertexAutoTitleDefault
 	defaultProfile := LLMProfile{
 		ID:             NewProfileID(),
 		Name:           DefaultProfileName,
@@ -288,6 +373,8 @@ func Default() *Config {
 				MaxToolResultTokens: 2048,
 				OutputReserve:       DefaultOutputReserve,
 			},
+			AutoExtractEnabled: &localExtract,
+			AutoTitleEnabled:   &localTitle,
 		},
 		VertexAI: VertexAIConfig{
 			ProjectID:             "",
@@ -300,6 +387,8 @@ func Default() *Config {
 				MaxToolResultTokens: 32768,
 				OutputReserve:       DefaultOutputReserve,
 			},
+			AutoExtractEnabled: &vertexExtract,
+			AutoTitleEnabled:   &vertexTitle,
 		},
 	}
 	return &Config{

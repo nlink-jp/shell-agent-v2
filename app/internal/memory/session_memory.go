@@ -27,6 +27,9 @@ var ValidSessionMemoryCategories = map[string]bool{
 const (
 	SessionSourceUserTurn      = "user_turn"
 	SessionSourceAssistantTurn = "assistant_turn"
+	// SessionSourceToolCall: written via the remember-fact builtin
+	// tool (ADR-0019). See GlobalSourceToolCall for rationale.
+	SessionSourceToolCall = "tool_call"
 )
 
 // SessionMemoryEntry is an auto-extracted session-context fact.

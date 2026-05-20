@@ -107,6 +107,48 @@ func TestScanDir(t *testing.T) {
 	}
 }
 
+// TestRegistry_All_StableSortedOrder pins the ADR-0019-followup
+// invariant: Registry.All() returns tools sorted by Name and the
+// order is stable across multiple calls. Map iteration in Go is
+// non-deterministic, and any per-turn reorder of the JSON tools
+// array sent to the LLM breaks llama.cpp's prompt-prefix KV cache.
+// This test guards against an accidental revert that re-introduces
+// the production regression diagnosed in the v0.13.2 follow-up.
+func TestRegistry_All_StableSortedOrder(t *testing.T) {
+	r := NewRegistry()
+	// Insert in deliberately unsorted order so a buggy map iteration
+	// would have several chances to surface as out-of-order output.
+	names := []string{"zebra", "alpha", "mango", "kilo", "bravo", "yankee"}
+	for _, n := range names {
+		r.tools[n] = &Tool{Name: n}
+	}
+
+	first := r.All()
+	got := make([]string, len(first))
+	for i, t := range first {
+		got[i] = t.Name
+	}
+	want := []string{"alpha", "bravo", "kilo", "mango", "yankee", "zebra"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("All()[%d] = %q, want %q (got=%v)", i, got[i], want[i], got)
+		}
+	}
+
+	// Stability across calls: 10 successive calls must yield byte-
+	// identical order. Anything else means we accidentally hit a
+	// non-deterministic path again.
+	for i := 0; i < 10; i++ {
+		next := r.All()
+		for j := range first {
+			if next[j].Name != first[j].Name {
+				t.Fatalf("All() call %d position %d: got %q want %q",
+					i+1, j, next[j].Name, first[j].Name)
+			}
+		}
+	}
+}
+
 func TestScanDirNonExistent(t *testing.T) {
 	r := NewRegistry()
 	err := r.ScanDir("/nonexistent/path")

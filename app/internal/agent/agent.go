@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -857,6 +858,34 @@ func (a *Agent) currentBackendKey() config.LLMBackend {
 // currentBudget returns the per-backend context budget for the active backend.
 func (a *Agent) currentBudget() config.ContextBudgetConfig {
 	return a.cfg.ContextBudgetFor(a.currentBackendKey())
+}
+
+// autoExtractEnabled reports whether the active profile's active
+// backend has the after-turn memory-extraction LLM call enabled
+// (ADR-0019). Reads through currentProfile + currentBackendKey, so
+// per-profile and live backend switches (/model command) are
+// honoured without restart.
+func (a *Agent) autoExtractEnabled() bool {
+	prof := a.currentProfile()
+	switch a.currentBackendKey() {
+	case config.BackendVertexAI:
+		return prof.VertexAI.AutoExtract()
+	default:
+		return prof.Local.AutoExtract()
+	}
+}
+
+// autoTitleEnabled reports whether the active profile's active
+// backend has the title-generation LLM call enabled (ADR-0020).
+// Same per-profile / live-switch semantics as autoExtractEnabled.
+func (a *Agent) autoTitleEnabled() bool {
+	prof := a.currentProfile()
+	switch a.currentBackendKey() {
+	case config.BackendVertexAI:
+		return prof.VertexAI.AutoTitle()
+	default:
+		return prof.Local.AutoTitle()
+	}
 }
 
 // documentMetaLookup returns a closure suitable for
@@ -2100,12 +2129,21 @@ func (a *Agent) postResponseTasks(parentCtx context.Context) {
 	// Both title and extraction are now bg-only; the wg
 	// continues to track them so LoadSession / Export / tests
 	// can drain them before mutating session state.
+	// ADR-0019: when AutoExtract is off for the active backend, skip
+	// the extraction goroutine + the extractionInFlight signalling
+	// entirely. The frontend's input bar stays in Ready (no Extracting
+	// tint), Send is never queued (queuedSend is only set when
+	// extractionInFlight is true), and no agent:extraction:* events
+	// fire. Title generation still runs.
 	a.mu.Lock()
 	a.postCancel = cancel
-	a.extractionInFlight = true
+	extractOn := a.autoExtractEnabled()
+	a.extractionInFlight = extractOn
 	a.state = StateIdle
 	a.mu.Unlock()
-	a.emitExtractionStarted()
+	if extractOn {
+		a.emitExtractionStarted()
+	}
 
 	// Title generation — first turn only, runs in bg.
 	a.postTasksWg.Add(1)
@@ -2113,6 +2151,10 @@ func (a *Agent) postResponseTasks(parentCtx context.Context) {
 		defer a.postTasksWg.Done()
 		a.trackBg(ctx, "title", func() error { return a.generateTitleIfNeeded(ctx) })
 	}()
+
+	if !extractOn {
+		return
+	}
 
 	// Memory extraction. Also on the wg so LoadSession's
 	// drain catches it (per-session bg writes must not race
@@ -2360,9 +2402,19 @@ func (a *Agent) buildToolDefs() []llm.ToolDef {
 	// invariant (which v0.5 enforced via the
 	// `if a.sandbox != nil` gate at this call site).
 
-	// Add MCP guardian tools
+	// Add MCP guardian tools. Iteration order matters for KV-cache
+	// prefix stability — see toolcall.Registry.All comment. The
+	// guardians map is iterated in name order here so the emitted
+	// tools array is deterministic across turns. g.Tools() is
+	// already deterministic (MCP returns a list, not a map).
 	a.guardiansMu.RLock()
-	for name, g := range a.guardians {
+	guardianNames := make([]string, 0, len(a.guardians))
+	for name := range a.guardians {
+		guardianNames = append(guardianNames, name)
+	}
+	sort.Strings(guardianNames)
+	for _, name := range guardianNames {
+		g := a.guardians[name]
 		for _, t := range g.Tools() {
 			var params any
 			if len(t.InputSchema) > 0 {
@@ -2381,6 +2433,14 @@ func (a *Agent) buildToolDefs() []llm.ToolDef {
 	disabled := make(map[string]bool)
 	for _, name := range a.cfg.Tools.DisabledTools {
 		disabled[name] = true
+	}
+	// ADR-0019: when auto-extraction is on for the active backend,
+	// hide remember-fact from the LLM. The two paths address the
+	// same need; offering both would create duplication risk and
+	// prompt clutter. The descriptor is still registered (so a call
+	// would dispatch correctly) — this is purely a presentation gate.
+	if a.autoExtractEnabled() {
+		disabled["remember-fact"] = true
 	}
 	if len(disabled) > 0 {
 		var filtered []llm.ToolDef
@@ -2757,6 +2817,16 @@ func (a *Agent) generateTitleIfNeeded(ctx context.Context) error {
 	if a.session == nil || a.session.Title != "New Session" {
 		return nil
 	}
+	// ADR-0020: skip the title-generation LLM call entirely when
+	// AutoTitle is off for the active backend. The session keeps
+	// its placeholder "New Session" title; the user can rename it
+	// via the Sessions list. The motivation is cache preservation:
+	// any auxiliary LLM call between turns evicts llama.cpp's
+	// single prefix-KV-cache slot and forces turn 2 into a cold
+	// re-encode.
+	if !a.autoTitleEnabled() {
+		return nil
+	}
 
 	var firstUser string
 	for _, r := range a.session.Records {
@@ -2805,6 +2875,8 @@ When you call a tool, include a brief explanation of what you are doing and why 
 When asked about dates, use the resolve-date tool if you are unsure about the calculation.
 
 When you discover a significant analysis insight (a pattern, anomaly, or conclusion that would be valuable across sessions), use the promote-finding tool to save it to the global findings store.
+
+When the user states a stable preference, makes an explicit decision, or shares a meaningful fact about themselves that will matter in later turns or sessions, use the remember-fact tool to persist it. Do NOT use it for transient context or anything already obvious from the conversation history.
 
 When the user asks you to create a report, summary document, or formatted output, you MUST use the create-report tool. Do not write the report as a chat message — always call the create-report tool so the report is properly structured and rendered with full markdown support. Use GitHub-flavored Markdown only; do NOT emit raw HTML tags (e.g. <br>, <table>, <details>, <sub>) — the renderer escapes them and they appear as plain text.
 

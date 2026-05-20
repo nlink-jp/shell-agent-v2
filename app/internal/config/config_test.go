@@ -44,6 +44,77 @@ func TestDefault_RequestTimeoutSeconds(t *testing.T) {
 	}
 }
 
+func TestDefault_AutoExtract(t *testing.T) {
+	cfg := Default()
+	prof := cfg.LLM.DefaultProfile()
+	if prof.Local.AutoExtract() != LocalAutoExtractDefault {
+		t.Errorf("Local.AutoExtract() = %v, want %v",
+			prof.Local.AutoExtract(), LocalAutoExtractDefault)
+	}
+	if prof.VertexAI.AutoExtract() != VertexAutoExtractDefault {
+		t.Errorf("VertexAI.AutoExtract() = %v, want %v",
+			prof.VertexAI.AutoExtract(), VertexAutoExtractDefault)
+	}
+	// Sanity: the two defaults differ in the direction ADR-0019 §1
+	// specifies — local off, vertex on.
+	if LocalAutoExtractDefault != false || VertexAutoExtractDefault != true {
+		t.Errorf("backend defaults drifted from ADR-0019: local=%v vertex=%v",
+			LocalAutoExtractDefault, VertexAutoExtractDefault)
+	}
+}
+
+// TestDefault_AutoTitle: ADR-0020 invariant — fresh config has local
+// title-gen off and Vertex on, matching the per-backend cache-cost
+// asymmetry.
+func TestDefault_AutoTitle(t *testing.T) {
+	cfg := Default()
+	prof := cfg.LLM.DefaultProfile()
+	if prof.Local.AutoTitle() != LocalAutoTitleDefault {
+		t.Errorf("Local.AutoTitle() = %v, want %v",
+			prof.Local.AutoTitle(), LocalAutoTitleDefault)
+	}
+	if prof.VertexAI.AutoTitle() != VertexAutoTitleDefault {
+		t.Errorf("VertexAI.AutoTitle() = %v, want %v",
+			prof.VertexAI.AutoTitle(), VertexAutoTitleDefault)
+	}
+	if LocalAutoTitleDefault != false || VertexAutoTitleDefault != true {
+		t.Errorf("backend defaults drifted from ADR-0020: local=%v vertex=%v",
+			LocalAutoTitleDefault, VertexAutoTitleDefault)
+	}
+}
+
+func TestAutoTitle_FallbackWhenNil(t *testing.T) {
+	if got := (LocalConfig{}).AutoTitle(); got != LocalAutoTitleDefault {
+		t.Errorf("LocalConfig{}.AutoTitle() = %v, want %v", got, LocalAutoTitleDefault)
+	}
+	if got := (VertexAIConfig{}).AutoTitle(); got != VertexAutoTitleDefault {
+		t.Errorf("VertexAIConfig{}.AutoTitle() = %v, want %v", got, VertexAutoTitleDefault)
+	}
+	tru, fls := true, false
+	if got := (LocalConfig{AutoTitleEnabled: &tru}).AutoTitle(); got != true {
+		t.Errorf("explicit true should win over local default; got %v", got)
+	}
+	if got := (VertexAIConfig{AutoTitleEnabled: &fls}).AutoTitle(); got != false {
+		t.Errorf("explicit false should win over vertex default; got %v", got)
+	}
+}
+
+func TestAutoExtract_FallbackWhenNil(t *testing.T) {
+	if got := (LocalConfig{}).AutoExtract(); got != LocalAutoExtractDefault {
+		t.Errorf("LocalConfig{}.AutoExtract() = %v, want %v", got, LocalAutoExtractDefault)
+	}
+	if got := (VertexAIConfig{}).AutoExtract(); got != VertexAutoExtractDefault {
+		t.Errorf("VertexAIConfig{}.AutoExtract() = %v, want %v", got, VertexAutoExtractDefault)
+	}
+	tru, fls := true, false
+	if got := (LocalConfig{AutoExtractEnabled: &tru}).AutoExtract(); got != true {
+		t.Errorf("explicit true should win over local default; got %v", got)
+	}
+	if got := (VertexAIConfig{AutoExtractEnabled: &fls}).AutoExtract(); got != false {
+		t.Errorf("explicit false should win over vertex default; got %v", got)
+	}
+}
+
 func TestRequestTimeout_FallbackWhenZero(t *testing.T) {
 	if got := (LocalConfig{}).LocalRequestTimeout(); got != LocalRequestTimeoutDefault {
 		t.Errorf("LocalConfig{}.LocalRequestTimeout() = %d, want %d", got, LocalRequestTimeoutDefault)

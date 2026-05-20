@@ -70,24 +70,24 @@ func agentForToolDefs(t *testing.T) *Agent {
 // v0.6: descriptor-derived count merges the builtin tools
 // (resolve-date / list-objects / get-object / register-object,
 // 4 tools) into the same iteration that previously only
-// returned analysis-source tools. Counts:
-//   - Legacy no-data:   4 builtin + 3 always-visible analysis + 3 text = 10
-//   - Legacy with-data: 10 + 8 data-gated = 18
-// Pre-refactor analysisTools output was 9 (analysis-only) and
-// resolve-date was added separately by buildToolDefs, so the
-// LLM saw 10 tools either way — the count this test pins
-// shifts because the unit under test now covers both halves.
+// returned analysis-source tools. v0.13.2 (ADR-0019) adds
+// remember-fact to the builtin bucket, bringing it to 5.
+// Counts:
+//   - Legacy no-data:   5 builtin + 3 always-visible analysis + 3 text = 11
+//   - Legacy with-data: 11 + 8 data-gated = 19
+// Note: remember-fact is filtered at buildToolDefs time when
+// auto-extraction is on; descriptorToolDefs is the unfiltered view.
 func TestAnalysisToolsFiltering(t *testing.T) {
 	a := agentForToolDefs(t)
 
 	tools := a.descriptorToolDefs(false, true)
-	if len(tools) != 10 {
-		t.Errorf("legacy no-data tools count = %d, want 10", len(tools))
+	if len(tools) != 11 {
+		t.Errorf("legacy no-data tools count = %d, want 11", len(tools))
 	}
 
 	tools = a.descriptorToolDefs(true, true)
-	if len(tools) <= 10 {
-		t.Errorf("legacy with-data tools count = %d, want > 10", len(tools))
+	if len(tools) <= 11 {
+		t.Errorf("legacy with-data tools count = %d, want > 11", len(tools))
 	}
 	if !containsTool(tools, "promote-finding") {
 		t.Error("promote-finding not in legacy with-data tools")
@@ -112,12 +112,13 @@ func TestAnalysisTools_FullSetByDefault_AllowsPlanning(t *testing.T) {
 // flag (cfg.Tools.HideAnalysisToolsUntilDataLoaded=true) restores
 // the pre-v0.1.21 split. v0.6 includes builtin tools (4) in the
 // always-visible count along with the v0.5 analysis 6 + text 3 = 13.
+// v0.13.2 (ADR-0019) adds remember-fact → 11 always-visible.
 func TestAnalysisTools_HideFlagRestoresLegacyBehaviour(t *testing.T) {
 	a := agentForToolDefs(t)
 	short := a.descriptorToolDefs(false, true)
 	full := a.descriptorToolDefs(true, true)
-	if len(short) != 10 {
-		t.Errorf("hide-flag, no data: %d tools, want 10", len(short))
+	if len(short) != 11 {
+		t.Errorf("hide-flag, no data: %d tools, want 11", len(short))
 	}
 	if len(full) <= len(short) {
 		t.Errorf("hide-flag, with-data tools (%d) should be more than no-data (%d)", len(full), len(short))
