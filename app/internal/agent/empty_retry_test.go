@@ -26,8 +26,8 @@ func TestAgentLoop_EmptyResponseTriggersWrapUpRetry(t *testing.T) {
 	}
 	a.postTasksWg.Wait() // drain background tasks before reading mock state
 
-	if result != "wrap-up text" {
-		t.Errorf("result = %q, want wrap-up text", result)
+	if result.Content != "wrap-up text" {
+		t.Errorf("result = %q, want wrap-up text", result.Content)
 	}
 
 	calls := mock.Calls()
@@ -56,7 +56,7 @@ func TestAgentLoop_EmptyAfterRetryEndsCleanly(t *testing.T) {
 	a := newTestAgent(t, mock)
 
 	done := make(chan struct{})
-	var result string
+	var result SendResult
 	var err error
 	go func() {
 		result, err = a.Send(context.Background(), "hello")
@@ -75,8 +75,8 @@ func TestAgentLoop_EmptyAfterRetryEndsCleanly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Send: %v", err)
 	}
-	if result != "" {
-		t.Errorf("result = %q, want empty (both attempts returned empty)", result)
+	if result.Content != "" {
+		t.Errorf("result = %q, want empty (both attempts returned empty)", result.Content)
 	}
 }
 
@@ -96,8 +96,8 @@ func TestAgentLoop_NonEmptyResponseDoesNotTriggerRetry(t *testing.T) {
 	}
 	a.postTasksWg.Wait()
 
-	if result != "Hello!" {
-		t.Errorf("result = %q, want Hello!", result)
+	if result.Content != "Hello!" {
+		t.Errorf("result = %q, want Hello!", result.Content)
 	}
 
 	// Inspect the first call: it must NOT contain the wrap-up nudge

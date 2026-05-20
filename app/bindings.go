@@ -144,6 +144,28 @@ func (b *Bindings) startup(ctx context.Context) {
 			wailsRuntime.EventsEmit(b.ctx, "agent:queue_cleared", map[string]any{})
 			return
 		}
+		if ev.Dispatched {
+			// ADR-0021 follow-up: extraction is done and the queued
+			// SEND is about to start a new turn. Frontend uses this
+			// to switch its "Thinking…" indicator on, since the
+			// auto-dispatched turn doesn't trigger the optimistic
+			// state transition that the user-initiated handleSend
+			// path does.
+			wailsRuntime.EventsEmit(b.ctx, "agent:queue_dispatched", map[string]any{
+				"message": ev.Message,
+			})
+			return
+		}
+		if ev.DispatchedReply {
+			// ADR-0021 follow-up: the auto-dispatched turn's final
+			// reply arrives via this event so the frontend can
+			// append it as an assistant bubble. Pre-fix the reply
+			// only surfaced after a session reload.
+			wailsRuntime.EventsEmit(b.ctx, "agent:queue_dispatched_reply", map[string]any{
+				"reply": ev.Reply,
+			})
+			return
+		}
 		wailsRuntime.EventsEmit(b.ctx, "agent:queued", map[string]any{
 			"at":      ev.At.Format("2006-01-02T15:04:05Z07:00"),
 			"message": ev.Message,
@@ -259,15 +281,34 @@ func (b *Bindings) IsBusy() bool {
 	if b.agent == nil {
 		return false
 	}
-	return b.agent.State() == agent.StateBusy ||
-		b.agent.IsExtractionInFlight() ||
-		b.agent.HasQueuedSend()
+	// ADR-0021 §2.3 / audit V6: agent.IsBusy() is now atomic across
+	// all three FSM fields (single lock acquisition). The previous
+	// triple-getter pattern (state, extractionInFlight, queuedSend
+	// each on its own lock) could see a torn read and false-negative
+	// IsBusy when extraction completed between two of the reads.
+	return b.agent.IsBusy()
 }
 
-// Send sends a user message to the agent.
-func (b *Bindings) Send(message string) (string, error) {
+// Snapshot returns the agent's FSM phase + queued message. The
+// frontend calls this on mount to seed its local state without
+// depending on event replay. ADR-0021 §2.3.
+func (b *Bindings) Snapshot() agent.AgentSnapshot {
 	if b.agent == nil {
-		return "", fmt.Errorf("agent not initialised yet")
+		return agent.AgentSnapshot{Phase: agent.PhaseReady}
+	}
+	return b.agent.Snapshot()
+}
+
+// Send sends a user message to the agent. Returns SendResult per
+// ADR-0021 §2.2 — the frontend reads SendResult.Phase to decide how
+// to render the outcome (assistant bubble / queued pill / command
+// popup / error). Previously returned a bare string that callers
+// had to sniff for magic prefixes ("QUEUED", "[CMD]…"); the audit
+// (V3) caught a bug where "QUEUED" was being appended as a literal
+// assistant bubble.
+func (b *Bindings) Send(message string) (agent.SendResult, error) {
+	if b.agent == nil {
+		return agent.SendResult{Phase: agent.SendPhaseError, ErrorMessage: "agent not initialised yet"}, fmt.Errorf("agent not initialised yet")
 	}
 	return b.agent.Send(b.ctx, message)
 }
@@ -282,7 +323,7 @@ func (b *Bindings) Send(message string) (string, error) {
 // ObjectIDs), markdown / plain-text attachments flow into the
 // new DocumentIDs slice and surface to the LLM via anchor lines
 // prepended in the contextbuild render path.
-func (b *Bindings) SendWithImages(message string, imageDataURLs, imageNames []string) (string, error) {
+func (b *Bindings) SendWithImages(message string, imageDataURLs, imageNames []string) (agent.SendResult, error) {
 	var imageObjectIDs []string
 	var imageOnlyDataURLs []string
 	var documentObjectIDs []string

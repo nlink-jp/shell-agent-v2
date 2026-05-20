@@ -53,6 +53,9 @@ func (a *Agent) ExportSession(sessionID, destPath, appVersion string) (size int6
 		a.mu.Unlock()
 		return 0, 0, ErrBusy
 	}
+	// ADR-0021 §2.4: defensive FSM reset after wg.Wait. See
+	// session_delete.go for the rationale (audit V7).
+	a.resetStateMachine()
 	a.state = StateBusy
 	a.mu.Unlock()
 	defer func() {
@@ -162,6 +165,8 @@ func (a *Agent) ImportSession(srcPath string) (newSessionID string, private bool
 		a.mu.Unlock()
 		return "", false, 0, 0, ErrBusy
 	}
+	// ADR-0021 §2.4: defensive FSM reset (audit V7).
+	a.resetStateMachine()
 	a.state = StateBusy
 	a.mu.Unlock()
 	defer func() {

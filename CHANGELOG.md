@@ -5,6 +5,76 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.14.0] - 2026-05-20
+
+State-machine consistency overhaul ([ADR-0021](docs/en/adr/0021-state-machine-consistency.md)).
+
+A user-reported regression in v0.13.3 ("UI shows Idle but Send returns
+QUEUED, then Busy displays while input still accepts text, then state
+drifts") triggered a full audit of the deferred-extraction FSM
+introduced in ADR-0015. The audit surfaced **twelve distinct invariant
+violations** — races between Wails events and flag writes, panic-
+bypassable cleanup paths, stale flags surviving session switches, a
+non-atomic IsBusy reading three mu-protected fields in three lock
+cycles, an auto-dispatch goroutine outside the wg, plus the visible
+"QUEUED" string mis-rendered as an assistant chat bubble.
+
+This release formalises the FSM and makes the Send response the
+authoritative state source instead of Wails events.
+
+### Added
+
+- **Formal four-phase FSM** (Ready / Busy / Extracting / Queued)
+  encoded as `(state, extractionInFlight, queuedSend!=nil)`. ADR-0021
+  §2.1 documents the diagram, valid transitions, and invalid
+  combinations.
+- **`SendResult` structured response.** `Send` / `SendWithImages`
+  return `{phase, content, cmd_result, queued_at, error_message}`
+  instead of a bare string with magic prefixes. Frontend routes on
+  `phase` — no more `[CMD]…` / `"QUEUED"` sniffing.
+- **`Snapshot()` binding.** Returns the FSM phase under a single
+  lock acquisition; frontend calls it on mount to seed UI state
+  without relying on event replay.
+- **`resetStateMachine()` helper.** Defensively clears the FSM
+  fields; called by `LoadSession` / `DeleteSession` / `Export` /
+  `Import` / `Abort` after `postTasksWg.Wait()` to recover from any
+  path that left a flag stranded.
+
+### Changed
+
+- `IsBusy()` is now atomic across all three FSM fields (audit V6).
+- `Abort` clears `extractionInFlight` together with `queuedSend`
+  and emits a synthesised `extraction:done` so listeners catch the
+  transition (audit V8).
+- `/model` and `SwitchBackend` wait on `postTasksWg` before
+  rebuilding the LLM backend client, so in-flight title / extraction
+  goroutines don't reference a freed backend (audit V9).
+- The extraction-goroutine auto-dispatch is now registered on
+  `postTasksWg` so `LoadSession` actually waits for it (audit V2).
+- The extraction goroutine's cleanup runs in a `defer` block so
+  it fires on every exit path including panics; previously a
+  straight-line cleanup was bypassed by panics inside trackBg
+  (audit V4).
+- `trackBg` wraps `fn()` in `defer recover()`, converting panics
+  to errors that flow through the existing BgTaskEvent reporting
+  path (audit V10).
+- Frontend `handleSend` consumes `SendResult.Phase` directly. The
+  "QUEUED" assistant-bubble bug (audit V3) is gone — queued sends
+  no longer pollute the chat with a literal "QUEUED" message.
+- Frontend mounts call `Snapshot()` to seed `extractionPending` /
+  `queuedMessage`, so a dev-tools reload mid-extraction restores
+  the correct indicators.
+
+### Migration
+
+- Internal API break: `Agent.Send` / `Agent.SendWithImages` /
+  `Bindings.Send` / `Bindings.SendWithImages` now return
+  `SendResult`. Frontend updated in the same release; no external
+  consumers.
+- No settings / session-file schema changes.
+- Existing tests adapted to the new return type. The
+  `extractMemoriesOverride` test hook is unchanged.
+
 ## [0.13.3] - 2026-05-20
 
 ### Fixed

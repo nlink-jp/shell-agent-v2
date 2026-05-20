@@ -184,17 +184,17 @@ func TestMultipleCommandsSequentially(t *testing.T) {
 
 	// Multiple commands should work sequentially
 	r1, _ := a.Send(context.Background(), "/model")
-	if r1 == "" {
+	if r1.CmdResult == "" {
 		t.Error("empty response from /model")
 	}
 
 	r2, _ := a.Send(context.Background(), "/model vertex")
-	if r2 == "" {
+	if r2.CmdResult == "" {
 		t.Error("empty response from /model vertex")
 	}
 
 	r3, _ := a.Send(context.Background(), "/model local")
-	if r3 == "" {
+	if r3.CmdResult == "" {
 		t.Error("empty response from /model local")
 	}
 

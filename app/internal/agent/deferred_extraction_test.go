@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/nlink-jp/shell-agent-v2/internal/config"
+	"github.com/nlink-jp/shell-agent-v2/internal/memory"
 )
 
 // TestDeferredExtraction_UIUnlocksBeforeExtraction verifies the
@@ -92,6 +93,269 @@ func TestDeferredExtraction_RealExtractorPathIsDefault(t *testing.T) {
 	a := New(withAutoExtract(config.Default()))
 	if a.extractMemoriesOverride != nil {
 		t.Fatal("New() must not pre-populate extractMemoriesOverride")
+	}
+}
+
+// TestAbort_ClearsExtractionInFlight pins ADR-0021 §2.4 / audit V8:
+// Abort must clear the extractionInFlight flag together with
+// queuedSend. The previous behaviour cancelled the extraction
+// context but left the flag set until the goroutine's normal
+// cleanup ran — a SEND in that window queued instead of starting
+// fresh, which surprises the user who just aborted.
+func TestAbort_ClearsExtractionInFlight(t *testing.T) {
+	a := New(withAutoExtract(config.Default()))
+
+	// Hold extraction in flight until released.
+	release := make(chan struct{})
+	a.extractMemoriesOverride = func(ctx context.Context) error {
+		select {
+		case <-release:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
+	a.mu.Lock()
+	a.state = StateBusy
+	a.mu.Unlock()
+	a.postResponseTasks(context.Background())
+
+	if !waitFor(50*time.Millisecond, 2*time.Second, func() bool {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		return a.extractionInFlight
+	}) {
+		t.Fatal("extractionInFlight never became true")
+	}
+
+	a.Abort()
+
+	a.mu.Lock()
+	inFlight := a.extractionInFlight
+	queued := a.queuedSend
+	a.mu.Unlock()
+
+	if inFlight {
+		t.Errorf("extractionInFlight = true after Abort, want false (audit V8)")
+	}
+	if queued != nil {
+		t.Errorf("queuedSend should be nil after Abort, got %v", queued)
+	}
+
+	// Release the held extraction so the goroutine can wind down.
+	close(release)
+}
+
+// TestLoadSession_ResetsStaleFlags pins ADR-0021 §2.4 / audit V7:
+// LoadSession defensively resets extractionInFlight + queuedSend
+// after wg.Wait(), so any stranded flag from a prior session's
+// panicking / leaked cleanup doesn't poison the new session.
+func TestLoadSession_ResetsStaleFlags(t *testing.T) {
+	a := New(withAutoExtract(config.Default()))
+
+	// Manually leak stale flags to simulate a prior session whose
+	// extraction goroutine panicked or whose cleanup was skipped.
+	a.mu.Lock()
+	a.extractionInFlight = true
+	a.queuedSend = &queuedSend{Message: "stale"}
+	a.mu.Unlock()
+
+	if err := a.LoadSession(&memory.Session{ID: "fresh"}); err != nil {
+		t.Fatalf("LoadSession: %v", err)
+	}
+
+	a.mu.Lock()
+	inFlight := a.extractionInFlight
+	queued := a.queuedSend
+	a.mu.Unlock()
+
+	if inFlight {
+		t.Errorf("extractionInFlight stayed true after LoadSession (audit V7)")
+	}
+	if queued != nil {
+		t.Errorf("queuedSend not cleared by LoadSession: %v", queued)
+	}
+}
+
+// TestModelSwitch_WaitsForBgTasks pins ADR-0021 §2.4 / audit V9:
+// /model and SwitchBackend must drain postTasksWg before rebuilding
+// the LLM backend, so an in-flight extraction goroutine doesn't
+// race a backend swap mid-Chat call.
+func TestModelSwitch_WaitsForBgTasks(t *testing.T) {
+	a := New(withAutoExtract(config.Default()))
+
+	release := make(chan struct{})
+	a.extractMemoriesOverride = func(ctx context.Context) error {
+		select {
+		case <-release:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
+	// Bring up an in-flight extraction goroutine.
+	a.mu.Lock()
+	a.state = StateBusy
+	a.mu.Unlock()
+	a.postResponseTasks(context.Background())
+	if !waitFor(50*time.Millisecond, 2*time.Second, func() bool {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		return a.extractionInFlight
+	}) {
+		t.Fatal("extractionInFlight never became true")
+	}
+
+	// SwitchBackend should not return until extraction is done.
+	switchReturned := make(chan struct{})
+	go func() {
+		a.SwitchBackend(config.BackendLocal)
+		close(switchReturned)
+	}()
+
+	// Wait briefly — SwitchBackend should be blocked on postTasksWg.
+	select {
+	case <-switchReturned:
+		t.Fatal("SwitchBackend returned before extraction completed; postTasksWg.Wait() missing")
+	case <-time.After(200 * time.Millisecond):
+		// Expected — switch is still waiting.
+	}
+
+	// Release extraction; switch should now return.
+	close(release)
+	select {
+	case <-switchReturned:
+		// OK.
+	case <-time.After(2 * time.Second):
+		t.Fatal("SwitchBackend never returned after extraction released")
+	}
+}
+
+// TestAutoDispatch_DrainedByWait pins ADR-0021 §2.4 / audit V2:
+// the queue auto-dispatch goroutine must be registered on
+// postTasksWg so wg.Wait() in LoadSession etc. blocks until the
+// dispatched SendWithAttachments completes. Pre-fix this was a
+// bare goroutine, allowing a cross-session leak.
+//
+// Mechanism: simulate the auto-dispatch path by setting
+// extractMemoriesOverride to a fast-returning fn AND pre-loading
+// a queuedSend before calling postResponseTasks. After extraction
+// completes, the cleanup defer launches the auto-dispatch
+// goroutine; postTasksWg.Wait() should not return until that
+// dispatched call has finished.
+//
+// We don't have a clean way to mock SendWithAttachments itself
+// without a real session, so instead we install an extractor that
+// signals when the cleanup defer enters the auto-dispatch branch
+// and use a session-less agent (SendWithAttachments will reject
+// because session is nil, returning quickly — but it MUST have
+// been registered on the wg before that).
+func TestAutoDispatch_DrainedByWait(t *testing.T) {
+	a := New(withAutoExtract(config.Default()))
+	a.baseCtx = context.Background()
+
+	a.extractMemoriesOverride = func(ctx context.Context) error {
+		return nil
+	}
+
+	// Pre-seed the queued send so the cleanup defer enters the
+	// auto-dispatch branch.
+	a.mu.Lock()
+	a.queuedSend = &queuedSend{Message: "test"}
+	a.state = StateBusy
+	a.mu.Unlock()
+
+	a.postResponseTasks(context.Background())
+
+	// Wait() must block until BOTH the extraction goroutine AND
+	// the auto-dispatch goroutine complete. The dispatched
+	// SendWithAttachments will fail fast (no session), but the
+	// invariant is that it's wg-tracked.
+	doneCh := make(chan struct{})
+	go func() {
+		a.postTasksWg.Wait()
+		close(doneCh)
+	}()
+	select {
+	case <-doneCh:
+		// OK — both goroutines drained.
+	case <-time.After(3 * time.Second):
+		t.Fatal("postTasksWg.Wait() never returned; auto-dispatch likely not wg-tracked")
+	}
+}
+
+// TestSnapshot_PhaseForEachState walks the FSM through each phase
+// and asserts Snapshot reports the expected Phase string (ADR-0021
+// §2.1, §2.3).
+func TestSnapshot_PhaseForEachState(t *testing.T) {
+	a := New(withAutoExtract(config.Default()))
+
+	// Ready
+	if got := a.Snapshot().Phase; got != PhaseReady {
+		t.Errorf("fresh agent: Phase=%q want %q", got, PhaseReady)
+	}
+
+	// Busy
+	a.mu.Lock()
+	a.state = StateBusy
+	a.mu.Unlock()
+	if got := a.Snapshot().Phase; got != PhaseBusy {
+		t.Errorf("StateBusy: Phase=%q want %q", got, PhaseBusy)
+	}
+
+	// Extracting (state goes Idle while extraction runs in bg)
+	a.mu.Lock()
+	a.state = StateIdle
+	a.extractionInFlight = true
+	a.mu.Unlock()
+	if got := a.Snapshot().Phase; got != PhaseExtracting {
+		t.Errorf("extracting: Phase=%q want %q", got, PhaseExtracting)
+	}
+
+	// Queued (extracting + queued message)
+	a.mu.Lock()
+	a.queuedSend = &queuedSend{Message: "next message"}
+	a.mu.Unlock()
+	snap := a.Snapshot()
+	if snap.Phase != PhaseQueued {
+		t.Errorf("queued: Phase=%q want %q", snap.Phase, PhaseQueued)
+	}
+	if snap.QueuedMessage != "next message" {
+		t.Errorf("queued: QueuedMessage=%q want %q", snap.QueuedMessage, "next message")
+	}
+
+	// Back to Ready after clearing
+	a.mu.Lock()
+	a.resetStateMachine()
+	a.mu.Unlock()
+	if got := a.Snapshot().Phase; got != PhaseReady {
+		t.Errorf("after reset: Phase=%q want %q", got, PhaseReady)
+	}
+}
+
+// TestIsBusy_ReflectsAllPhases: IsBusy is true iff phase != Ready.
+func TestIsBusy_ReflectsAllPhases(t *testing.T) {
+	a := New(withAutoExtract(config.Default()))
+
+	if a.IsBusy() {
+		t.Error("fresh agent should not be busy")
+	}
+
+	a.mu.Lock()
+	a.extractionInFlight = true
+	a.mu.Unlock()
+	if !a.IsBusy() {
+		t.Error("extracting agent should be busy")
+	}
+
+	a.mu.Lock()
+	a.resetStateMachine()
+	a.state = StateBusy
+	a.mu.Unlock()
+	if !a.IsBusy() {
+		t.Error("StateBusy agent should be busy")
 	}
 }
 
@@ -211,8 +475,8 @@ func TestQueuedSend_HeldDuringExtraction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SendWithAttachments returned error during extraction: %v", err)
 	}
-	if result != "QUEUED" {
-		t.Errorf("result = %q, want \"QUEUED\"", result)
+	if result.Phase != SendPhaseQueued {
+		t.Errorf("result.Phase = %q, want SendPhaseQueued", result.Phase)
 	}
 
 	a.mu.Lock()

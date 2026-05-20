@@ -36,8 +36,8 @@ func TestE2E_SimpleChat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Send: %v", err)
 	}
-	if result != "Hello! How can I help?" {
-		t.Errorf("result = %q", result)
+	if result.Content != "Hello! How can I help?" {
+		t.Errorf("result = %q", result.Content)
 	}
 
 	// Verify message was added to session
@@ -71,7 +71,7 @@ func TestE2E_SlashPathNotCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Send: %v", err)
 	}
-	if result != "I'll load that file." {
+	if result.Content != "I'll load that file." {
 		t.Errorf("result = %q, want LLM response", result)
 	}
 	// Should have been sent to LLM, not handled as command
@@ -93,7 +93,7 @@ func TestE2E_ToolCallLoop(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Send: %v", err)
 	}
-	if result != "Today's date is confirmed." {
+	if result.Content != "Today's date is confirmed." {
 		t.Errorf("result = %q", result)
 	}
 
@@ -157,7 +157,7 @@ func TestE2E_AnalysisWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Send: %v", err)
 	}
-	if !strings.Contains(result, "Gadget") {
+	if !strings.Contains(result.Content, "Gadget") {
 		t.Errorf("result = %q, expected mention of Gadget", result)
 	}
 
@@ -347,7 +347,7 @@ func TestE2E_NonStreamingAgentLoop(t *testing.T) {
 		t.Fatalf("Send: %v", err)
 	}
 
-	if result != "Non-streamed response" {
+	if result.Content != "Non-streamed response" {
 		t.Errorf("result = %q", result)
 	}
 	// No streaming tokens expected — first round has tools active, uses Chat()
@@ -374,7 +374,7 @@ func TestE2E_ToolChainResponse(t *testing.T) {
 		t.Fatalf("Send: %v", err)
 	}
 
-	if result != "Today is confirmed." {
+	if result.Content != "Today is confirmed." {
 		t.Errorf("result = %q, want %q", result, "Today is confirmed.")
 	}
 
@@ -398,8 +398,9 @@ func TestE2E_ModelSwitchThenChat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Send /model: %v", err)
 	}
-	if !strings.Contains(result, "Vertex AI") {
-		t.Errorf("result = %q", result)
+	// /model is a slash command — its output is in CmdResult, not Content
+	if !strings.Contains(result.CmdResult, "Vertex AI") {
+		t.Errorf("result = %#v", result)
 	}
 	if a.CurrentBackend() != "vertex_ai" {
 		t.Errorf("backend = %v", a.CurrentBackend())
@@ -449,9 +450,9 @@ func TestE2E_AbortDuringExecution(t *testing.T) {
 	cancel()
 
 	result, _ := a.Send(ctx, "This should be cancelled")
-	if result != "(Cancelled)" {
+	if result.Content != "(Cancelled)" {
 		// May also get an error from the context, which is acceptable
-		if result != "" {
+		if result.Content != "" {
 			t.Logf("result = %q (acceptable if context cancelled)", result)
 		}
 	}

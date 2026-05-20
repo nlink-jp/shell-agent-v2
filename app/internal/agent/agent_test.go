@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -359,6 +360,45 @@ func TestTrackBg_CanceledNotReportedAsError(t *testing.T) {
 	// the body returned context.Canceled.
 	if events[1].Error != "" {
 		t.Errorf("canceled task reported Error=%q, want empty", events[1].Error)
+	}
+}
+
+// TestTrackBg_RecoversFromPanic locks down ADR-0021 §2.4: a panic
+// inside the wrapped fn must be converted to an error and reported
+// via the end event so any cleanup code that follows trackBg
+// (e.g. the extraction goroutine's deferred flag-clear) always
+// runs. Before this guard, a panic bypassed the defer chain that
+// cleared extractionInFlight (audit V4).
+func TestTrackBg_RecoversFromPanic(t *testing.T) {
+	a := New(config.Default())
+	get := captureBgEvents(a)
+
+	// Wrap in a defer that asserts trackBg returned (didn't propagate
+	// the panic up). If recover failed, this defer never fires.
+	completed := false
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("panic propagated out of trackBg: %v", r)
+		}
+		if !completed {
+			t.Fatal("trackBg did not return; panic must have escaped")
+		}
+	}()
+
+	a.trackBg(context.Background(), "memory-extraction", func() error {
+		panic("boom in extractor")
+	})
+	completed = true
+
+	events := get()
+	if len(events) != 2 {
+		t.Fatalf("got %d events, want 2: %#v", len(events), events)
+	}
+	if events[1].Phase != "end" {
+		t.Errorf("end event phase = %q, want end", events[1].Phase)
+	}
+	if !strings.Contains(events[1].Error, "panic") {
+		t.Errorf("end event Error = %q, want containing 'panic'", events[1].Error)
 	}
 }
 

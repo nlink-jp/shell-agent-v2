@@ -45,6 +45,13 @@ func (a *Agent) DeleteSession(ctx context.Context, sessionID string) error {
 		a.mu.Unlock()
 		return ErrBusy
 	}
+	// ADR-0021 §2.4: defensive reset of FSM fields after Wait
+	// returns. Audit V7: lifecycle paths previously relied on
+	// extraction's normal cleanup having cleared the flags, but
+	// a panicking extraction (audit V4) could leave them stranded.
+	// This is a no-op on the happy path; load-bearing on the
+	// recovery path.
+	a.resetStateMachine()
 	a.state = StateBusy
 	a.mu.Unlock()
 	defer func() {

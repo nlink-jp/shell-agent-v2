@@ -164,6 +164,13 @@ function App() {
     // SEND becomes the new in-progress turn).
     const [extractionPending, setExtractionPending] = useState(false)
     const [queuedMessage, setQueuedMessage] = useState<{text: string; at: string} | null>(null)
+    // ADR-0021 follow-up: tracks whether the current Busy state was
+    // entered via auto-dispatch (queue → new turn) rather than a
+    // user-initiated handleSend. Drives the agent:extraction:started
+    // listener to drop back to Idle when the auto-dispatched turn
+    // completes. User-initiated turns flip back via handleSend's
+    // finally, so they leave this flag alone.
+    const [inAutoDispatch, setInAutoDispatch] = useState(false)
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const messagesContainerRef = useRef<HTMLDivElement>(null)
     // scrollMessagesToBottom forces the .messages container to its
@@ -333,6 +340,20 @@ function App() {
             // ADR-0015 deferred-extraction events.
             const cleanupExtractionStarted = window.runtime.EventsOn('agent:extraction:started', () => {
                 setExtractionPending(true)
+                // ADR-0021 follow-up: agent:extraction:started fires
+                // right after the auto-dispatched turn's agentLoop
+                // returns and state goes to StateIdle. Drop the
+                // optimistic 'busy' set by agent:queue_dispatched
+                // (the in-auto-dispatch indicator) so the next
+                // user-typed message can proceed. Guarded on the
+                // auto-dispatch flag so unrelated extraction:started
+                // events (after a user-initiated turn that the
+                // handleSend finally already idled) don't reset
+                // anything.
+                setInAutoDispatch(prev => {
+                    if (prev) setState('idle')
+                    return false
+                })
             })
             const cleanupExtractionDone = window.runtime.EventsOn('agent:extraction:done', () => {
                 setExtractionPending(false)
@@ -352,6 +373,27 @@ function App() {
             })
             const cleanupQueueCleared = window.runtime.EventsOn('agent:queue_cleared', () => {
                 setQueuedMessage(null)
+            })
+            // ADR-0021 follow-up: auto-dispatched turns don't fire
+            // handleSend, so without an explicit signal the
+            // "Thinking…" indicator stays off and the assistant
+            // reply appears out of nowhere. Backend emits this just
+            // before launching the auto-dispatched SendWithAttachments.
+            const cleanupQueueDispatched = window.runtime.EventsOn('agent:queue_dispatched', () => {
+                setState('busy')
+                setInAutoDispatch(true)
+                setQueuedMessage(null)
+            })
+            // ADR-0021 follow-up: the auto-dispatched turn's final
+            // assistant reply arrives via this event. Without this
+            // handler the reply only appears after a session reload
+            // because the auto-dispatch goroutine discards the
+            // SendResult (user-init turns flow through handleSend).
+            const cleanupQueueDispatchedReply = window.runtime.EventsOn('agent:queue_dispatched_reply', (data: any) => {
+                const reply = String(data?.reply || '').trim()
+                if (reply) {
+                    setMessages(prev => [...prev, {role: 'assistant', content: reply, timestamp: nowTime()}])
+                }
             })
             // ADR-0016 events. Profile changes update both the status
             // badge and the popover dropdown selection; backend changes
@@ -373,7 +415,7 @@ function App() {
                 cleanupSessionMemory(); cleanupFindings(); cleanupReport();
                 cleanupMitl(); cleanupTitle(); cleanupBgStart(); cleanupBgEnd();
                 cleanupExtractionStarted(); cleanupExtractionDone();
-                cleanupQueued(); cleanupQueueCleared();
+                cleanupQueued(); cleanupQueueCleared(); cleanupQueueDispatched(); cleanupQueueDispatchedReply();
                 cleanupProfileChanged(); cleanupBackendChanged(); cleanupProfileList();
             }
         }
@@ -444,6 +486,19 @@ function App() {
         function load() {
             if (cancel) return
             if (!window.go) { setTimeout(load, 50); return }
+            // ADR-0021 §2.3: seed FSM-derived UI state from a single
+            // authoritative Snapshot() call instead of waiting on event
+            // replay. After a refresh / dev-tools reload, this restores
+            // the extracting / queued indicators correctly.
+            ;(window.go.main.Bindings as any).Snapshot?.().then((snap: any) => {
+                if (cancel || !snap) return
+                setExtractionPending(snap.phase === 'extracting' || snap.phase === 'queued')
+                if (snap.phase === 'queued' && snap.queued_message) {
+                    setQueuedMessage({text: String(snap.queued_message), at: ''})
+                } else {
+                    setQueuedMessage(null)
+                }
+            }).catch(() => {})
             window.go.main.Bindings.GetBackend().then(b => {
                 if (cancel) return
                 if (b) setBackend(b)
@@ -773,15 +828,37 @@ function App() {
         try {
             const dataURLs = attachments.map(a => a.dataURL)
             const names = attachments.map(a => a.name)
-            const response = attachments.length > 0
+            // ADR-0021 §2.2: Send returns a structured SendResult; we
+            // route on Phase rather than sniffing magic-prefixed
+            // strings. Pre-v0.14 the backend returned "QUEUED" / "[CMD]…"
+            // as bare strings; the magic-string path mis-rendered
+            // "QUEUED" as an assistant bubble (audit V3) and was
+            // generally fragile.
+            const result: any = attachments.length > 0
                 ? await window.go.main.Bindings.SendWithImages(text, dataURLs, names)
                 : await window.go.main.Bindings.Send(text)
-            if (response && response.startsWith('[CMD]')) {
-                // Command result: show as popup, remove user message from chat
-                setCmdResult(response.slice(5))
-                setMessages(prev => prev.slice(0, -1)) // remove the optimistic user message
-            } else if (response && response.trim()) {
-                setMessages(prev => [...prev, {role: 'assistant', content: response, timestamp: nowTime()}])
+            switch (result?.phase) {
+                case 'command':
+                    // Slash-command output → popup; remove the optimistic
+                    // user-message bubble so the chat history is unchanged.
+                    setCmdResult(result.cmd_result || '')
+                    setMessages(prev => prev.slice(0, -1))
+                    break
+                case 'queued':
+                    // The agent:queued event will set queuedMessage; nothing
+                    // to do here. The optimistic user bubble stays; it'll
+                    // get its assistant reply when the queue auto-dispatches.
+                    break
+                case 'completed':
+                    if (result.content && result.content.trim()) {
+                        setMessages(prev => [...prev, {role: 'assistant', content: result.content, timestamp: nowTime()}])
+                    }
+                    break
+                case 'error':
+                    setMessages(prev => [...prev, {role: 'system', content: `Error: ${result.error_message || 'unknown'}`, timestamp: nowTime()}])
+                    break
+                // unknown phase: log but do not append (defensive — old
+                // backends would have returned a bare string here).
             }
         } catch (err: any) {
             setMessages(prev => [...prev, {role: 'system', content: `Error: ${err.message || err}`, timestamp: nowTime()}])

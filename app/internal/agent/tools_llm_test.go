@@ -83,7 +83,7 @@ func TestE2E_SuggestAnalysis(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Send: %v", err)
 	}
-	if result == "" {
+	if result.Content == "" {
 		t.Error("expected non-empty result")
 	}
 }

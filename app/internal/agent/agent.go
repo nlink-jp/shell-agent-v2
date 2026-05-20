@@ -538,13 +538,29 @@ type ExtractionEvent struct {
 	Success bool
 }
 
-// QueuedEvent describes either a new SEND landing in the queue
-// slot or the slot being cleared (Abort / auto-dispatch). When
-// Cleared is true, At is the zero time and Message empty.
+// QueuedEvent describes a transition of the single-slot send
+// queue. Four transitions emit:
+//   - Queued        — a SEND landed in the slot (Cleared=false,
+//     Dispatched=false, Reply=""). At + Message describe it.
+//   - Cleared       — Abort drained the slot without dispatching.
+//   - Dispatched    — extraction completed and the queued SEND has
+//     been auto-dispatched (a new turn is about to start). Frontend
+//     uses this to flip its "Thinking…" indicator on, since the
+//     auto-dispatched turn doesn't originate from the user's
+//     handleSend optimistic state transition (ADR-0021 follow-up).
+//   - DispatchedReply — the auto-dispatched turn finished and the
+//     assistant's final text response is in Reply. Frontend appends
+//     this as an assistant bubble; without it, the reply would only
+//     reach the chat pane via session reload, since the
+//     auto-dispatched goroutine discards the SendResult (the user's
+//     handleSend is the normal append path for user-initiated turns).
 type QueuedEvent struct {
-	Cleared bool
-	At      time.Time
-	Message string
+	Cleared          bool
+	Dispatched       bool
+	DispatchedReply  bool
+	At               time.Time
+	Message          string
+	Reply            string
 }
 
 // SetExtractionHandler registers a callback invoked when memory
@@ -664,6 +680,36 @@ func (a *Agent) emitQueueCleared() {
 	}
 }
 
+// emitQueueDispatched fires when the post-extraction auto-dispatch
+// is about to start a new turn against the queued message. The
+// frontend uses this to set its busy state so the "Thinking…"
+// indicator appears — without it, the auto-dispatched turn would
+// produce an assistant reply seemingly out of nowhere.
+func (a *Agent) emitQueueDispatched(message string) {
+	a.mu.Lock()
+	h := a.queueHandler
+	a.mu.Unlock()
+	if h != nil {
+		h(QueuedEvent{Dispatched: true, Message: message})
+	}
+}
+
+// emitQueueDispatchedReply fires after the auto-dispatched turn
+// completes successfully. The frontend appends the reply as an
+// assistant chat bubble; without this event the reply only
+// surfaces on session reload because the auto-dispatch goroutine
+// discards the SendResult (the user-initiated handleSend path
+// is what normally appends user-init replies). See ADR-0021
+// follow-up.
+func (a *Agent) emitQueueDispatchedReply(reply string) {
+	a.mu.Lock()
+	h := a.queueHandler
+	a.mu.Unlock()
+	if h != nil {
+		h(QueuedEvent{DispatchedReply: true, Reply: reply})
+	}
+}
+
 // SetBaseContext captures the long-lived bindings-scope context so
 // the ADR-0015 queue auto-dispatch path can hand a still-live ctx
 // to the SendWithAttachments it kicks off after extraction
@@ -696,7 +742,23 @@ func (a *Agent) notifyBg(e BgTaskEvent) {
 func (a *Agent) trackBg(ctx context.Context, name string, fn func() error) {
 	logger.Info("bg-task %s: start", name)
 	a.notifyBg(BgTaskEvent{Name: name, Phase: "start"})
-	err := fn()
+	// ADR-0021 §2.4: convert panics in fn() to errors so the
+	// caller's cleanup code (and any defer chain after trackBg)
+	// always runs. Before this guard, a panic in extractMemories
+	// or generateTitleIfNeeded would skip the extraction
+	// cleanup that clears extractionInFlight / queuedSend
+	// (audit V4 + V10). defer postTasksWg.Done() still fired so
+	// wg.Wait() returned, hiding the leak.
+	var err error
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("panic in bg-task %s: %v", name, r)
+				logger.Error("bg-task %s: panic recovered: %v", name, r)
+			}
+		}()
+		err = fn()
+	}()
 	msg := ""
 	switch {
 	case err == nil:
@@ -913,8 +975,42 @@ func (a *Agent) CurrentSession() *memory.Session {
 	return a.session
 }
 
-// Send processes a user message. Returns ErrBusy if the agent is not idle.
-func (a *Agent) Send(ctx context.Context, message string) (string, error) {
+// SendResult is the structured return value of Send /
+// SendWithImages / SendWithAttachments (ADR-0021 §2.2). Replaces
+// the pre-v0.14 bare-string protocol where the caller had to sniff
+// "QUEUED" and "[CMD]…" prefixes and any ad-hoc rules around empty
+// strings.
+//
+// Frontend reads Phase first and routes accordingly:
+//   - SendPhaseCompleted → render Content as an assistant bubble
+//   - SendPhaseQueued    → set queue indicator with QueuedAt
+//   - SendPhaseCommand   → render CmdResult as a command output popup
+//   - SendPhaseError     → render ErrorMessage as a system bubble
+type SendResult struct {
+	Phase         string `json:"phase"`
+	Content       string `json:"content,omitempty"`
+	CmdResult     string `json:"cmd_result,omitempty"`
+	QueuedAt      string `json:"queued_at,omitempty"`
+	ErrorMessage  string `json:"error_message,omitempty"`
+}
+
+// Send-result Phase values. Distinct from the AgentSnapshot.Phase
+// constants because Send describes a single-call outcome rather
+// than the agent's continuous state. The overlap on "queued" is
+// intentional — both convey the same condition.
+const (
+	SendPhaseCompleted = "completed"
+	SendPhaseQueued    = "queued"
+	SendPhaseCommand   = "command"
+	SendPhaseError     = "error"
+)
+
+// Send processes a user message. Returns SendResult describing the
+// call outcome. Errors are returned both as a Go error AND inside
+// the SendResult (Phase=SendPhaseError + ErrorMessage) — the bindings
+// layer fills the user-facing path from SendResult; the Go error
+// is for callers that want to inspect it programmatically.
+func (a *Agent) Send(ctx context.Context, message string) (SendResult, error) {
 	return a.SendWithAttachments(ctx, message, nil, nil, nil)
 }
 
@@ -922,7 +1018,7 @@ func (a *Agent) Send(ctx context.Context, message string) (string, error) {
 // thin wrapper around SendWithAttachments so existing tests
 // continue to compile. New code should call SendWithAttachments
 // directly so the markdown-attachment slice has a home.
-func (a *Agent) SendWithImages(ctx context.Context, message string, objectIDs, dataURLs []string) (string, error) {
+func (a *Agent) SendWithImages(ctx context.Context, message string, objectIDs, dataURLs []string) (SendResult, error) {
 	return a.SendWithAttachments(ctx, message, objectIDs, dataURLs, nil)
 }
 
@@ -955,7 +1051,7 @@ func (a *Agent) SendWithImages(ctx context.Context, message string, objectIDs, d
 // To bail out of a stuck post-task (e.g. 429 retry), use Abort —
 // it fires both cancel funcs and lets the trailing goroutine in
 // postResponseTasks return state to Idle.
-func (a *Agent) SendWithAttachments(ctx context.Context, message string, imageObjectIDs, imageDataURLs, documentObjectIDs []string) (string, error) {
+func (a *Agent) SendWithAttachments(ctx context.Context, message string, imageObjectIDs, imageDataURLs, documentObjectIDs []string) (SendResult, error) {
 	objectIDs := imageObjectIDs
 	dataURLs := imageDataURLs
 	a.mu.Lock()
@@ -977,11 +1073,11 @@ func (a *Agent) SendWithAttachments(ctx context.Context, message string, imageOb
 		}
 		a.mu.Unlock()
 		a.emitQueued(message, qAt)
-		return "QUEUED", nil
+		return SendResult{Phase: SendPhaseQueued, QueuedAt: qAt.Format(time.RFC3339)}, nil
 	}
 	if a.state != StateIdle {
 		a.mu.Unlock()
-		return "", ErrBusy
+		return SendResult{Phase: SendPhaseError, ErrorMessage: ErrBusy.Error()}, ErrBusy
 	}
 	a.state = StateBusy
 	ctx, a.cancel = context.WithCancel(ctx)
@@ -1003,16 +1099,22 @@ func (a *Agent) SendWithAttachments(ctx context.Context, message string, imageOb
 			a.cancel = nil
 			a.mu.Unlock()
 			if err != nil {
-				return "", err
+				return SendResult{Phase: SendPhaseError, ErrorMessage: err.Error()}, err
 			}
-			return "[CMD]" + result, nil
+			return SendResult{Phase: SendPhaseCommand, CmdResult: result}, nil
 		}
 	}
 
 	// agentLoop fires postResponseTasks via defer on every return
 	// path; that goroutine is responsible for dropping state back
-	// to Idle once all three background tasks complete.
-	return a.agentLoop(ctx, message, objectIDs, dataURLs, documentObjectIDs)
+	// to Idle once all three background tasks complete. agentLoop
+	// still returns (string, error); we wrap the assistant
+	// response into a SendResult here.
+	content, err := a.agentLoop(ctx, message, objectIDs, dataURLs, documentObjectIDs)
+	if err != nil {
+		return SendResult{Phase: SendPhaseError, ErrorMessage: err.Error()}, err
+	}
+	return SendResult{Phase: SendPhaseCompleted, Content: content}, nil
 }
 
 // Abort cancels the current task and any in-flight post-response
@@ -1028,11 +1130,26 @@ func (a *Agent) Abort() {
 	postCancel := a.postCancel
 	state := a.state
 	hadQueued := a.queuedSend != nil
+	hadExtracting := a.extractionInFlight
 	a.queuedSend = nil
+	// ADR-0021 §2.4: Abort must clear extractionInFlight together
+	// with queuedSend. Before this fix, postCancel cancelled the
+	// extraction context but the flag stayed true until the
+	// goroutine's normal cleanup ran. A SEND in that window saw
+	// extractionInFlight=true and queued instead of starting,
+	// surprising the user who just hit Abort to start fresh
+	// (audit V8).
+	a.extractionInFlight = false
 	a.mu.Unlock()
-	logger.Info("Agent.Abort: state=%s cancel=%v postCancel=%v queued=%v", state, cancel != nil, postCancel != nil, hadQueued)
+	logger.Info("Agent.Abort: state=%s cancel=%v postCancel=%v queued=%v extracting=%v", state, cancel != nil, postCancel != nil, hadQueued, hadExtracting)
 	if hadQueued {
 		a.emitQueueCleared()
+	}
+	if hadExtracting {
+		// Mirror the natural extraction-done emit so the frontend's
+		// supplementary listener (ADR-0021 §2.5) doesn't stay stuck
+		// on extracting=true after the user aborted.
+		a.emitExtractionDone(false)
 	}
 	if cancel != nil {
 		cancel()
@@ -1042,24 +1159,83 @@ func (a *Agent) Abort() {
 	}
 }
 
-// IsExtractionInFlight reports whether the agent is currently
-// running a post-response memory-extraction goroutine (ADR-0015).
-// The frontend can be StateIdle and still have extraction running
-// — this getter exists so Bindings.IsBusy can OR it into the
-// app-quit and session-management gates.
-func (a *Agent) IsExtractionInFlight() bool {
+// Phase constants for AgentSnapshot.Phase (ADR-0021 §2.1). Encoded
+// as strings so they cross the Go→JS boundary cleanly via the Wails
+// binding without an extra type translation. Frontend code should
+// import the symbolic names rather than hard-coding the literals.
+const (
+	PhaseReady      = "ready"
+	PhaseBusy       = "busy"
+	PhaseExtracting = "extracting"
+	PhaseQueued     = "queued"
+)
+
+// AgentSnapshot is the FSM read result returned by Snapshot. Single-
+// trip view of (state, extractionInFlight, queuedSend) so callers
+// don't reconstruct the phase from three separate getters with three
+// separate lock acquisitions (audit V6).
+type AgentSnapshot struct {
+	Phase         string `json:"phase"`
+	QueuedMessage string `json:"queued_message,omitempty"`
+}
+
+// Snapshot returns the FSM phase + queued message under a single
+// lock acquisition. Frontend mounts call this to seed UI state
+// without depending on event replay (ADR-0021 §2.3).
+func (a *Agent) Snapshot() AgentSnapshot {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.extractionInFlight
+	return a.snapshotLocked()
+}
+
+// snapshotLocked is the Snapshot implementation; caller MUST hold
+// a.mu. Exposed for internal use where the caller is already inside
+// the critical section (e.g. lifecycle methods that want to report
+// state alongside other reads).
+func (a *Agent) snapshotLocked() AgentSnapshot {
+	var phase string
+	switch {
+	case a.state == StateBusy:
+		phase = PhaseBusy
+	case a.extractionInFlight && a.queuedSend != nil:
+		phase = PhaseQueued
+	case a.extractionInFlight:
+		phase = PhaseExtracting
+	default:
+		phase = PhaseReady
+	}
+	var qm string
+	if a.queuedSend != nil {
+		qm = a.queuedSend.Message
+	}
+	return AgentSnapshot{Phase: phase, QueuedMessage: qm}
+}
+
+// IsBusy returns true when the agent is not in PhaseReady. Used by
+// the bindings layer's IsBusy gate (which OnBeforeClose and the
+// session-management bindings consult). Atomic across all three
+// FSM fields — audit V6 was three separate lock acquisitions
+// hiding a non-atomic read.
+func (a *Agent) IsBusy() bool {
+	return a.Snapshot().Phase != PhaseReady
+}
+
+// IsExtractionInFlight reports whether the agent is currently
+// running a post-response memory-extraction goroutine (ADR-0015).
+// Retained for backward compatibility with existing callers; new
+// code should prefer Snapshot.
+//
+// Deprecated: use Snapshot().Phase instead.
+func (a *Agent) IsExtractionInFlight() bool {
+	return a.Snapshot().Phase == PhaseExtracting || a.Snapshot().Phase == PhaseQueued
 }
 
 // HasQueuedSend reports whether a SEND is currently waiting in
 // the single-slot queue for the in-flight extraction to finish.
-// Companion to IsExtractionInFlight for the IsBusy gate.
+//
+// Deprecated: use Snapshot().Phase == PhaseQueued instead.
 func (a *Agent) HasQueuedSend() bool {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	return a.queuedSend != nil
+	return a.Snapshot().Phase == PhaseQueued
 }
 
 // Close releases all resources held by the agent.
@@ -1288,6 +1464,10 @@ func (a *Agent) LoadSession(session *memory.Session) error {
 	if a.state != StateIdle {
 		return ErrBusy
 	}
+	// ADR-0021 §2.4: defensive FSM reset after wg.Wait. Recovers
+	// from any prior session's stranded extraction flags (audit V7).
+	// No-op on the happy path.
+	a.resetStateMachine()
 	a.session = session
 	a.promptTokens = 0
 	a.outputTokens = 0
@@ -2169,46 +2349,108 @@ func (a *Agent) postResponseTasks(parentCtx context.Context) {
 	}
 	a.postTasksWg.Add(1)
 	go func() {
+		// ADR-0021 §2.4: cleanup runs in a deferred block so it
+		// fires on every exit path (normal return, error, panic).
+		// Defer order is LIFO:
+		//   1. defer postTasksWg.Done()  — registered FIRST, runs LAST
+		//   2. defer cleanup              — registered SECOND, runs FIRST
+		// This ordering matters: callers waiting on postTasksWg
+		// (LoadSession et al.) must observe the cleaned-up
+		// extractionInFlight / queuedSend state when Wait returns,
+		// not a torn intermediate. Before this refactor the cleanup
+		// was straight-line code after trackBg, which meant a panic
+		// inside extractMemories would bypass the cleanup and strand
+		// extractionInFlight=true (audit V4).
 		defer a.postTasksWg.Done()
 		var extractErr error
+		defer func() {
+			a.mu.Lock()
+			a.extractionInFlight = false
+			queued := a.queuedSend
+			a.queuedSend = nil
+			base := a.baseCtx
+			a.mu.Unlock()
+			a.emitExtractionDone(extractErr == nil)
+
+			// ADR-0015 §3.3: a SEND received while we were extracting
+			// is queued in a.queuedSend; auto-dispatch it now that
+			// extraction is done so the user's compose-then-send loop
+			// flows without manual re-invocation. We deliberately
+			// call SendWithAttachments (not agentLoop directly) so
+			// the normal state machine, MITL hooks, and event
+			// emitters run. baseCtx is used because the ctx that
+			// queued the SEND was already cancelled when that turn
+			// completed.
+			//
+			// We do NOT emit queue_cleared here — the dispatch itself
+			// is the natural signal that the queue was consumed, and
+			// the frontend listens to agent:extraction:done to switch
+			// state. Emitting queue_cleared on auto-dispatch would
+			// race with the new turn's emit on the frontend.
+			//
+			// ADR-0021 §2.4 / audit V2: the auto-dispatch goroutine
+			// must register on postTasksWg so LoadSession /
+			// DeleteSession / etc. wait for it to finish before
+			// swapping session pointers. Pre-fix, the dispatch was a
+			// bare `go` call — wg.Wait returned the moment the
+			// extraction goroutine exited, even though the dispatched
+			// SendWithAttachments was still running against the old
+			// session.
+			if queued != nil && base != nil {
+				// ADR-0021 follow-up: tell the frontend a new turn
+				// is starting against the queued message, so its
+				// "Thinking…" indicator switches on. Auto-dispatched
+				// turns don't go through the frontend's handleSend,
+				// which is where the user-initiated path sets state
+				// busy optimistically.
+				a.emitQueueDispatched(queued.Message)
+				a.postTasksWg.Add(1)
+				go func() {
+					defer a.postTasksWg.Done()
+					result, _ := a.SendWithAttachments(
+						base,
+						queued.Message,
+						queued.ImageObjectIDs,
+						queued.ImageDataURLs,
+						queued.DocumentObjectIDs,
+					)
+					// ADR-0021 follow-up: deliver the final reply to
+					// the frontend. Without this the assistant text
+					// only reaches the chat pane after a session
+					// reload, since the goroutine discards the
+					// SendResult and handleSend (the normal append
+					// path) didn't run for this turn.
+					if result.Phase == SendPhaseCompleted && result.Content != "" {
+						a.emitQueueDispatchedReply(result.Content)
+					}
+				}()
+			}
+		}()
+
 		a.trackBg(ctx, "memory-extraction", func() error {
 			extractErr = extractFn(ctx)
 			return extractErr
 		})
-
-		a.mu.Lock()
-		a.extractionInFlight = false
-		queued := a.queuedSend
-		a.queuedSend = nil
-		base := a.baseCtx
-		a.mu.Unlock()
-		a.emitExtractionDone(extractErr == nil)
-
-		// ADR-0015 §3.3: a SEND received while we were extracting
-		// is queued in a.queuedSend; auto-dispatch it now that
-		// extraction is done so the user's compose-then-send loop
-		// flows without manual re-invocation. We deliberately
-		// call SendWithAttachments (not agentLoop directly) so
-		// the normal state machine, MITL hooks, and event
-		// emitters run. baseCtx is used because the ctx that
-		// queued the SEND was already cancelled when that turn
-		// completed.
-		//
-		// We do NOT emit queue_cleared here — the dispatch itself
-		// is the natural signal that the queue was consumed, and
-		// the frontend listens to agent:extraction:done to switch
-		// state. Emitting queue_cleared on auto-dispatch would
-		// race with the new turn's emit on the frontend.
-		if queued != nil && base != nil {
-			go a.SendWithAttachments(
-				base,
-				queued.Message,
-				queued.ImageObjectIDs,
-				queued.ImageDataURLs,
-				queued.DocumentObjectIDs,
-			)
-		}
 	}()
+}
+
+// resetStateMachine clears the deferred-extraction FSM fields to
+// the Ready phase. Caller MUST hold a.mu.
+//
+// ADR-0021 §2.4: this is the defensive reset used by LoadSession /
+// DeleteSession / Export / Import / Abort to recover from any path
+// that may have stranded a flag (panic in extraction, broken
+// cleanup, cross-session leakage). It's a no-op when the normal
+// cleanup ran correctly; it's load-bearing on the error / panic
+// paths.
+//
+// Does NOT emit any frontend events — those are tied to the natural
+// transitions (extraction:done, queue_cleared) and the lifecycle
+// caller is responsible for any session-level event emission.
+func (a *Agent) resetStateMachine() {
+	a.extractionInFlight = false
+	a.queuedSend = nil
+	a.state = StateIdle
 }
 
 // v0.2.0: compactIfOverBudget and compactMemoryIfNeeded were
@@ -2659,6 +2901,14 @@ func (a *Agent) handleModelCommand(args []string) (string, error) {
 	}
 
 	target := args[0]
+	// ADR-0021 §2.4 / audit V9: a prior turn's extraction or title
+	// goroutine may still be using a.backend when /model fires.
+	// Wait for the postTasksWg to drain so the rebuild doesn't race
+	// the live Chat() call. We're outside the mu lock at this call
+	// site (handleCommand is invoked without holding mu, per the
+	// dispatch at SendWithAttachments), so Wait here doesn't
+	// deadlock the extraction goroutine's own mu acquisition.
+	a.postTasksWg.Wait()
 	switch target {
 	case "local":
 		a.setBackend(config.BackendLocal)
@@ -2716,7 +2966,13 @@ func (a *Agent) SwitchProfileByID(profileID string) error {
 // SwitchBackend is the Bindings-facing entry point for the popover's
 // Local/Vertex radio. Calls setBackend with the agent's mutex held.
 // Mirrors what /model does at the chat-command layer.
+//
+// ADR-0021 §2.4 / audit V9: drain postTasksWg before grabbing the
+// mu so any in-flight extraction/title goroutine finishes against
+// the old backend client. Wait BEFORE Lock so the extraction's own
+// mu acquisition doesn't deadlock.
 func (a *Agent) SwitchBackend(backend config.LLMBackend) {
+	a.postTasksWg.Wait()
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.setBackend(backend)

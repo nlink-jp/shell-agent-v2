@@ -162,8 +162,8 @@ func TestAgent_ProfileCommand_DispatchThroughSlashSwitch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Send: %v", err)
 	}
-	if !strings.HasPrefix(res, "[CMD]") {
-		t.Errorf("Send returned %q, want a [CMD] prefix (slash-command path)", res)
+	if res.Phase != SendPhaseCommand {
+		t.Errorf("Send returned Phase=%q, want SendPhaseCommand (slash-command path)", res.Phase)
 	}
 	if a.session.ProfileID != prod.ID {
 		t.Errorf("ProfileID = %q after Send, want %q", a.session.ProfileID, prod.ID)
