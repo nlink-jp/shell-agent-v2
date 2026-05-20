@@ -5,6 +5,52 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.14.4] - 2026-05-21
+
+### Changed
+
+- **Improved bundled-script tool descriptions.** Four bundled
+  scripts had descriptions thin enough that the LLM was
+  misinterpreting their spec. Rewrites:
+  - `weather.sh` — was "Get current weather forecast from JMA";
+    now explicit about JAPAN ONLY, Japanese-script region
+    required, returns today + tomorrow forecast + overview text,
+    Japanese output (translate yourself if user asked in another
+    language), exhaustive alias list for major cities, and
+    explicit rejection of English region names.
+  - `get-location.sh` — was "using system network information"
+    (misleading); actually infers location from the macOS IANA
+    timezone. Now: macOS only, returns timezone-based
+    approximation, lists the 9 timezones with full city
+    metadata, notes other timezones return only timezone fields,
+    documents the `config.json` override path.
+  - `list-files.sh` — was just "List files in a directory";
+    now: `ls -la` plain-text output, non-recursive, includes
+    hidden entries, defaults to /tmp, mentions
+    `$SHELL_AGENT_WORK_DIR` for the session work directory.
+  - `file-info.sh` — output fields enumerated (path / mime /
+    kind / size_bytes / modified / lines), directory case
+    documented, error message format documented, recommended
+    as a pre-flight check before preview-file / get-text.
+
+### How existing users get the fix
+
+Bundled scripts are only installed on first run — the installer
+(`internal/bundled/bundled.go`) deliberately skips files that
+already exist in the user's tools script directory so manual
+edits aren't clobbered. To pick up the new descriptions:
+
+1. Quit shell-agent-v2.
+2. Delete the four files from
+   `~/Library/Application Support/shell-agent-v2/tools/`:
+   `weather.sh`, `get-location.sh`, `list-files.sh`,
+   `file-info.sh`.
+3. Restart shell-agent-v2. The bundled installer reinstalls
+   the four files with the new descriptions.
+
+A force-refresh mechanism (with edit detection so user
+customisations are preserved) is on the roadmap.
+
 ## [0.14.3] - 2026-05-21
 
 ### Changed

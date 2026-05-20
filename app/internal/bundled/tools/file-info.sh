@@ -1,7 +1,7 @@
 #!/bin/bash
 # @tool: file-info
-# @description: Inspect a file: kind/MIME type, size, modified time, line count for text files.
-# @param: path string "Absolute or relative path to a file"
+# @description: Inspect a single filesystem entry. Returns plain-text key/value lines describing it. For a regular file: `path`, `mime` (e.g. text/csv, application/json, image/png), `kind` (human description from `file(1)`), `size_bytes`, `modified` (YYYY-MM-DD HH:MM:SS), and for text-ish MIMEs (text/*, application/json/xml/javascript) also `lines`. For a directory: `kind: directory`, `path`, `entries` (number of immediate children including hidden ones). Returns `Error: missing 'path' parameter` or `Error: file not found: <path>` on failure. Use BEFORE preview-file or get-text to confirm a file is small / text-bearing / actually exists. Does not read the file's contents.
+# @param: path string "Absolute or relative path to a file or directory (e.g. /tmp/data.csv, ~/Downloads/image.png, $SHELL_AGENT_WORK_DIR/note.md)"
 # @category: read
 # @timeout: 30
 #

@@ -1,11 +1,12 @@
 #!/bin/bash
 # @tool: get-location
-# @description: Get the current approximate location of this device using system network information
+# @description: Return the device's approximate location inferred from the system IANA timezone (NOT from GPS, IP, or network). macOS only. Output is a JSON object always containing `timezone`, `utc_offset`, `timezone_id`, `source: "system_inference"`, `accuracy: "approximate (timezone-based)"`; when the timezone matches one of the built-in entries (Asia/Tokyo, Asia/Shanghai, Asia/Seoul, America/New_York, America/Los_Angeles, America/Chicago, Europe/London, Europe/Paris, Europe/Berlin) it ALSO returns `country`, `admin_area`, `locality`, `lat`, `lon`. Any other timezone returns only the timezone fields — do NOT try to derive a city from `utc_offset` alone. If the user has set a manual override in config.json, that override is returned verbatim as `{"location": "..."}` instead. Pair with the `weather` tool by mapping `locality` → region.
 # @category: read
 # @timeout: 30
 #
-# macOS only. Uses timezone and system locale to infer approximate location.
-# Checks cached location in config.json first.
+# macOS only. Uses /etc/localtime symlink to read the IANA timezone ID,
+# then looks it up in a small built-in city table. Checks the agent's
+# config.json `location` override first so power users can pin a value.
 
 CONFIG_FILE="$HOME/Library/Application Support/shell-agent-v2/config.json"
 if [ -f "$CONFIG_FILE" ]; then

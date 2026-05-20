@@ -1,7 +1,7 @@
 #!/bin/bash
 # @tool: weather
-# @description: Get current weather forecast from Japan Meteorological Agency (JMA) for a specified region
-# @param: region string "Region name in Japanese (e.g. 東京, 大阪, 福岡, 札幌, 新潟)"
+# @description: JAPAN ONLY. Fetches the today + tomorrow weather forecast (sky / precipitation / temperature) AND a regional overview text from the Japan Meteorological Agency (JMA). Returns a JSON object with `forecast.details` (array of strings) and `overview.text` (array of strings). Output text is entirely in Japanese — surface it in Japanese to the user; if the user asked in another language, translate yourself. Do NOT use this tool for non-Japanese cities (NYC, London, Berlin, etc.); it will return an "available_regions" error listing Japanese regions instead. Coverage: prefecture-level, no per-hour granularity.
+# @param: region string "Japanese region name written in Japanese script (kanji / kana). Major-city aliases that map to a prefecture: 東京, 大阪, 京都, 札幌, 名古屋, 横浜, 神戸, 福岡, 広島, 仙台, 那覇. Other valid forms: any prefecture name (例: 北海道, 神奈川県, 愛知県, 沖縄本島) or sub-region (例: 石狩, 沖縄本島). English names like 'Tokyo' or 'Osaka' are NOT accepted — convert to Japanese first. Defaults to 東京 if omitted."
 # @category: read
 # @timeout: 30
 #
