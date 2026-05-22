@@ -226,7 +226,7 @@ function App() {
                         // Prefer matching by tool_call_id (more robust:
                         // independent of any tool_progress text updates
                         // the running bubble may have undergone, e.g.
-                        // analyze-data's per-window updates). Fall back
+                        // analyze_data's per-window updates). Fall back
                         // to content equality for legacy events that
                         // arrive without a call ID. See
                         // docs/en/tool-progress-events.md §4.1.
@@ -257,7 +257,7 @@ function App() {
                 } else if (data.type === 'tool_progress') {
                     // In-place update for the running tool-event whose
                     // tool_call_id matches. Lets long-running tools
-                    // (e.g. analyze-data sliding-window summarisation)
+                    // (e.g. analyze_data sliding-window summarisation)
                     // surface per-window progress without spawning a
                     // fresh "running" bubble per tick that would
                     // otherwise stay stuck (#5). Match by id, not by
@@ -306,7 +306,7 @@ function App() {
                 if (window.go) window.go.main.Bindings.GetSessionMemories().then(setSessionMemories)
             })
             // Mirror of *_memory:updated for findings — emitted by
-            // the backend after promote-finding and analyze-data
+            // the backend after promote_finding and analyze_data
             // auto-promote so the panel reflects new findings
             // without waiting for a session switch.
             const cleanupFindings = window.runtime.EventsOn('findings:updated', () => {

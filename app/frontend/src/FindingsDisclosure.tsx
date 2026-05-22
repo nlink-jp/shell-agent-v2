@@ -168,7 +168,7 @@ export default function FindingsDisclosure({sessionId, refreshTick, onPinFinding
                                         {(() => {
                                             const tip = t.cls === 'trust-user'
                                                 ? 'user-stated: ユーザー操作で promote された finding。高信頼。'
-                                                : 'derived: LLM が promote-finding / analyze-data 経由で登録した finding。内容は LLM を経由しており、攻撃者影響下のバイトを含みうる。'
+                                                : 'derived: LLM が promote_finding / analyze_data 経由で登録した finding。内容は LLM を経由しており、攻撃者影響下のバイトを含みうる。'
                                             return (
                                                 <span className={`trust-badge ${t.cls}`} data-tooltip={tip}>{t.label}</span>
                                             )

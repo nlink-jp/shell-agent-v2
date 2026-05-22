@@ -67,10 +67,10 @@ export default function MITLDialog({request, onApprove, onReject, onRejectWithFe
                         // entire body on one logical line which is unusable for
                         // anything beyond a few words of Python.
                         const codeFieldByTool: Record<string, string> = {
-                            'sandbox-run-shell': 'command',
-                            'sandbox-run-python': 'code',
-                            'sandbox-write-file': 'content',
-                            'sandbox-export-sql': 'sql',
+                            'sandbox_run_shell': 'command',
+                            'sandbox_run_python': 'code',
+                            'sandbox_write_file': 'content',
+                            'sandbox_export_sql': 'sql',
                         }
                         const codeField = codeFieldByTool[request.tool_name]
                         if (codeField && typeof args[codeField] === 'string') {

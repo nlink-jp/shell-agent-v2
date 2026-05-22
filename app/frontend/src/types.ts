@@ -78,7 +78,7 @@ export interface Finding {
     content: string;
     tags: string[];
     created_label: string;
-    /** v0.2.0: "llm_promoted" (promote-finding tool) or
+    /** v0.2.0: "llm_promoted" (promote_finding tool) or
      *  "analyze_data" (sliding-window auto-emit). Legacy entries
      *  may have empty source. SourceManual is gone — the /finding
      *  slash command was removed. */

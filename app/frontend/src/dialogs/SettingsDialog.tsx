@@ -813,7 +813,7 @@ function ProfilesTab() {
                                 />
                                 <span>
                                     Auto-extract memories after each turn
-                                    <small>Local default: off. When on, the <code>remember-fact</code> tool is hidden.</small>
+                                    <small>Local default: off. When on, the <code>remember_fact</code> tool is hidden.</small>
                                 </span>
                             </label>
                             <label className="checkbox-row">
@@ -884,7 +884,7 @@ function ProfilesTab() {
                                 />
                                 <span>
                                     Auto-extract memories after each turn
-                                    <small>Vertex default: on. When on, the <code>remember-fact</code> tool is hidden.</small>
+                                    <small>Vertex default: on. When on, the <code>remember_fact</code> tool is hidden.</small>
                                 </span>
                             </label>
                             <label className="checkbox-row">
