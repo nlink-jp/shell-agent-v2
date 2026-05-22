@@ -238,19 +238,30 @@ func (a *Agent) restartGuardian(name string) {
 // tolerant of guardian or upstream-tool names containing `__`
 // (security-hardening-2.md H3). Caller must hold guardiansMu.
 func splitMCPName(rest string, guardians map[string]*mcp.Guardian) (string, string, bool) {
+	// ADR-0023: callers pass the canonical (snake_case) form of the
+	// tool envelope. Guardian registration keys may still hold the
+	// original kebab form (the registered profile name is preserved
+	// verbatim for log fidelity), so every lookup below compares
+	// against canonicalToolName(name) rather than `name` directly.
+	// The returned guardian string is the original registered key so
+	// the caller can look it up in a.guardians without a second
+	// canonicalisation pass.
 	if i := strings.Index(rest, "__"); i > 0 {
-		guardian := rest[:i]
+		guardianCanon := rest[:i]
 		tool := rest[i+2:]
 		if tool != "" {
-			if _, ok := guardians[guardian]; ok {
-				return guardian, tool, true
+			for name := range guardians {
+				if canonicalToolName(name) == guardianCanon {
+					return name, tool, true
+				}
 			}
 		}
 	}
-	// Fall back to longest-prefix match against registered names.
+	// Fall back to longest-prefix match against canonicalised
+	// registered names.
 	var bestGuardian string
 	for name := range guardians {
-		marker := name + "__"
+		marker := canonicalToolName(name) + "__"
 		if !strings.HasPrefix(rest, marker) {
 			continue
 		}
@@ -261,7 +272,7 @@ func splitMCPName(rest string, guardians map[string]*mcp.Guardian) (string, stri
 	if bestGuardian == "" {
 		return "", "", false
 	}
-	tool := rest[len(bestGuardian)+2:]
+	tool := rest[len(canonicalToolName(bestGuardian))+2:]
 	if tool == "" {
 		return "", "", false
 	}

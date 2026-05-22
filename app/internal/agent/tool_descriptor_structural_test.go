@@ -30,14 +30,20 @@ import (
 // name, which most providers reject.
 func TestToolDescriptors_UniqueNames(t *testing.T) {
 	a := agentForToolDefs(t)
+	// ADR-0023: the registry index is keyed on canonicalToolName,
+	// so a descriptor `foo-bar` and `foo_bar` would clobber each
+	// other in the map. Check uniqueness in canonical form so the
+	// collision is caught at build time rather than as a silent
+	// override at runtime.
 	seen := make(map[string]string, len(a.toolDescriptors))
 	for _, d := range a.toolDescriptors {
-		if prev, ok := seen[d.Name]; ok {
-			t.Errorf("duplicate descriptor Name %q: registered as Source=%q and again as Source=%q",
-				d.Name, prev, d.Source)
+		canon := canonicalToolName(d.Name)
+		if prev, ok := seen[canon]; ok {
+			t.Errorf("duplicate descriptor canonical Name %q: registered as Source=%q and again as Source=%q",
+				canon, prev, d.Source)
 			continue
 		}
-		seen[d.Name] = d.Source
+		seen[canon] = d.Source
 	}
 }
 

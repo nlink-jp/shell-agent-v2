@@ -87,14 +87,14 @@ func TestBuildToolDefs_IncludesSandboxWhenEngineSet(t *testing.T) {
 	a, _ := newAgentWithSandbox(t)
 	tools := a.buildToolDefs()
 	wantNames := map[string]bool{
-		"sandbox-run-shell":          false,
-		"sandbox-run-python":         false,
-		"sandbox-write-file":         false,
-		"sandbox-copy-object":        false,
-		"sandbox-register-object":    false,
-		"sandbox-info":               false,
-		"sandbox-load-into-analysis": false,
-		"sandbox-export-sql":         false,
+		"sandbox_run_shell":          false,
+		"sandbox_run_python":         false,
+		"sandbox_write_file":         false,
+		"sandbox_copy_object":        false,
+		"sandbox_register_object":    false,
+		"sandbox_info":               false,
+		"sandbox_load_into_analysis": false,
+		"sandbox_export_sql":         false,
 	}
 	for _, td := range tools {
 		if _, ok := wantNames[td.Name]; ok {
@@ -113,7 +113,7 @@ func TestBuildToolDefs_OmitsSandboxWhenEngineNil(t *testing.T) {
 	a := New(config.Default()) // sandbox stays nil because cfg.Sandbox.Enabled is false
 	tools := a.buildToolDefs()
 	for _, td := range tools {
-		if strings.HasPrefix(td.Name, "sandbox-") {
+		if strings.HasPrefix(td.Name, "sandbox_") {
 			t.Errorf("unexpected sandbox tool %q when engine is nil", td.Name)
 		}
 	}
@@ -121,12 +121,22 @@ func TestBuildToolDefs_OmitsSandboxWhenEngineNil(t *testing.T) {
 
 func TestIsToolMITLRequired_SandboxPrefixDefaultOn(t *testing.T) {
 	a := &Agent{cfg: config.Default()}
+	// ADR-0023: callers may pass either form; canonical wins.
 	if !a.IsToolMITLRequired("sandbox-run-shell") {
-		t.Error("sandbox-* should require MITL by default")
+		t.Error("sandbox-* (kebab) should require MITL by default via canonicalisation")
 	}
-	a.cfg.Tools.MITLOverrides = map[string]bool{"sandbox-run-shell": false}
+	if !a.IsToolMITLRequired("sandbox_run_shell") {
+		t.Error("sandbox_* (canonical) should require MITL by default")
+	}
+	// Override map is keyed by canonical form (the form that the
+	// Agent constructor's canonicaliseMITLOverrideKeys migrates to;
+	// real user configs reach IsToolMITLRequired already canonical).
+	a.cfg.Tools.MITLOverrides = map[string]bool{"sandbox_run_shell": false}
 	if a.IsToolMITLRequired("sandbox-run-shell") {
-		t.Error("override should be respected")
+		t.Error("override should be respected for kebab-form caller")
+	}
+	if a.IsToolMITLRequired("sandbox_run_shell") {
+		t.Error("override should be respected for canonical-form caller")
 	}
 }
 

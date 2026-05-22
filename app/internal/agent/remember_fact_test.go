@@ -128,7 +128,7 @@ func TestBuildToolDefs_RememberFactExclusivity(t *testing.T) {
 	// Default-of-default: Local profile, Local backend, extract=off
 	// (ADR-0019 default) → remember-fact should be PRESENT.
 	tools := a.buildToolDefs()
-	if !containsTool(tools, "remember-fact") {
+	if !containsTool(tools, "remember_fact") {
 		t.Error("remember-fact should be present when AutoExtract is off (local default)")
 	}
 
@@ -137,7 +137,7 @@ func TestBuildToolDefs_RememberFactExclusivity(t *testing.T) {
 	prof := &a.cfg.LLM.Profiles[0]
 	prof.Local.AutoExtractEnabled = &on
 	tools = a.buildToolDefs()
-	if containsTool(tools, "remember-fact") {
+	if containsTool(tools, "remember_fact") {
 		t.Error("remember-fact should be hidden when AutoExtract is on")
 	}
 
@@ -146,7 +146,7 @@ func TestBuildToolDefs_RememberFactExclusivity(t *testing.T) {
 	off := false
 	prof.Local.AutoExtractEnabled = &off
 	tools = a.buildToolDefs()
-	if !containsTool(tools, "remember-fact") {
+	if !containsTool(tools, "remember_fact") {
 		t.Error("remember-fact should be present after toggling AutoExtract off again")
 	}
 }

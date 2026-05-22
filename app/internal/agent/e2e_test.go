@@ -83,7 +83,7 @@ func TestE2E_SlashPathNotCommand(t *testing.T) {
 func TestE2E_ToolCallLoop(t *testing.T) {
 	// LLM calls resolve-date, then responds with the result
 	mock := llm.NewMockWithToolCall(
-		"resolve-date",
+		"resolve_date",
 		`{"expression":"today"}`,
 		"Today's date is confirmed.",
 	)
@@ -108,7 +108,7 @@ func TestE2E_ToolCallLoop(t *testing.T) {
 	for _, r := range a.session.Records {
 		if r.Role == "tool" {
 			hasToolResult = true
-			if r.ToolName != "resolve-date" {
+			if r.ToolName != "resolve_date" {
 				t.Errorf("tool name = %v", r.ToolName)
 			}
 		}
@@ -137,12 +137,12 @@ func TestE2E_AnalysisWorkflow(t *testing.T) {
 	mock := llm.NewMockBackend(
 		llm.MockResponse{ToolCalls: []llm.ToolCall{{
 			ID:        "tc-1",
-			Name:      "load-data",
+			Name:      "load_data",
 			Arguments: `{"file_path":"` + csvPath + `","table_name":"sales"}`,
 		}}},
 		llm.MockResponse{ToolCalls: []llm.ToolCall{{
 			ID:        "tc-2",
-			Name:      "query-sql",
+			Name:      "query_sql",
 			Arguments: `{"sql":"SELECT product, amount FROM \"sales\" ORDER BY amount DESC"}`,
 		}}},
 		llm.MockResponse{Content: "Gadget has the highest sales at 250."},
@@ -185,7 +185,7 @@ func TestE2E_FindingPromotion(t *testing.T) {
 		// LLM decides to promote a finding
 		llm.MockResponse{ToolCalls: []llm.ToolCall{{
 			ID:   "tc-1",
-			Name: "promote-finding",
+			Name: "promote_finding",
 			Arguments: `{"content":"Sales peak in Q2","tags":["sales","quarterly"]}`,
 		}}},
 		llm.MockResponse{Content: "I've noted the Q2 sales peak for future reference."},
@@ -227,7 +227,7 @@ func TestE2E_SessionIsolation(t *testing.T) {
 	mockA := llm.NewMockBackend(
 		llm.MockResponse{ToolCalls: []llm.ToolCall{{
 			ID:   "tc-1",
-			Name: "load-data",
+			Name: "load_data",
 			Arguments: `{"file_path":"` + filepath.Join(tmpDir, "a.csv") + `","table_name":"data_a"}`,
 		}}},
 		llm.MockResponse{Content: "Data loaded in session A."},
@@ -284,7 +284,7 @@ func TestE2E_DynamicToolFilteringInLoop(t *testing.T) {
 	mock := llm.NewMockBackend(
 		llm.MockResponse{ToolCalls: []llm.ToolCall{{
 			ID:        "tc-1",
-			Name:      "load-data",
+			Name:      "load_data",
 			Arguments: `{"file_path":"` + csvPath + `","table_name":"test"}`,
 		}}},
 		llm.MockResponse{Content: "Data loaded and ready."},
@@ -299,7 +299,7 @@ func TestE2E_DynamicToolFilteringInLoop(t *testing.T) {
 	// Before send: verify no query-sql in tools
 	tools := a.buildToolDefs()
 	for _, tool := range tools {
-		if tool.Name == "query-sql" {
+		if tool.Name == "query_sql" {
 			t.Error("query-sql should not be available before data load")
 		}
 	}
@@ -310,7 +310,7 @@ func TestE2E_DynamicToolFilteringInLoop(t *testing.T) {
 	tools = a.buildToolDefs()
 	hasQuerySQL := false
 	for _, tool := range tools {
-		if tool.Name == "query-sql" {
+		if tool.Name == "query_sql" {
 			hasQuerySQL = true
 		}
 	}
@@ -321,7 +321,7 @@ func TestE2E_DynamicToolFilteringInLoop(t *testing.T) {
 	// Verify the first call had load-data but not query-sql
 	firstCallTools := mock.Calls()[0].Tools
 	for _, tool := range firstCallTools {
-		if tool.Name == "query-sql" {
+		if tool.Name == "query_sql" {
 			t.Error("first LLM call should not have query-sql")
 		}
 	}
@@ -364,7 +364,7 @@ func TestE2E_ToolChainResponse(t *testing.T) {
 	mock := llm.NewMockBackend(
 		llm.MockResponse{
 			ToolCalls: []llm.ToolCall{{
-				ID: "tc-1", Name: "resolve-date", Arguments: `{"expression":"today"}`,
+				ID: "tc-1", Name: "resolve_date", Arguments: `{"expression":"today"}`,
 			}},
 		},
 		llm.MockResponse{Content: "Today is confirmed."},

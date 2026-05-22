@@ -89,8 +89,8 @@ func TestAnalysisToolsFiltering(t *testing.T) {
 	if len(tools) <= 11 {
 		t.Errorf("legacy with-data tools count = %d, want > 11", len(tools))
 	}
-	if !containsTool(tools, "promote-finding") {
-		t.Error("promote-finding not in legacy with-data tools")
+	if !containsTool(tools, "promote_finding") {
+		t.Error("promote_finding not in legacy with-data tools")
 	}
 }
 
@@ -101,7 +101,7 @@ func TestAnalysisToolsFiltering(t *testing.T) {
 func TestAnalysisTools_FullSetByDefault_AllowsPlanning(t *testing.T) {
 	a := agentForToolDefs(t)
 	tools := a.descriptorToolDefs(false, false)
-	for _, want := range []string{"query-sql", "describe-data", "analyze-data", "promote-finding", "list-tables"} {
+	for _, want := range []string{"query_sql", "describe_data", "analyze_data", "promote_finding", "list_tables"} {
 		if !containsTool(tools, want) {
 			t.Errorf("default-mode no-data tools missing %q (full set should be exposed)", want)
 		}
@@ -123,14 +123,14 @@ func TestAnalysisTools_HideFlagRestoresLegacyBehaviour(t *testing.T) {
 	if len(full) <= len(short) {
 		t.Errorf("hide-flag, with-data tools (%d) should be more than no-data (%d)", len(full), len(short))
 	}
-	if containsTool(short, "query-sql") {
-		t.Error("hide-flag no-data should NOT contain query-sql")
+	if containsTool(short, "query_sql") {
+		t.Error("hide-flag no-data should NOT contain query_sql")
 	}
-	if !containsTool(full, "query-sql") {
-		t.Error("hide-flag with-data should contain query-sql")
+	if !containsTool(full, "query_sql") {
+		t.Error("hide-flag with-data should contain query_sql")
 	}
 	// v0.5 text tools are always-visible (data-independent).
-	for _, want := range []string{"analyze-text", "grep-text", "get-text"} {
+	for _, want := range []string{"analyze_text", "grep_text", "get_text"} {
 		if !containsTool(short, want) {
 			t.Errorf("hide-flag no-data should still contain %q (data-independent text tool)", want)
 		}
@@ -138,7 +138,7 @@ func TestAnalysisTools_HideFlagRestoresLegacyBehaviour(t *testing.T) {
 	// v0.6: builtin tools are now in the descriptor list and
 	// surface here too — guard against a future regression
 	// that drops them out.
-	for _, want := range []string{"resolve-date", "list-objects", "get-object", "register-object"} {
+	for _, want := range []string{"resolve_date", "list_objects", "get_object", "register_object"} {
 		if !containsTool(short, want) {
 			t.Errorf("hide-flag no-data should contain builtin %q", want)
 		}

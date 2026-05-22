@@ -112,10 +112,10 @@ func TestDynamicToolFiltering(t *testing.T) {
 	hasLoadData := false
 	hasQuerySQL := false
 	for _, tool := range tools {
-		if tool.Name == "load-data" {
+		if tool.Name == "load_data" {
 			hasLoadData = true
 		}
-		if tool.Name == "query-sql" {
+		if tool.Name == "query_sql" {
 			hasQuerySQL = true
 		}
 	}
@@ -134,10 +134,10 @@ func TestDynamicToolFiltering(t *testing.T) {
 	hasLoadData = false
 	hasQuerySQL = false
 	for _, tool := range tools {
-		if tool.Name == "load-data" {
+		if tool.Name == "load_data" {
 			hasLoadData = true
 		}
-		if tool.Name == "query-sql" {
+		if tool.Name == "query_sql" {
 			hasQuerySQL = true
 		}
 	}
@@ -156,7 +156,7 @@ func TestDynamicToolFiltering(t *testing.T) {
 	tools = a.buildToolDefs()
 	hasQuerySQL = false
 	for _, tool := range tools {
-		if tool.Name == "query-sql" {
+		if tool.Name == "query_sql" {
 			hasQuerySQL = true
 		}
 	}

@@ -92,15 +92,23 @@ func (r *Registry) ScanDir(dir string) error {
 			continue // skip unparseable files
 		}
 		if tool != nil {
-			r.tools[tool.Name] = tool
+			// ADR-0023: store under the canonical (snake_case) form
+			// so a user shell script declaring `# @tool: foo-bar`
+			// is dispatchable as `foo_bar` on backends that cannot
+			// emit hyphens (e.g. Gemma via Ollama). The script's
+			// in-file Tool.Name is left as-authored for log fidelity.
+			canonical := strings.ReplaceAll(tool.Name, "-", "_")
+			r.tools[canonical] = tool
 		}
 	}
 	return nil
 }
 
-// Get returns a tool by name.
+// Get returns a tool by name. ADR-0023: the query name is
+// canonicalised (`-` → `_`) so kebab-case lookups from legacy
+// callers still resolve to the snake_case-keyed entry.
 func (r *Registry) Get(name string) (*Tool, bool) {
-	t, ok := r.tools[name]
+	t, ok := r.tools[strings.ReplaceAll(name, "-", "_")]
 	return t, ok
 }
 

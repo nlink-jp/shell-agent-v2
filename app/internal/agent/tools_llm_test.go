@@ -24,13 +24,13 @@ func TestE2E_QueryPreview(t *testing.T) {
 		// Round 1: LLM calls load-data
 		llm.MockResponse{ToolCalls: []llm.ToolCall{{
 			ID:        "tc-1",
-			Name:      "load-data",
+			Name:      "load_data",
 			Arguments: `{"file_path":"` + csvPath + `","table_name":"scores"}`,
 		}}},
 		// Round 2: LLM calls query-preview
 		llm.MockResponse{ToolCalls: []llm.ToolCall{{
 			ID:        "tc-2",
-			Name:      "query-preview",
+			Name:      "query_preview",
 			Arguments: `{"question":"Who has the highest score?"}`,
 		}}},
 		// Round 3: LLM final response (but query-preview internally calls Chat for SQL gen)
@@ -60,12 +60,12 @@ func TestE2E_SuggestAnalysis(t *testing.T) {
 	mock := llm.NewMockBackend(
 		llm.MockResponse{ToolCalls: []llm.ToolCall{{
 			ID:        "tc-1",
-			Name:      "load-data",
+			Name:      "load_data",
 			Arguments: `{"file_path":"` + csvPath + `","table_name":"products"}`,
 		}}},
 		llm.MockResponse{ToolCalls: []llm.ToolCall{{
 			ID:        "tc-2",
-			Name:      "suggest-analysis",
+			Name:      "suggest_analysis",
 			Arguments: `{}`,
 		}}},
 		llm.MockResponse{Content: "Here are analysis suggestions."},
@@ -96,12 +96,12 @@ func TestE2E_QuickSummary(t *testing.T) {
 	mock := llm.NewMockBackend(
 		llm.MockResponse{ToolCalls: []llm.ToolCall{{
 			ID:        "tc-1",
-			Name:      "load-data",
+			Name:      "load_data",
 			Arguments: `{"file_path":"` + csvPath + `","table_name":"items"}`,
 		}}},
 		llm.MockResponse{ToolCalls: []llm.ToolCall{{
 			ID:        "tc-2",
-			Name:      "quick-summary",
+			Name:      "quick_summary",
 			Arguments: `{"sql":"SELECT * FROM \"items\""}`,
 		}}},
 		llm.MockResponse{Content: "Summary complete."},
@@ -130,7 +130,7 @@ func TestE2E_LoadJSON(t *testing.T) {
 	mock := llm.NewMockBackend(
 		llm.MockResponse{ToolCalls: []llm.ToolCall{{
 			ID:        "tc-1",
-			Name:      "load-data",
+			Name:      "load_data",
 			Arguments: `{"file_path":"` + jsonPath + `","table_name":"jdata"}`,
 		}}},
 		llm.MockResponse{Content: "JSON data loaded."},
@@ -205,9 +205,9 @@ func TestAnalysisToolsFilteringWithNewTools(t *testing.T) {
 	tools := a.descriptorToolDefs(true, true)
 
 	expectedTools := []string{
-		"load-data", "reset-analysis", "describe-data", "query-sql",
-		"list-tables", "query-preview", "suggest-analysis", "quick-summary",
-		"promote-finding",
+		"load_data", "reset_analysis", "describe_data", "query_sql",
+		"list_tables", "query_preview", "suggest_analysis", "quick_summary",
+		"promote_finding",
 	}
 
 	for _, expected := range expectedTools {

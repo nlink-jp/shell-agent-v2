@@ -271,7 +271,56 @@ func New(cfg *config.Config) *Agent {
 	a.toolDescriptors = append(a.toolDescriptors, a.analysisDescriptors()...)
 	a.toolDescriptors = append(a.toolDescriptors, a.sandboxDescriptors()...)
 	a.rebuildToolDescriptorIndex()
+	a.canonicaliseMITLOverrideKeys()
+	a.canonicaliseDisabledToolNames()
 	return a
+}
+
+// canonicaliseMITLOverrideKeys migrates user config that was
+// written before ADR-0023 (kebab-case tool names) to the canonical
+// snake_case form, so IsToolMITLRequired's lookup can use the
+// canonical form uniformly. On collision (a user with both
+// `analyze-data` and `analyze_data` entries — a degenerate case)
+// the canonical key wins. The map is rewritten in-place; the
+// next time the user saves Settings, the config file persists in
+// canonical form. No-op for users whose config is already canonical.
+func (a *Agent) canonicaliseMITLOverrideKeys() {
+	if len(a.cfg.Tools.MITLOverrides) == 0 {
+		return
+	}
+	migrated := make(map[string]bool, len(a.cfg.Tools.MITLOverrides))
+	for k, v := range a.cfg.Tools.MITLOverrides {
+		canon := canonicalToolName(k)
+		if existing, ok := migrated[canon]; ok && canon == k {
+			// Already-canonical key takes precedence over a
+			// hyphenated synonym we processed earlier.
+			migrated[canon] = existing
+			continue
+		}
+		migrated[canon] = v
+	}
+	a.cfg.Tools.MITLOverrides = migrated
+}
+
+// canonicaliseDisabledToolNames mirrors the override-key migration
+// for cfg.Tools.DisabledTools (list of tool names the user has
+// turned off). buildToolDefs canonicalises during filtering, but
+// rewriting the slice once here keeps the persisted config tidy.
+func (a *Agent) canonicaliseDisabledToolNames() {
+	if len(a.cfg.Tools.DisabledTools) == 0 {
+		return
+	}
+	seen := make(map[string]bool, len(a.cfg.Tools.DisabledTools))
+	out := make([]string, 0, len(a.cfg.Tools.DisabledTools))
+	for _, name := range a.cfg.Tools.DisabledTools {
+		canon := canonicalToolName(name)
+		if seen[canon] {
+			continue
+		}
+		seen[canon] = true
+		out = append(out, canon)
+	}
+	a.cfg.Tools.DisabledTools = out
 }
 
 // maybeStartSandbox initialises a.sandbox when Sandbox.Enabled is true
@@ -1404,7 +1453,7 @@ func (a *Agent) ListTools() []ToolInfoItem {
 			continue
 		}
 		add(ToolInfoItem{
-			Name:        d.Name,
+			Name:        canonicalToolName(d.Name),
 			Description: d.Description,
 			Category:    d.Category,
 			Source:      d.Source,
@@ -1413,7 +1462,7 @@ func (a *Agent) ListTools() []ToolInfoItem {
 
 	// Shell script tools
 	for _, t := range a.toolRegistry.All() {
-		add(ToolInfoItem{Name: t.Name, Description: t.Description, Category: string(t.Category), Source: "shell"})
+		add(ToolInfoItem{Name: canonicalToolName(t.Name), Description: t.Description, Category: string(t.Category), Source: "shell"})
 	}
 
 	// Sandbox tools are no longer iterated here — Phase 3b
@@ -1429,7 +1478,7 @@ func (a *Agent) ListTools() []ToolInfoItem {
 	for name, g := range a.guardians {
 		for _, t := range g.Tools() {
 			add(ToolInfoItem{
-				Name:        "mcp__" + name + "__" + t.Name,
+				Name:        "mcp__" + canonicalToolName(name) + "__" + canonicalToolName(t.Name),
 				Description: "[" + name + "] " + t.Description,
 				Category:    "execute",
 				Source:      "mcp",
@@ -1448,10 +1497,13 @@ func (a *Agent) ListTools() []ToolInfoItem {
 // cleaner — leave that for a follow-up; for now, keep the rules in
 // sync between this and IsToolMITLRequired.
 func (a *Agent) toolMITLDefault(name, category, source string) bool {
+	name = canonicalToolName(name)
 	if strings.HasPrefix(name, "mcp__") || source == "mcp" {
 		return true
 	}
-	if strings.HasPrefix(name, "sandbox-") || source == "sandbox" {
+	// `sandbox_` is the canonical prefix post-ADR-0023; pre-rename
+	// callers pass `sandbox-foo` which canonicalises above.
+	if strings.HasPrefix(name, "sandbox_") || source == "sandbox" {
 		return true
 	}
 	// v0.6: same descriptor-registry lookup IsToolMITLRequired
@@ -2255,6 +2307,7 @@ func normalizeToolArgs(raw string) string {
 //   - All other branches: explicit Go-side errors map to
 //     ActivityStatusError; everything else is ActivityStatusSuccess.
 func (a *Agent) executeTool(ctx context.Context, tc llm.ToolCall) (string, ActivityEventStatus) {
+	tc.Name = canonicalToolName(tc.Name)
 	tc.Arguments = normalizeToolArgs(tc.Arguments)
 
 	// v0.6: descriptor registry handles analysis + builtin
@@ -2295,6 +2348,20 @@ func (a *Agent) executeTool(ctx context.Context, tc llm.ToolCall) (string, Activ
 			}
 			if g == nil {
 				return fmt.Sprintf("Error: MCP guardian %q not found", guardianName), ActivityStatusError
+			}
+			// ADR-0023: tc.Name was canonicalised at executeTool entry,
+			// so toolName is in canonical form. The upstream MCP server
+			// still expects the tool's original (possibly hyphenated)
+			// name — resolve the canonical form back to the original
+			// by scanning the guardian's tool list. If no match, fall
+			// back to toolName as-is (covers servers that already use
+			// snake_case and trips the upstream "unknown tool" error
+			// path cleanly for genuine mismatches).
+			for _, t := range g.Tools() {
+				if canonicalToolName(t.Name) == toolName {
+					toolName = t.Name
+					break
+				}
 			}
 			result, err := g.CallToolContext(ctx, toolName, json.RawMessage(tc.Arguments))
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
@@ -2366,7 +2433,7 @@ func (a *Agent) buildToolDefs() []llm.ToolDef {
 	logger.Debug("buildToolDefs: registry has %d shell tools", len(a.toolRegistry.All()))
 	for _, t := range a.toolRegistry.All() {
 		tools = append(tools, llm.ToolDef{
-			Name:        t.Name,
+			Name:        canonicalToolName(t.Name),
 			Description: t.Description,
 			Parameters:  t.ToolDefParams(),
 		})
@@ -2399,7 +2466,7 @@ func (a *Agent) buildToolDefs() []llm.ToolDef {
 				json.Unmarshal(t.InputSchema, &params)
 			}
 			tools = append(tools, llm.ToolDef{
-				Name:        "mcp__" + name + "__" + t.Name,
+				Name:        "mcp__" + canonicalToolName(name) + "__" + canonicalToolName(t.Name),
 				Description: "[" + name + "] " + t.Description,
 				Parameters:  params,
 			})
@@ -2407,10 +2474,12 @@ func (a *Agent) buildToolDefs() []llm.ToolDef {
 	}
 	a.guardiansMu.RUnlock()
 
-	// Filter out disabled tools
+	// Filter out disabled tools. Keys are canonicalised so user
+	// config carrying a hyphenated tool name from before ADR-0023
+	// still matches the snake_case form now on the wire.
 	disabled := make(map[string]bool)
 	for _, name := range a.cfg.Tools.DisabledTools {
-		disabled[name] = true
+		disabled[canonicalToolName(name)] = true
 	}
 	// ADR-0019: when auto-extraction is on for the active backend,
 	// hide remember-fact from the LLM. The two paths address the
@@ -2418,7 +2487,7 @@ func (a *Agent) buildToolDefs() []llm.ToolDef {
 	// prompt clutter. The descriptor is still registered (so a call
 	// would dispatch correctly) — this is purely a presentation gate.
 	if a.autoExtractEnabled() {
-		disabled["remember-fact"] = true
+		disabled[canonicalToolName("remember-fact")] = true
 	}
 	if len(disabled) > 0 {
 		var filtered []llm.ToolDef
@@ -2453,13 +2522,17 @@ func (a *Agent) buildToolDefs() []llm.ToolDef {
 // was hardcoded inside executeAnalysisTool). This routing closes that
 // contract gap.
 func (a *Agent) IsToolMITLRequired(toolName string) bool {
+	toolName = canonicalToolName(toolName)
 	if override, ok := a.cfg.Tools.MITLOverrides[toolName]; ok {
 		return override
 	}
 	if strings.HasPrefix(toolName, "mcp__") {
 		return true
 	}
-	if strings.HasPrefix(toolName, "sandbox-") {
+	// Sandbox tools: prefix check uses the canonical form
+	// (`sandbox_`). ADR-0023 normalised toolName above, so a
+	// hyphenated call from a user shell script also matches.
+	if strings.HasPrefix(toolName, "sandbox_") {
 		return true
 	}
 	// v0.6: descriptor registry replaces the

@@ -110,7 +110,7 @@ type ToolDescriptor struct {
 // here so subsequent commits don't need to also touch the
 // agent struct.
 func (a *Agent) toolDescriptorByName(name string) (ToolDescriptor, bool) {
-	idx, ok := a.toolDescriptorIndex[name]
+	idx, ok := a.toolDescriptorIndex[canonicalToolName(name)]
 	if !ok || idx < 0 || idx >= len(a.toolDescriptors) {
 		return ToolDescriptor{}, false
 	}
@@ -125,7 +125,7 @@ func (a *Agent) toolDescriptorByName(name string) (ToolDescriptor, bool) {
 func (a *Agent) rebuildToolDescriptorIndex() {
 	a.toolDescriptorIndex = make(map[string]int, len(a.toolDescriptors))
 	for i, d := range a.toolDescriptors {
-		a.toolDescriptorIndex[d.Name] = i
+		a.toolDescriptorIndex[canonicalToolName(d.Name)] = i
 	}
 }
 
@@ -264,7 +264,7 @@ func (a *Agent) descriptorToolDefs(hasData, legacyMode bool) []llm.ToolDef {
 			continue
 		}
 		out = append(out, llm.ToolDef{
-			Name:        d.Name,
+			Name:        canonicalToolName(d.Name),
 			Description: d.Description,
 			Parameters:  d.Parameters,
 		})
