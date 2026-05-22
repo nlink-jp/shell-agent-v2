@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- **Tool calls from Gemma/Ollama now dispatch (#12).** Gemma served
+  via Ollama emits tool calls in a Python `tool_code` block whose
+  identifier syntax disallows `-`, so calls like `list_objects`
+  used to fail against a registry keyed on `list-objects`. ADR-0023
+  introduces a `canonicalToolName` helper applied at every registry
+  boundary (descriptor index, dispatcher ingress, LLM schema emit,
+  UI catalogue, MITL override / disabled-tool config) so the wire
+  form is always `snake_case` regardless of how a descriptor, user
+  shell script header, or upstream MCP tool happens to be spelled.
+
+### Changed
+
+- **Built-in and bundled tools renamed to `snake_case`.** The 28
+  built-in descriptors and the 5 kebab-named bundled shell-script
+  `# @tool:` headers (`file_info`, `get_location`, `list_files`,
+  `preview_file`, `write_note`) now spell their names the way the
+  LLM actually receives them. Frontend dispatch tables and copy
+  updated to match. The canonical-normalisation layer ensures old
+  session histories, already-scaffolded user data dirs, user-
+  authored shell scripts with kebab `# @tool:` headers, and MCP
+  servers publishing kebab tool names continue to work unchanged.
+  See `docs/en/adr/0023-tool-name-normalization.md`.
+
 ## [0.14.4] - 2026-05-21
 
 ### Changed
