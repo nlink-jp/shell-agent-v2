@@ -1,5 +1,5 @@
 #!/bin/bash
-# @tool: get-location
+# @tool: get_location
 # @description: Return the device's approximate location inferred from the system IANA timezone (NOT from GPS, IP, or network). macOS only. Output is a JSON object always containing `timezone`, `utc_offset`, `timezone_id`, `source: "system_inference"`, `accuracy: "approximate (timezone-based)"`; when the timezone matches one of the built-in entries (Asia/Tokyo, Asia/Shanghai, Asia/Seoul, America/New_York, America/Los_Angeles, America/Chicago, Europe/London, Europe/Paris, Europe/Berlin) it ALSO returns `country`, `admin_area`, `locality`, `lat`, `lon`. Any other timezone returns only the timezone fields — do NOT try to derive a city from `utc_offset` alone. If the user has set a manual override in config.json, that override is returned verbatim as `{"location": "..."}` instead. Pair with the `weather` tool by mapping `locality` → region.
 # @category: read
 # @timeout: 30

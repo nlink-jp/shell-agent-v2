@@ -39,7 +39,7 @@ import (
 func (a *Agent) builtinDescriptors() []ToolDescriptor {
 	out := []ToolDescriptor{
 		{
-			Name:        "resolve-date",
+			Name:        "resolve_date",
 			Description: "Resolve relative date expressions to absolute dates. Use when you need to calculate dates like 'last Thursday', '3 weeks ago', 'first Monday of last month'.",
 			Parameters:  chat.ResolveDateToolDef(),
 			Category:    "read",
@@ -51,8 +51,8 @@ func (a *Agent) builtinDescriptors() []ToolDescriptor {
 			}),
 		},
 		{
-			Name:        "list-objects",
-			Description: "List all objects (images, files, reports, markdown attachments) in the current session. Returns ID, type, filename, size, and creation time. For text-bearing types (markdown / report) the output also includes Lines and Tokens so you can plan whether to read the whole document via get-text or summarise via analyze-text without first having to count lines yourself.",
+			Name:        "list_objects",
+			Description: "List all objects (images, files, reports, markdown attachments) in the current session. Returns ID, type, filename, size, and creation time. For text-bearing types (markdown / report) the output also includes Lines and Tokens so you can plan whether to read the whole document via get_text or summarise via analyze_text without first having to count lines yourself.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -72,7 +72,7 @@ func (a *Agent) builtinDescriptors() []ToolDescriptor {
 			}),
 		},
 		{
-			Name:        "get-object",
+			Name:        "get_object",
 			Description: "Retrieve an object by ID. For images, returns a marker that will be resolved to the actual image. For text/data, returns the content directly.",
 			Parameters: map[string]any{
 				"type": "object",
@@ -93,8 +93,8 @@ func (a *Agent) builtinDescriptors() []ToolDescriptor {
 			}),
 		},
 		{
-			Name:        "register-object",
-			Description: "Register a file already present in the session work directory ($SHELL_AGENT_WORK_DIR — same physical path that the sandbox sees as /work) into the central object store, returning an object:<ID> reference the chat can render. Use this to surface artefacts produced by shell tools (e.g. generate-image): write to $SHELL_AGENT_WORK_DIR from the shell tool, then call this with the same filename. For artefacts produced by sandbox-run-python / sandbox-run-shell, prefer sandbox-register-object (both end up reading from the same physical directory). Design: docs/en/history/work-dir-shell-bridge.md.",
+			Name:        "register_object",
+			Description: "Register a file already present in the session work directory ($SHELL_AGENT_WORK_DIR — same physical path that the sandbox sees as /work) into the central object store, returning an object:<ID> reference the chat can render. Use this to surface artefacts produced by shell tools (e.g. generate_image): write to $SHELL_AGENT_WORK_DIR from the shell tool, then call this with the same filename. For artefacts produced by sandbox_run_python / sandbox_run_shell, prefer sandbox_register_object (both end up reading from the same physical directory). Design: docs/en/history/work-dir-shell-bridge.md.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -133,7 +133,7 @@ func (a *Agent) builtinDescriptors() []ToolDescriptor {
 	// gate respects per-profile and /model switches without rebuilding
 	// the descriptor cache.
 	out = append(out, ToolDescriptor{
-		Name:        "remember-fact",
+		Name:        "remember_fact",
 		Description: "Save a fact about the user to memory so it persists across turns and (for preference/decision) sessions. Use when the user states a stable preference, makes an explicit decision, or shares a fact about themselves that will matter later. Do NOT use for transient context or anything already obvious from the conversation history. Aim for at most a few calls per session.",
 		Parameters: map[string]any{
 			"type": "object",

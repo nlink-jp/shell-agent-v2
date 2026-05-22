@@ -28,13 +28,13 @@ import (
 
 // analysisDescriptors returns the 14 analysis-engine tools
 // as ToolDescriptor values: 6 always-visible
-// (load-data + reset-analysis + create-report + the 3 v0.5
+// (load_data + reset_analysis + create_report + the 3 v0.5
 // text tools) and 8 data-gated (the rest of the data-
 // dependent tools that the legacy hideUntilDataLoaded mode
-// hides until first load-data succeeds).
+// hides until first load_data succeeds).
 //
-// The 4 builtin tools (resolve-date, list-objects,
-// get-object, register-object) live in builtinDescriptors()
+// The 4 builtin tools (resolve_date, list_objects,
+// get_object, register_object) live in builtinDescriptors()
 // — they're listed under analysisTools() today for
 // historical reasons but are dispatched directly by
 // executeTool() without going through the analysis engine.
@@ -42,14 +42,14 @@ func (a *Agent) analysisDescriptors() []ToolDescriptor {
 	return []ToolDescriptor{
 		// --- Always-visible (6) ---
 		{
-			Name:        "load-data",
-			Description: "Load a data file (CSV, JSON, JSONL) from the HOST filesystem into the analysis database. Creates or replaces the table. Only use this for absolute host paths the user supplied, or files explicitly attached to the conversation. For files inside the sandbox /work directory (anything you produced via sandbox-run-python, sandbox-write-file, sandbox-export-sql etc.), call sandbox-load-into-analysis instead — load-data cannot reach into the container. Once loaded, the table is queryable via `query-sql`, `describe-data`, `list-tables`, `query-preview`, `suggest-analysis`, `quick-summary`, and `analyze-data`; use `promote-finding` to save insights, `create-report` to assemble a report.",
+			Name:        "load_data",
+			Description: "Load a data file (CSV, JSON, JSONL) from the HOST filesystem into the analysis database. Creates or replaces the table. Only use this for absolute host paths the user supplied, or files explicitly attached to the conversation. For files inside the sandbox /work directory (anything you produced via sandbox_run_python, sandbox_write_file, sandbox_export_sql etc.), call sandbox_load_into_analysis instead — load_data cannot reach into the container. Once loaded, the table is queryable via `query_sql`, `describe_data`, `list_tables`, `query_preview`, `suggest_analysis`, `quick_summary`, and `analyze_data`; use `promote_finding` to save insights, `create_report` to assemble a report.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"file_path": map[string]any{
 						"type":        "string",
-						"description": "Absolute path on the host. NOT a /work/ path (use sandbox-load-into-analysis for those).",
+						"description": "Absolute path on the host. NOT a /work/ path (use sandbox_load_into_analysis for those).",
 					},
 					"table_name": map[string]any{
 						"type":        "string",
@@ -61,14 +61,14 @@ func (a *Agent) analysisDescriptors() []ToolDescriptor {
 			Category:             "read", // matches existing ListTools entry
 			Source:               "analysis",
 			MITLDefault:          true,
-			MITLCategoryOverride: "execute", // analysisToolMITLCategory("load-data") returns "execute"
+			MITLCategoryOverride: "execute", // analysisToolMITLCategory("load_data") returns "execute"
 			HideUntilDataLoaded:  false,
 			Handle: wrapErrHandler(func(_ context.Context, args string) (string, error) {
 				return a.toolLoadData(args)
 			}),
 		},
 		{
-			Name:        "reset-analysis",
+			Name:        "reset_analysis",
 			Description: "Drop all tables and clear analysis data for the current session.",
 			Parameters: map[string]any{
 				"type":       "object",
@@ -77,14 +77,14 @@ func (a *Agent) analysisDescriptors() []ToolDescriptor {
 			Category:             "write", // destructive
 			Source:               "analysis",
 			MITLDefault:          true,
-			MITLCategoryOverride: "execute", // analysisToolMITLCategory("reset-analysis") returns "execute"
+			MITLCategoryOverride: "execute", // analysisToolMITLCategory("reset_analysis") returns "execute"
 			HideUntilDataLoaded:  false,
 			Handle: wrapErrHandler(func(_ context.Context, _ string) (string, error) {
 				return a.toolResetAnalysis()
 			}),
 		},
 		{
-			Name:        "create-report",
+			Name:        "create_report",
 			Description: "Create a structured markdown report. Use this when the user asks for a report, summary document, or formatted output. Write GitHub-flavored Markdown only — do NOT emit raw HTML tags (`<br>`, `<table>`, `<details>`, `<sub>`, etc.); the renderer escapes them and they appear as plain text. Use markdown tables, lists, fenced code blocks, and headings instead. Reference images with `![alt](object:ID)`. Reference other documents (markdown / reports) with `[title](object:ID)` — they render as clickable preview chips that open the linked content in the report viewer.",
 			Parameters: map[string]any{
 				"type": "object",
@@ -109,14 +109,14 @@ func (a *Agent) analysisDescriptors() []ToolDescriptor {
 			}),
 		},
 		{
-			Name:        "analyze-text",
-			Description: "Run sliding-window analysis over a markdown / text attachment (TypeMarkdown — user-attached) or a previously generated report (TypeReport — your own prior output via create-report). Same pipeline as analyze-data, but the chunks are text segments rather than DuckDB rows. Findings are auto-promoted into the session findings store tagged with the object ID. Heavy: many LLM calls for large documents. Use grep-text for keyword search, get-text for verbatim line reads.",
+			Name:        "analyze_text",
+			Description: "Run sliding-window analysis over a markdown / text attachment (TypeMarkdown — user-attached) or a previously generated report (TypeReport — your own prior output via create_report). Same pipeline as analyze_data, but the chunks are text segments rather than DuckDB rows. Findings are auto-promoted into the session findings store tagged with the object ID. Heavy: many LLM calls for large documents. Use grep_text for keyword search, get_text for verbatim line reads.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"object": map[string]any{
 						"type":        "string",
-						"description": "Object ID, either bare (e.g. \"abc123\") or \"object:abc123\". Must be a TypeMarkdown or TypeReport object — use list-objects to discover.",
+						"description": "Object ID, either bare (e.g. \"abc123\") or \"object:abc123\". Must be a TypeMarkdown or TypeReport object — use list_objects to discover.",
 					},
 					"perspective": map[string]any{
 						"type":        "string",
@@ -138,8 +138,8 @@ func (a *Agent) analysisDescriptors() []ToolDescriptor {
 			}),
 		},
 		{
-			Name:        "grep-text",
-			Description: "Regex search across a markdown or report object. Returns matching lines with line numbers and configurable context lines (-A / -B equivalent). If the match count exceeds max_matches, returns an error suggesting you narrow the pattern or restrict via the lines argument — much like ripgrep would. Use this when you need to FIND something specific in a document; use analyze-text for narrative summarisation.",
+			Name:        "grep_text",
+			Description: "Regex search across a markdown or report object. Returns matching lines with line numbers and configurable context lines (-A / -B equivalent). If the match count exceeds max_matches, returns an error suggesting you narrow the pattern or restrict via the lines argument — much like ripgrep would. Use this when you need to FIND something specific in a document; use analyze_text for narrative summarisation.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -153,7 +153,7 @@ func (a *Agent) analysisDescriptors() []ToolDescriptor {
 					},
 					"lines": map[string]any{
 						"type":        "string",
-						"description": "Optional line range to restrict the search (same syntax as analyze-text).",
+						"description": "Optional line range to restrict the search (same syntax as analyze_text).",
 					},
 					"max_matches": map[string]any{
 						"type":        "integer",
@@ -175,8 +175,8 @@ func (a *Agent) analysisDescriptors() []ToolDescriptor {
 			}),
 		},
 		{
-			Name:        "get-text",
-			Description: "Read a specific line range from a markdown or report object verbatim, with line numbers prefixed for unambiguous citation. Hard cap of 1000 lines per call — for longer ranges use analyze-text (summarised) or call get-text in chunks.",
+			Name:        "get_text",
+			Description: "Read a specific line range from a markdown or report object verbatim, with line numbers prefixed for unambiguous citation. Hard cap of 1000 lines per call — for longer ranges use analyze_text (summarised) or call get_text in chunks.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -201,7 +201,7 @@ func (a *Agent) analysisDescriptors() []ToolDescriptor {
 		},
 		// --- Data-gated (8) ---
 		{
-			Name:        "describe-data",
+			Name:        "describe_data",
 			Description: "Show table metadata: columns, row count, and description. Optionally set a description.",
 			Parameters: map[string]any{
 				"type": "object",
@@ -226,8 +226,8 @@ func (a *Agent) analysisDescriptors() []ToolDescriptor {
 			}),
 		},
 		{
-			Name:        "query-sql",
-			Description: "Execute a read-only SQL SELECT query you write yourself against the analysis database. Returns the raw rows. Use when you already know the SQL — fastest of the query tools, no extra LLM round-trip. If you don't know the SQL yet, use query-preview (natural language → SQL) instead. If you want a narrative interpretation of the results, use quick-summary instead. INSERT/UPDATE/DELETE/DROP/DDL are rejected.",
+			Name:        "query_sql",
+			Description: "Execute a read-only SQL SELECT query you write yourself against the analysis database. Returns the raw rows. Use when you already know the SQL — fastest of the query tools, no extra LLM round-trip. If you don't know the SQL yet, use query_preview (natural language → SQL) instead. If you want a narrative interpretation of the results, use quick_summary instead. INSERT/UPDATE/DELETE/DROP/DDL are rejected.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -248,7 +248,7 @@ func (a *Agent) analysisDescriptors() []ToolDescriptor {
 			}),
 		},
 		{
-			Name:        "list-tables",
+			Name:        "list_tables",
 			Description: "List all tables in the analysis database with their metadata.",
 			Parameters: map[string]any{
 				"type":       "object",
@@ -263,8 +263,8 @@ func (a *Agent) analysisDescriptors() []ToolDescriptor {
 			}),
 		},
 		{
-			Name:        "query-preview",
-			Description: "Ask a question about the data in natural language; the agent uses the LLM to generate a SELECT query against the loaded schema, runs it, and returns BOTH the generated SQL and the raw result rows. Use this for exploratory asks where you don't yet know the right SQL — e.g. 'show monthly sales totals' or 'which products sell best'. Costs one extra LLM round-trip vs query-sql; if you already know the SQL, prefer query-sql. If you want a narrative summary instead of raw rows, use quick-summary.",
+			Name:        "query_preview",
+			Description: "Ask a question about the data in natural language; the agent uses the LLM to generate a SELECT query against the loaded schema, runs it, and returns BOTH the generated SQL and the raw result rows. Use this for exploratory asks where you don't yet know the right SQL — e.g. 'show monthly sales totals' or 'which products sell best'. Costs one extra LLM round-trip vs query_sql; if you already know the SQL, prefer query_sql. If you want a narrative summary instead of raw rows, use quick_summary.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -284,8 +284,8 @@ func (a *Agent) analysisDescriptors() []ToolDescriptor {
 			}),
 		},
 		{
-			Name:        "suggest-analysis",
-			Description: "Brainstorm 3-5 analysis angles you could pursue against the loaded data — for each: a title, what to look for, and a sample SQL query. Returns markdown text. Does NOT execute any SQL on its own; pick one of the suggestions and run it via query-sql or query-preview. Use this at the start of an exploration when neither you nor the user knows yet what's interesting in the data.",
+			Name:        "suggest_analysis",
+			Description: "Brainstorm 3-5 analysis angles you could pursue against the loaded data — for each: a title, what to look for, and a sample SQL query. Returns markdown text. Does NOT execute any SQL on its own; pick one of the suggestions and run it via query_sql or query_preview. Use this at the start of an exploration when neither you nor the user knows yet what's interesting in the data.",
 			Parameters: map[string]any{
 				"type":       "object",
 				"properties": map[string]any{},
@@ -299,8 +299,8 @@ func (a *Agent) analysisDescriptors() []ToolDescriptor {
 			}),
 		},
 		{
-			Name:        "quick-summary",
-			Description: "Run a SELECT (you provide the SQL) and get back BOTH the row count + a one-shot natural-language summary of patterns, outliers, and insights generated by the LLM. Use this when the user wants a narrative interpretation rather than raw rows in one step. If you only need rows, use query-sql; if you don't know the SQL yet, use query-preview. For a deeper, multi-window analysis with accumulated findings, use analyze-data instead.",
+			Name:        "quick_summary",
+			Description: "Run a SELECT (you provide the SQL) and get back BOTH the row count + a one-shot natural-language summary of patterns, outliers, and insights generated by the LLM. Use this when the user wants a narrative interpretation rather than raw rows in one step. If you only need rows, use query_sql; if you don't know the SQL yet, use query_preview. For a deeper, multi-window analysis with accumulated findings, use analyze_data instead.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -320,7 +320,7 @@ func (a *Agent) analysisDescriptors() []ToolDescriptor {
 			}),
 		},
 		{
-			Name:        "promote-finding",
+			Name:        "promote_finding",
 			Description: "Promote an analysis insight to the per-session findings store. Use this when you discover a significant result worth remembering. Write `content` in the same language the user is using in the current conversation (e.g. 日本語 if the user is speaking Japanese) — these findings are surfaced directly in the user's chat-pane panel. Avoid promoting near-duplicates of insights already surfaced (the store dedups, but cosmetic re-wording wastes a tool round).",
 			Parameters: map[string]any{
 				"type": "object",
@@ -346,8 +346,8 @@ func (a *Agent) analysisDescriptors() []ToolDescriptor {
 			}),
 		},
 		{
-			Name:        "save-query",
-			Description: "Run a SELECT query and save its result as a new derived table for further analysis. Use this when you want to analyze-data over a filtered subset (e.g. WHERE status='failed' AND ts >= '2026-05-01') — save-query the filter, then pass the new table name to analyze-data. The derived table appears in list-tables alongside loaded tables. Errors on name collision to avoid accidentally overwriting a loaded table; if collision happens, pick a fresh name with a suffix like _v2, _filtered, or _derived.",
+			Name:        "save_query",
+			Description: "Run a SELECT query and save its result as a new derived table for further analysis. Use this when you want to analyze_data over a filtered subset (e.g. WHERE status='failed' AND ts >= '2026-05-01') — save_query the filter, then pass the new table name to analyze_data. The derived table appears in list_tables alongside loaded tables. Errors on name collision to avoid accidentally overwriting a loaded table; if collision happens, pick a fresh name with a suffix like _v2, _filtered, or _derived.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -361,7 +361,7 @@ func (a *Agent) analysisDescriptors() []ToolDescriptor {
 					},
 					"description": map[string]any{
 						"type":        "string",
-						"description": "Optional purpose description, shown in describe-data later",
+						"description": "Optional purpose description, shown in describe_data later",
 					},
 				},
 				"required": []string{"sql", "name"},
@@ -376,8 +376,8 @@ func (a *Agent) analysisDescriptors() []ToolDescriptor {
 			}),
 		},
 		{
-			Name:        "analyze-data",
-			Description: "Run deep sliding-window analysis on a loaded table — the agent processes data in chunks, asking the LLM to surface findings on each window, accumulating them, and building a comprehensive summary grouped by severity. Returns a markdown report. Heaviest of the analysis tools (multiple LLM calls). Use this when the user wants a thorough audit-style review (e.g. 'find anomalies', 'summarise this dataset's risks'); for a one-shot SQL + summary, use quick-summary; for brainstorming angles only, use suggest-analysis. For filtered analysis, use `save-query` first to materialise a SELECT result as a derived table, then pass that table's name here.",
+			Name:        "analyze_data",
+			Description: "Run deep sliding-window analysis on a loaded table — the agent processes data in chunks, asking the LLM to surface findings on each window, accumulating them, and building a comprehensive summary grouped by severity. Returns a markdown report. Heaviest of the analysis tools (multiple LLM calls). Use this when the user wants a thorough audit-style review (e.g. 'find anomalies', 'summarise this dataset's risks'); for a one-shot SQL + summary, use quick_summary; for brainstorming angles only, use suggest_analysis. For filtered analysis, use `save_query` first to materialise a SELECT result as a derived table, then pass that table's name here.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{

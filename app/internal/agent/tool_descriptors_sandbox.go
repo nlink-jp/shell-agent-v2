@@ -1,8 +1,8 @@
 // tool_descriptors_sandbox.go — descriptors for the eight
-// sandbox-* tools (sandbox-run-shell, sandbox-run-python,
-// sandbox-write-file, sandbox-copy-object,
-// sandbox-register-object, sandbox-info, sandbox-export-sql,
-// sandbox-load-into-analysis).
+// sandbox_* tools (sandbox_run_shell, sandbox_run_python,
+// sandbox_write_file, sandbox_copy_object,
+// sandbox_register_object, sandbox_info, sandbox_export_sql,
+// sandbox_load_into_analysis).
 //
 // All sandbox tools require a live container, so each
 // descriptor's Handle goes through sandboxHandle() — the
@@ -40,7 +40,7 @@ import (
 // sandboxDescriptors returns the eight sandbox tool
 // descriptors. Caller in New() should append the slice only
 // when a.sandbox != nil — there is no point exposing
-// sandbox-* tools to the LLM when the engine isn't running,
+// sandbox_* tools to the LLM when the engine isn't running,
 // and that conditional registration also lets the Settings UI
 // stop listing sandbox tools when the user has disabled the
 // sandbox or no image is selected.
@@ -53,7 +53,7 @@ import (
 func (a *Agent) sandboxDescriptors() []ToolDescriptor {
 	return []ToolDescriptor{
 		{
-			Name:        "sandbox-run-shell",
+			Name:        "sandbox_run_shell",
 			Description: "Execute a shell command inside this session's sandbox container. Files in /work persist across calls within the session and are isolated between sessions. Side effects do not affect the host. Use for filesystem operations, package installs (pip), and orchestrating subprocesses.",
 			Parameters: map[string]any{
 				"type": "object",
@@ -70,7 +70,7 @@ func (a *Agent) sandboxDescriptors() []ToolDescriptor {
 			}),
 		},
 		{
-			Name:        "sandbox-run-python",
+			Name:        "sandbox_run_python",
 			Description: "Execute Python code inside this session's sandbox container. Working directory is /work; files there persist across calls. Each call is a fresh interpreter, but the filesystem and any installed packages persist within the session.",
 			Parameters: map[string]any{
 				"type": "object",
@@ -87,7 +87,7 @@ func (a *Agent) sandboxDescriptors() []ToolDescriptor {
 			}),
 		},
 		{
-			Name:        "sandbox-write-file",
+			Name:        "sandbox_write_file",
 			Description: "Write text content to /work/<path> inside this session's sandbox. Use to seed the sandbox with data the LLM has already produced (CSVs, source files, configs) without escaping it through run-shell heredocs. Path must be relative to /work; parent directories are created if missing. Existing files are overwritten.",
 			Parameters: map[string]any{
 				"type": "object",
@@ -105,12 +105,12 @@ func (a *Agent) sandboxDescriptors() []ToolDescriptor {
 			}),
 		},
 		{
-			Name:        "sandbox-copy-object",
-			Description: "Copy a stored object (image / blob / report / markdown) from the session object store into /work/<path> inside this session's sandbox. Use to bring user-uploaded images, markdown attachments, or earlier reports into the sandbox for analysis (e.g. running ripgrep or pandoc against an attached document). Use list-objects to find a valid object_id.",
+			Name:        "sandbox_copy_object",
+			Description: "Copy a stored object (image / blob / report / markdown) from the session object store into /work/<path> inside this session's sandbox. Use to bring user-uploaded images, markdown attachments, or earlier reports into the sandbox for analysis (e.g. running ripgrep or pandoc against an attached document). Use list_objects to find a valid object_id.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"object_id": map[string]any{"type": "string", "description": "Object ID from list-objects."},
+					"object_id": map[string]any{"type": "string", "description": "Object ID from list_objects."},
 					"path":      map[string]any{"type": "string", "description": "Destination path under /work. Defaults to the object's orig_name when omitted."},
 				},
 				"required": []string{"object_id"},
@@ -123,8 +123,8 @@ func (a *Agent) sandboxDescriptors() []ToolDescriptor {
 			}),
 		},
 		{
-			Name:        "sandbox-register-object",
-			Description: "Register a file from /work (typically an output from sandbox-run-python — chart, generated CSV, etc.) into the session object store. Returns the object ID, which can be referenced in reports as ![alt](object:ID).",
+			Name:        "sandbox_register_object",
+			Description: "Register a file from /work (typically an output from sandbox_run_python — chart, generated CSV, etc.) into the session object store. Returns the object ID, which can be referenced in reports as ![alt](object:ID).",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -142,7 +142,7 @@ func (a *Agent) sandboxDescriptors() []ToolDescriptor {
 			}),
 		},
 		{
-			Name:        "sandbox-info",
+			Name:        "sandbox_info",
 			Description: "Return a description of this session's sandbox: engine, image, Python version, key pre-installed packages, network policy, resource limits, and the contents of /work (path, size, mtime). Use this to discover the runtime before running code.",
 			Parameters: map[string]any{
 				"type":       "object",
@@ -151,7 +151,7 @@ func (a *Agent) sandboxDescriptors() []ToolDescriptor {
 			Category:    "execute",
 			Source:      "sandbox",
 			MITLDefault: true,
-			// sandbox-info takes no JSON args; the wrapper still
+			// sandbox_info takes no JSON args; the wrapper still
 			// receives the empty-object string from the
 			// dispatcher — discard it.
 			Handle: a.sandboxHandle(func(ctx context.Context, sid, _ string) (string, ActivityEventStatus) {
@@ -159,8 +159,8 @@ func (a *Agent) sandboxDescriptors() []ToolDescriptor {
 			}),
 		},
 		{
-			Name:        "sandbox-export-sql",
-			Description: "Run a SELECT query against the analysis database and write the result as CSV to /work/<file_path>. Use this when you want sandbox-run-python (pandas etc.) to operate on a query result — pasting the result text into Python is wasteful and lossy; this hands the data over as a precise CSV file. The file appears under /work and can also be loaded back with sandbox-load-into-analysis.",
+			Name:        "sandbox_export_sql",
+			Description: "Run a SELECT query against the analysis database and write the result as CSV to /work/<file_path>. Use this when you want sandbox_run_python (pandas etc.) to operate on a query result — pasting the result text into Python is wasteful and lossy; this hands the data over as a precise CSV file. The file appears under /work and can also be loaded back with sandbox_load_into_analysis.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -177,12 +177,12 @@ func (a *Agent) sandboxDescriptors() []ToolDescriptor {
 			}),
 		},
 		{
-			Name:        "sandbox-load-into-analysis",
-			Description: "Load a CSV/JSON/JSONL file from /work into the analysis database (DuckDB) as a table, so it can be queried with query-sql, described with describe-data, etc. Use this after generating data with sandbox-run-python to bridge the produced file into the analysis side. file_path is relative to /work (do not include the '/work/' prefix).",
+			Name:        "sandbox_load_into_analysis",
+			Description: "Load a CSV/JSON/JSONL file from /work into the analysis database (DuckDB) as a table, so it can be queried with query_sql, described with describe_data, etc. Use this after generating data with sandbox_run_python to bridge the produced file into the analysis side. file_path is relative to /work (do not include the '/work/' prefix).",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"file_path":  map[string]any{"type": "string", "description": "Path to the data file under /work (e.g. 'sales.csv'). Same parameter name as load-data."},
+					"file_path":  map[string]any{"type": "string", "description": "Path to the data file under /work (e.g. 'sales.csv'). Same parameter name as load_data."},
 					"table_name": map[string]any{"type": "string", "description": "Table name to create in the analysis database. Alphanumeric and underscores only."},
 				},
 				"required": []string{"file_path", "table_name"},

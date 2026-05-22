@@ -183,13 +183,13 @@ func TestBuildSystemPrompt_SandboxGuidanceConditional(t *testing.T) {
 	e := New("base prompt")
 
 	// Off by default: no sandbox section.
-	if got := e.BuildSystemPrompt("", "", "", ""); strings.Contains(got, "sandbox-run-shell") {
+	if got := e.BuildSystemPrompt("", "", "", ""); strings.Contains(got, "sandbox_run_shell") {
 		t.Error("sandbox guidance should be absent when SetSandboxEnabled was not called")
 	}
 
 	e.SetSandboxEnabled(true)
 	got := e.BuildSystemPrompt("", "", "", "")
-	for _, want := range []string{"sandbox-run-shell", "sandbox-run-python", "sandbox-write-file", "sandbox-copy-object", "sandbox-register-object", "sandbox-info"} {
+	for _, want := range []string{"sandbox_run_shell", "sandbox_run_python", "sandbox_write_file", "sandbox_copy_object", "sandbox_register_object", "sandbox_info"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("expected sandbox guidance to mention %q", want)
 		}
@@ -197,7 +197,7 @@ func TestBuildSystemPrompt_SandboxGuidanceConditional(t *testing.T) {
 
 	// And turning it back off removes it.
 	e.SetSandboxEnabled(false)
-	if got := e.BuildSystemPrompt("", "", "", ""); strings.Contains(got, "sandbox-run-shell") {
+	if got := e.BuildSystemPrompt("", "", "", ""); strings.Contains(got, "sandbox_run_shell") {
 		t.Error("disabling should remove the sandbox guidance")
 	}
 }

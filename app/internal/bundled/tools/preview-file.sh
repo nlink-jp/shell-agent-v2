@@ -1,5 +1,5 @@
 #!/bin/bash
-# @tool: preview-file
+# @tool: preview_file
 # @description: Read the first portion of a text file. Returns at most N lines (default 100) and caps total bytes (default 8KB) to keep LLM context bounded.
 # @param: path string "Absolute or relative path to a text file"
 # @param: lines integer "Maximum number of lines to return (default 100, max 1000)"
@@ -7,7 +7,7 @@
 # @category: read
 # @timeout: 30
 #
-# Example: preview-file {"path": "/tmp/log.txt", "lines": 50}
+# Example: preview_file {"path": "/tmp/log.txt", "lines": 50}
 # Arguments are passed as JSON via stdin.
 
 INPUT=$(cat)

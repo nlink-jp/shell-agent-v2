@@ -59,7 +59,7 @@ func (e *Engine) SetLocation(location string) {
 
 // SetSandboxEnabled toggles the sandbox-tool guidance section in
 // BuildSystemPrompt. The agent calls this from maybeStartSandbox and
-// RestartSandbox so the guidance shows up only when the sandbox-*
+// RestartSandbox so the guidance shows up only when the sandbox_*
 // tools are actually available — otherwise the LLM would hallucinate
 // calls to tools that aren't there.
 func (e *Engine) SetSandboxEnabled(enabled bool) {
@@ -127,23 +127,23 @@ func (e *Engine) ResetGuardTag() {
 
 // sandboxGuidance is the system-prompt section that appears when the
 // sandbox is enabled. It tells the model how to chain the six
-// sandbox-* tools so they aren't a black box at the start of a
+// sandbox_* tools so they aren't a black box at the start of a
 // conversation.
 const sandboxGuidance = `
 
 A per-session container sandbox is available. Use it whenever the user asks you to run code, generate files, or do anything that has side effects you don't want on the host:
-- sandbox-run-shell — run a shell command in the container; files in /work persist within this session
-- sandbox-run-python — run Python code in the container
-- sandbox-write-file — write text content to /work/<path> directly (avoids heredoc escaping)
-- sandbox-copy-object — copy an object from the central store into /work so you can analyze it
-- sandbox-register-object — register a /work file (chart, generated CSV, etc.) back into the central object store; the returned ID can be referenced from reports as ![alt](object:ID)
-- sandbox-load-into-analysis — load a CSV/JSON/JSONL file from /work into the analysis database (DuckDB) as a queryable table. Use this after generating data with sandbox-run-python to make it available to query-sql / describe-data / suggest-analysis.
-- sandbox-export-sql — run a SELECT query and write the result as CSV to /work/<file_path>. Use this whenever you want sandbox-run-python to operate on a query result; do NOT paste query-sql output text into Python code (lossy, wasteful, and the LLM will mistype large numbers).
-- sandbox-info — describe the runtime (engine, image, Python version, installed pip packages, /work listing). Call this once early when you need to know what is preinstalled.
+- sandbox_run_shell — run a shell command in the container; files in /work persist within this session
+- sandbox_run_python — run Python code in the container
+- sandbox_write_file — write text content to /work/<path> directly (avoids heredoc escaping)
+- sandbox_copy_object — copy an object from the central store into /work so you can analyze it
+- sandbox_register_object — register a /work file (chart, generated CSV, etc.) back into the central object store; the returned ID can be referenced from reports as ![alt](object:ID)
+- sandbox_load_into_analysis — load a CSV/JSON/JSONL file from /work into the analysis database (DuckDB) as a queryable table. Use this after generating data with sandbox_run_python to make it available to query_sql / describe_data / suggest_analysis.
+- sandbox_export_sql — run a SELECT query and write the result as CSV to /work/<file_path>. Use this whenever you want sandbox_run_python to operate on a query result; do NOT paste query_sql output text into Python code (lossy, wasteful, and the LLM will mistype large numbers).
+- sandbox_info — describe the runtime (engine, image, Python version, installed pip packages, /work listing). Call this once early when you need to know what is preinstalled.
 
-Decision rule for ingesting files into the analysis database: if the file lives under /work (i.e. you produced it via any sandbox-* tool), use sandbox-load-into-analysis. The host-side load-data tool CANNOT see /work and will fail with "no such file or directory" — do not retry it with different filename variants, switch tools.
+Decision rule for ingesting files into the analysis database: if the file lives under /work (i.e. you produced it via any sandbox_* tool), use sandbox_load_into_analysis. The host-side load_data tool CANNOT see /work and will fail with "no such file or directory" — do not retry it with different filename variants, switch tools.
 
-Workflow tips: when a tool produces a file under /work, immediately call sandbox-register-object on it in the same response so it's available for reports and downstream tools. Don't only describe what you would do — emit the actual function call.`
+Workflow tips: when a tool produces a file under /work, immediately call sandbox_register_object on it in the same response so it's available for reports and downstream tools. Don't only describe what you would do — emit the actual function call.`
 
 // sanitizeSystemContext strips characters that could be used for
 // prompt injection when content is concatenated into the system prompt.

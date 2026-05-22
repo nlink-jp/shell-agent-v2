@@ -1,6 +1,6 @@
 #!/bin/bash
-# @tool: write-note
-# @description: Write a note as a text file in the per-session work directory ($SHELL_AGENT_WORK_DIR — same physical location the sandbox sees as /work). Visible in the Data → /work panel immediately. Use register-object afterwards if you want the note to appear in chat as an object:<ID>.
+# @tool: write_note
+# @description: Write a note as a text file in the per-session work directory ($SHELL_AGENT_WORK_DIR — same physical location the sandbox sees as /work). Visible in the Data → /work panel immediately. Use register_object afterwards if you want the note to appear in chat as an object:<ID>.
 # @param: filename string "Filename only (e.g. hello.txt). Path components are stripped — the note always lands directly in the session work directory."
 # @param: content string "Content to write"
 # @category: write
