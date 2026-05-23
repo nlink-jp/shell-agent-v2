@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.14.6] - 2026-05-23
+
+### Changed
+
+- **Darwin builds are Developer ID signed and Apple-notarized.**
+  Replaces Wails's default ad-hoc signature with a full Apple
+  Developer ID Application signature on the `.app` bundle, with
+  Hardened Runtime + Apple secure timestamp + minimal WebKit JIT
+  entitlements. `make package` submits the bundle to Apple's notary
+  service and staples the ticket onto the `.app` so offline
+  first-launch works without a Gatekeeper verification dialog.
+  Resolves the "macOS SIGKILLs the binary on launch" failure mode
+  for users who install shell-agent-v2 under Dropbox / iCloud /
+  OneDrive-synced paths (FileProvider extensions add
+  `com.apple.provenance` xattr, which recent macOS releases pair
+  with ad-hoc signatures to mean "kill on exec"). End users
+  downloading from GitHub Releases also no longer hit the
+  "cannot be verified" dialog or need `xattr -d com.apple.quarantine`
+  workarounds.
+
+No behaviour change to the application itself — feature-wise this
+is identical to v0.14.5.
+
 ## [0.14.5] - 2026-05-22
 
 ### Fixed
