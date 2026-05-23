@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  entitlements-wails.plist — Hardened Runtime entitlements for Wails v2
+  macOS apps signed with a Developer ID Application identity.
+
+  Wails embeds the system WKWebView for its frontend. Under Hardened
+  Runtime (which Apple's notary service requires), the JavaScriptCore
+  JIT is disabled unless explicitly allowed via these two entitlements.
+  Without them, signed+notarised Wails apps still launch but render
+  blank / unresponsive frontends because JS execution is sandboxed
+  away by the runtime.
+
+  Keep this list minimal — every additional entitlement weakens the
+  Hardened Runtime guarantees and triggers extra notary scrutiny.
+  Add app-specific entitlements (e.g. for Apple Events access) in a
+  separate per-app file rather than expanding this template.
+-->
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+</dict>
+</plist>
