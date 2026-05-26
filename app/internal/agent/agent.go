@@ -141,8 +141,16 @@ type Agent struct {
 	guardians       map[string]*mcp.Guardian
 	guardiansMu     sync.RWMutex
 	mcpStatuses     []MCPStatus
-	sandbox         sandbox.Engine // nil when disabled or no engine on PATH
-	postTasksWg     sync.WaitGroup // ensures post-response tasks finish before next Send
+	// sandbox is nil when disabled or no engine on PATH. Set once
+	// during background startup (StartBackground) and again on a
+	// user-triggered RestartSandbox, both concurrently with readers,
+	// so every access goes through sandboxMu / getSandbox / setSandbox
+	// (ADR-0024 §3.1). sandboxStarted gates the boot init so a
+	// RestartSandbox racing startup wins cleanly (§3.2).
+	sandbox        sandbox.Engine
+	sandboxMu      sync.RWMutex
+	sandboxStarted bool
+	postTasksWg    sync.WaitGroup // ensures post-response tasks finish before next Send
 
 	// Token usage tracking (session-scoped, reset on session switch)
 	promptTokens int
@@ -323,6 +331,22 @@ func (a *Agent) canonicaliseDisabledToolNames() {
 	a.cfg.Tools.DisabledTools = out
 }
 
+// getSandbox / setSandbox guard a.sandbox, which is written from the
+// background startup goroutine and from RestartSandbox while readers
+// (descriptor gates, tool handlers, shutdown) run concurrently
+// (ADR-0024 §3.1).
+func (a *Agent) getSandbox() sandbox.Engine {
+	a.sandboxMu.RLock()
+	defer a.sandboxMu.RUnlock()
+	return a.sandbox
+}
+
+func (a *Agent) setSandbox(e sandbox.Engine) {
+	a.sandboxMu.Lock()
+	a.sandbox = e
+	a.sandboxMu.Unlock()
+}
+
 // maybeStartSandbox initialises a.sandbox when Sandbox.Enabled is true
 // and a container engine is on PATH. Failure is non-fatal — the
 // sandbox-* tools just stay hidden. The chat engine is told whether
@@ -331,7 +355,7 @@ func (a *Agent) canonicaliseDisabledToolNames() {
 func (a *Agent) maybeStartSandbox() {
 	defer func() {
 		if a.chat != nil {
-			a.chat.SetSandboxEnabled(a.sandbox != nil)
+			a.chat.SetSandboxEnabled(a.getSandbox() != nil)
 		}
 	}()
 	if !a.cfg.Sandbox.Enabled {
@@ -373,7 +397,7 @@ func (a *Agent) maybeStartSandbox() {
 		return
 	}
 
-	a.sandbox = eng
+	a.setSandbox(eng)
 	logger.Info("sandbox: enabled (engine=%s, image=%s)", bin, rs.Image)
 
 	// Sweep any containers left behind by a previous launch that
@@ -1226,8 +1250,8 @@ func (a *Agent) HasQueuedSend() bool {
 func (a *Agent) Close() {
 	a.Abort()
 	a.stopGuardians()
-	if a.sandbox != nil {
-		_ = a.sandbox.StopAll(context.Background())
+	if sb := a.getSandbox(); sb != nil {
+		_ = sb.StopAll(context.Background())
 	}
 }
 
@@ -1446,7 +1470,7 @@ func (a *Agent) ListTools() []ToolInfoItem {
 		// hardcoded sandboxToolDefs() iteration in
 		// `if a.sandbox != nil`. Same dynamic check the
 		// descriptorToolDefs view applies.
-		if d.Source == "sandbox" && a.sandbox == nil {
+		if d.Source == "sandbox" && a.getSandbox() == nil {
 			continue
 		}
 		if d.HideUntilDataLoaded && hideUntilDataLoaded && !hasData {

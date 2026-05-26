@@ -44,7 +44,11 @@ func (a *Agent) toolSandboxRunShell(ctx context.Context, sid, argsJSON string) (
 	if args.Command == "" {
 		return "Error: 'command' is required", ActivityStatusError
 	}
-	res, err := a.sandbox.Exec(ctx, sid, sandbox.ExecArgs{Language: "shell", Code: args.Command})
+	sb := a.getSandbox()
+	if sb == nil {
+		return "Error: sandbox not available", ActivityStatusError
+	}
+	res, err := sb.Exec(ctx, sid, sandbox.ExecArgs{Language: "shell", Code: args.Command})
 	if err != nil {
 		return "Error: " + err.Error(), ActivityStatusError
 	}
@@ -61,7 +65,11 @@ func (a *Agent) toolSandboxRunPython(ctx context.Context, sid, argsJSON string) 
 	if args.Code == "" {
 		return "Error: 'code' is required", ActivityStatusError
 	}
-	res, err := a.sandbox.Exec(ctx, sid, sandbox.ExecArgs{Language: "python", Code: args.Code})
+	sb := a.getSandbox()
+	if sb == nil {
+		return "Error: sandbox not available", ActivityStatusError
+	}
+	res, err := sb.Exec(ctx, sid, sandbox.ExecArgs{Language: "python", Code: args.Code})
 	if err != nil {
 		return "Error: " + err.Error(), ActivityStatusError
 	}
@@ -93,7 +101,11 @@ func (a *Agent) toolSandboxWriteFile(sid, argsJSON string) (string, ActivityEven
 	if args.Path == "" {
 		return "Error: 'path' is required", ActivityStatusError
 	}
-	dest, err := safeWorkPath(a.sandbox.WorkDir(sid), args.Path)
+	sb := a.getSandbox()
+	if sb == nil {
+		return "Error: sandbox not available", ActivityStatusError
+	}
+	dest, err := safeWorkPath(sb.WorkDir(sid), args.Path)
 	if err != nil {
 		return "Error: " + err.Error(), ActivityStatusError
 	}
@@ -103,7 +115,7 @@ func (a *Agent) toolSandboxWriteFile(sid, argsJSON string) (string, ActivityEven
 	if err := os.WriteFile(dest, []byte(args.Content), 0644); err != nil {
 		return "Error: write: " + err.Error(), ActivityStatusError
 	}
-	rel, _ := filepath.Rel(a.sandbox.WorkDir(sid), dest)
+	rel, _ := filepath.Rel(sb.WorkDir(sid), dest)
 	return fmt.Sprintf("wrote %s to /work/%s", humanSize(int64(len(args.Content))), filepath.ToSlash(rel)), ActivityStatusSuccess
 }
 
@@ -125,6 +137,10 @@ func (a *Agent) toolSandboxCopyObject(sid, argsJSON string) (string, ActivityEve
 	if !ok {
 		return "Error: object not found: " + args.ObjectID, ActivityStatusError
 	}
+	sb := a.getSandbox()
+	if sb == nil {
+		return "Error: sandbox not available", ActivityStatusError
+	}
 	destPath := args.Path
 	if destPath == "" {
 		destPath = meta.OrigName
@@ -132,7 +148,7 @@ func (a *Agent) toolSandboxCopyObject(sid, argsJSON string) (string, ActivityEve
 			destPath = meta.ID
 		}
 	}
-	dest, err := safeWorkPath(a.sandbox.WorkDir(sid), destPath)
+	dest, err := safeWorkPath(sb.WorkDir(sid), destPath)
 	if err != nil {
 		return "Error: " + err.Error(), ActivityStatusError
 	}
@@ -173,7 +189,11 @@ func (a *Agent) toolSandboxRegisterObject(sid, argsJSON string) (string, Activit
 	if a.objects == nil {
 		return "Error: object store not available", ActivityStatusError
 	}
-	src, err := safeWorkPath(a.sandbox.WorkDir(sid), args.Path)
+	sb := a.getSandbox()
+	if sb == nil {
+		return "Error: sandbox not available", ActivityStatusError
+	}
+	src, err := safeWorkPath(sb.WorkDir(sid), args.Path)
 	if err != nil {
 		return "Error: " + err.Error(), ActivityStatusError
 	}
@@ -200,7 +220,11 @@ func (a *Agent) toolSandboxRegisterObject(sid, argsJSON string) (string, Activit
 }
 
 func (a *Agent) toolSandboxInfo(ctx context.Context, sid string) (string, ActivityEventStatus) {
-	info, err := a.sandbox.Info(ctx, sid)
+	sb := a.getSandbox()
+	if sb == nil {
+		return "Error: sandbox not available", ActivityStatusError
+	}
+	info, err := sb.Info(ctx, sid)
 	if err != nil {
 		return "Error: " + err.Error(), ActivityStatusError
 	}
@@ -235,7 +259,11 @@ func (a *Agent) toolSandboxLoadIntoAnalysis(sid, argsJSON string) (string, Activ
 	if rel == "" || args.TableName == "" {
 		return "Error: 'file_path' and 'table_name' are required", ActivityStatusError
 	}
-	src, err := safeWorkPath(a.sandbox.WorkDir(sid), rel)
+	sb := a.getSandbox()
+	if sb == nil {
+		return "Error: sandbox not available", ActivityStatusError
+	}
+	src, err := safeWorkPath(sb.WorkDir(sid), rel)
 	if err != nil {
 		return "Error: " + err.Error(), ActivityStatusError
 	}
@@ -259,10 +287,17 @@ func (a *Agent) toolSandboxLoadIntoAnalysis(sid, argsJSON string) (string, Activ
 // an app restart. Safe to call when sandbox is disabled (no-op for
 // the engine) or when cfg.Sandbox.Enabled has just flipped.
 func (a *Agent) RestartSandbox() {
-	if a.sandbox != nil {
-		_ = a.sandbox.StopAll(context.Background())
+	// Mark sandbox init as taken so a still-running boot
+	// StartBackground skips its own maybeStartSandbox and this
+	// user-triggered restart wins (ADR-0024 §3.2).
+	a.sandboxMu.Lock()
+	a.sandboxStarted = true
+	a.sandboxMu.Unlock()
+
+	if sb := a.getSandbox(); sb != nil {
+		_ = sb.StopAll(context.Background())
 	}
-	a.sandbox = nil
+	a.setSandbox(nil)
 	a.maybeStartSandbox()
 }
 
@@ -290,7 +325,11 @@ func (a *Agent) toolSandboxExportSQL(sid, argsJSON string) (string, ActivityEven
 	if args.SQL == "" || rel == "" {
 		return "Error: 'sql' and 'file_path' are required", ActivityStatusError
 	}
-	dest, err := safeWorkPath(a.sandbox.WorkDir(sid), rel)
+	sb := a.getSandbox()
+	if sb == nil {
+		return "Error: sandbox not available", ActivityStatusError
+	}
+	dest, err := safeWorkPath(sb.WorkDir(sid), rel)
 	if err != nil {
 		return "Error: " + err.Error(), ActivityStatusError
 	}
@@ -309,26 +348,28 @@ func (a *Agent) toolSandboxExportSQL(sid, argsJSON string) (string, ActivityEven
 		_ = os.Remove(dest)
 		return "Error: " + err.Error(), ActivityStatusError
 	}
-	relOut, _ := filepath.Rel(a.sandbox.WorkDir(sid), dest)
+	relOut, _ := filepath.Rel(sb.WorkDir(sid), dest)
 	return fmt.Sprintf("wrote %d rows × %d columns to /work/%s (columns: %v)", n, len(cols), filepath.ToSlash(relOut), cols), ActivityStatusSuccess
 }
 
 // SandboxStop tears down the per-session sandbox container, if any.
 // Safe to call when sandbox is disabled (no-op).
 func (a *Agent) SandboxStop(ctx context.Context, sessionID string) error {
-	if a.sandbox == nil {
+	sb := a.getSandbox()
+	if sb == nil {
 		return nil
 	}
-	return a.sandbox.Stop(ctx, sessionID)
+	return sb.Stop(ctx, sessionID)
 }
 
 // SandboxStopAll reaps every container belonging to this app — call
 // from the bindings shutdown hook.
 func (a *Agent) SandboxStopAll(ctx context.Context) error {
-	if a.sandbox == nil {
+	sb := a.getSandbox()
+	if sb == nil {
 		return nil
 	}
-	return a.sandbox.StopAll(ctx)
+	return sb.StopAll(ctx)
 }
 
 // safeWorkPath joins workDir + relative under the sandbox's /work,
