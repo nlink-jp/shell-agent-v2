@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.14.9] - 2026-05-26
+
+### Changed
+
+- **MCP guardian start failures now report the process exit status.**
+  When a guardian process dies before initialising — e.g. macOS
+  SIGKILLs a quarantined or cloud-synced (`~/bin` via Dropbox) binary —
+  the error now reads `guardian process exited before initialising:
+  signal: killed …` with a hint to re-sign or move the binary, instead
+  of the opaque `initialize: read response: EOF`. Non-signal early exits
+  surface `exit status N`. (ADR-0026.)
+
 ## [0.14.8] - 2026-05-26
 
 ### Fixed
