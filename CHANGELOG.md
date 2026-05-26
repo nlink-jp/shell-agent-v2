@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.14.7] - 2026-05-26
+
+### Fixed
+
+- **Startup no longer hangs behind MCP/sandbox initialisation.** The
+  window now opens at its saved size immediately (size is applied at
+  window creation rather than after `OnStartup`), and the last session
+  is restored deterministically. Previously `OnStartup` ran the MCP
+  guardian spawn and container-engine probes synchronously — a stopped
+  podman machine or a configured MCP server could leave the window
+  unsized and the UI uninteractive for a long time, and the frontend's
+  session restore raced the agent's construction and could land in a
+  state with no session selected. See ADR-0024.
+
+### Changed
+
+- **MCP guardians and the sandbox engine now initialise in the
+  background.** `agent.New` returns immediately; the externally-blocking
+  work runs on a goroutine. The message composer is disabled
+  ("Initializing…") until that finishes so a send can't race a
+  half-initialised agent; the rest of the UI (history, session
+  switching, settings) is usable throughout. Sandbox engine probes are
+  bounded by a 5s timeout. Internally, `a.sandbox` access is now guarded
+  by a mutex (a latent unguarded write in `RestartSandbox` is fixed as a
+  side effect).
+
+### Removed
+
+- Dead `last_session` config field (never read or written).
+
 ## [0.14.6] - 2026-05-23
 
 ### Changed
