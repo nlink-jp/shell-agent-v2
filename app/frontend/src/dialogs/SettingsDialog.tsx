@@ -60,6 +60,11 @@ export default function SettingsDialog({settings, tools, mcpStatus, onUpdate, on
     // patterns from history even though the system prompt no
     // longer carries the rule (in-context conditioning).
     const [rulesClearedAdvisory, setRulesClearedAdvisory] = useState(false)
+    // MCP guardian restart feedback: the restart spawns processes and
+    // blocks for a few seconds, so the button shows an in-progress
+    // state and a brief confirmation rather than silently restarting.
+    const [mcpRestarting, setMcpRestarting] = useState(false)
+    const [mcpRestarted, setMcpRestarted] = useState(false)
     const reloadRules = () => {
         if (!window.go) return
         window.go.main.Bindings.GetSystemRules().then((s: string) => {
@@ -374,7 +379,24 @@ export default function SettingsDialog({settings, tools, mcpStatus, onUpdate, on
                                     (document.getElementById('mcp-profile') as HTMLInputElement).value = ''
                                 }}>Add</button>
                             </div>
-                            <button className="mcp-restart-btn" style={{marginTop: 16}} onClick={() => onRestartMCP()}>Restart MCP Guardians</button>
+                            <div style={{marginTop: 16, display: 'flex', alignItems: 'center', gap: 8}}>
+                                <button
+                                    className="mcp-restart-btn"
+                                    disabled={mcpRestarting}
+                                    onClick={async () => {
+                                        setMcpRestarted(false)
+                                        setMcpRestarting(true)
+                                        try {
+                                            await onRestartMCP()
+                                            setMcpRestarted(true)
+                                            setTimeout(() => setMcpRestarted(false), 3000)
+                                        } finally {
+                                            setMcpRestarting(false)
+                                        }
+                                    }}
+                                >{mcpRestarting ? 'Restarting…' : 'Restart MCP Guardians'}</button>
+                                {mcpRestarted && <span className="mcp-restart-done">✓ Restarted</span>}
+                            </div>
                         </div>
                     </>)}
                     {tab === 'sandbox' && (<>

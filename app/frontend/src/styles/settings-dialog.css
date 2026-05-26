@@ -576,6 +576,17 @@
     background: #2a4a3a;
 }
 
+.mcp-restart-btn:disabled {
+    opacity: 0.6;
+    cursor: progress;
+}
+
+.mcp-restart-done {
+    color: #66cc88;
+    font-size: 13px;
+    font-weight: 600;
+}
+
 .settings-footer {
     display: flex;
     justify-content: flex-end;
