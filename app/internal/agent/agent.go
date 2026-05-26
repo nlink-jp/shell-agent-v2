@@ -254,8 +254,11 @@ func New(cfg *config.Config) *Agent {
 		toolDescriptors:     nil, // populated by Phase 2 (analysisDescriptors / builtinDescriptors)
 		toolDescriptorIndex: nil, // rebuilt by rebuildToolDescriptorIndex()
 	}
-	a.startGuardians()
-	a.maybeStartSandbox()
+	// MCP guardian spawn + sandbox engine init are externally-blocking
+	// (process handshake, container-engine probes) and are deferred to
+	// StartBackground so New returns fast and the UI becomes interactive
+	// without waiting on them (ADR-0024 Part B). Everything below is
+	// cheap, local construction.
 	defaultProf := cfg.LLM.DefaultProfile()
 	a.setBackend(defaultProf.DefaultBackend)
 	a.activeProfileID = defaultProf.ID
@@ -419,6 +422,27 @@ func (a *Agent) maybeStartSandbox() {
 // maybeStartSandbox so an unresponsive engine can't hang background
 // startup (ADR-0024 Part C).
 const sandboxProbeTimeout = 5 * time.Second
+
+// StartBackground performs the externally-blocking initialisation that
+// New deliberately skips: spawning MCP guardian processes and probing
+// the container engine. The bindings layer runs it on a goroutine after
+// New returns so window restore, session restore, and UI navigation are
+// available immediately; the message composer stays gated until this
+// returns (ADR-0024 Part B/D).
+//
+// The sandbox step is skipped if a user-triggered RestartSandbox already
+// claimed init while startup was in flight (sandboxStarted, §3.2).
+func (a *Agent) StartBackground(_ context.Context) {
+	a.startGuardians()
+
+	a.sandboxMu.Lock()
+	alreadyStarted := a.sandboxStarted
+	a.sandboxStarted = true
+	a.sandboxMu.Unlock()
+	if !alreadyStarted {
+		a.maybeStartSandbox()
+	}
+}
 
 // State returns the current agent state.
 func (a *Agent) State() State {

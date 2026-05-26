@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"path/filepath"
@@ -47,6 +48,12 @@ type Bindings struct {
 	// Sandbox image build single-flight.
 	buildMu       sync.Mutex
 	buildInFlight bool
+
+	// toolsReady flips true when the background startup work
+	// (agent.StartBackground) completes. The frontend gates the
+	// message composer on it via the tools:ready event and the
+	// ToolsReady() binding (ADR-0024 Part D).
+	toolsReady atomic.Bool
 }
 
 // ErrBuildInProgress is returned by BuildSandboxImage when a
@@ -230,7 +237,36 @@ func (b *Bindings) startup(ctx context.Context) {
 		wailsRuntime.WindowSetPosition(ctx, w.X, w.Y)
 	}
 
+	// b.agent is now usable: the frontend may restore the last session.
+	wailsRuntime.EventsEmit(b.ctx, "app:ready", nil)
+
+	// The externally-blocking init (MCP guardian spawn, sandbox engine
+	// probes) runs off the startup path so the UI is interactive
+	// immediately. The message composer stays gated until this
+	// completes (ADR-0024 Part B/D).
+	go func() {
+		b.agent.StartBackground(b.ctx)
+		b.toolsReady.Store(true)
+		wailsRuntime.EventsEmit(b.ctx, "tools:ready", nil)
+		logger.Info("bindings: background startup complete (tools ready)")
+	}()
+
 	logger.Info("bindings: startup complete (agent=%v)", b.agent != nil)
+}
+
+// Ready reports whether the agent has been constructed (session
+// restore may proceed). Paired with the app:ready event so the
+// frontend can resolve even if it attached its listener after the
+// event fired (ADR-0024 Part D).
+func (b *Bindings) Ready() bool {
+	return b.agent != nil
+}
+
+// ToolsReady reports whether background startup (MCP guardians +
+// sandbox) has finished. The frontend gates the message composer on
+// it, querying once on mount to cover a missed tools:ready event.
+func (b *Bindings) ToolsReady() bool {
+	return b.toolsReady.Load()
 }
 
 func (b *Bindings) shutdown(_ context.Context) {
