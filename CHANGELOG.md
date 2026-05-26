@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.14.8] - 2026-05-26
+
+### Fixed
+
+- **Session restore now shows the assistant's tool-call explanation
+  text.** When a turn made tool calls, the model's "what I'm about to
+  do" text appeared as a chat bubble live but was dropped on reload,
+  so the restored conversation lost bubbles that were present live.
+  Restore now keeps that text (ADR-0025).
+- **The MCP "Restart Guardians" button now shows progress.** It was
+  firing the restart with no feedback while guardian processes spawned;
+  it now disables with a "Restarting…" label and a brief "✓ Restarted"
+  confirmation.
+
 ## [0.14.7] - 2026-05-26
 
 ### Fixed
