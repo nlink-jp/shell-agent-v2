@@ -387,7 +387,14 @@ func (a *Agent) maybeStartSandbox() {
 		logger.Info("sandbox: no Active image selected — pick one or click Build in the Sandbox tab. Sandbox tools will stay hidden.")
 		return
 	}
-	ready, err := eng.ImageReady(context.Background(), rs.Image)
+	// Bound the engine probes: maybeStartSandbox runs on the
+	// background startup goroutine (ADR-0024 Part B), and a stopped
+	// podman machine / unresponsive Docker daemon must not hang it
+	// (and thereby delay the tools:ready composer gate) indefinitely.
+	probeCtx, cancel := context.WithTimeout(context.Background(), sandboxProbeTimeout)
+	defer cancel()
+
+	ready, err := eng.ImageReady(probeCtx, rs.Image)
 	if err != nil {
 		logger.Info("sandbox: image readiness probe for %q failed: %v — sandbox tools will stay hidden", rs.Image, err)
 		return
@@ -403,10 +410,15 @@ func (a *Agent) maybeStartSandbox() {
 	// Sweep any containers left behind by a previous launch that
 	// crashed or was SIGKILL'd. The label filter inside
 	// engine.StopAll keeps it scoped to our own containers.
-	if err := eng.StopAll(context.Background()); err != nil {
+	if err := eng.StopAll(probeCtx); err != nil {
 		logger.Info("sandbox: startup sweep failed (non-fatal): %v", err)
 	}
 }
+
+// sandboxProbeTimeout bounds the container-engine probes in
+// maybeStartSandbox so an unresponsive engine can't hang background
+// startup (ADR-0024 Part C).
+const sandboxProbeTimeout = 5 * time.Second
 
 // State returns the current agent state.
 func (a *Agent) State() State {
