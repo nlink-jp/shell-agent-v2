@@ -64,6 +64,9 @@ function formatSize(bytes: number): string {
 
 function App() {
     const [state, setState] = useState<'idle' | 'busy'>('idle')
+    // toolsReady gates the message composer until backend background
+    // startup (MCP guardians + sandbox) completes (ADR-0024 Part D).
+    const [toolsReady, setToolsReady] = useState(false)
     const [messages, setMessages] = useState<ChatMessage[]>([])
     const [streaming, setStreaming] = useState('')
     const [backend, setBackend] = useState('')
@@ -420,6 +423,18 @@ function App() {
                     if (ps) setProfiles(ps)
                 }).catch(() => {})
             })
+            // ADR-0024 Part D: enable the composer once background startup
+            // (MCP guardians + sandbox) finishes. Query ToolsReady() on
+            // mount too, in case tools:ready fired before this listener
+            // attached (the backend startup is fast).
+            const cleanupToolsReady = window.runtime.EventsOn('tools:ready', () => {
+                setToolsReady(true)
+            })
+            if (window.go) {
+                window.go.main.Bindings.ToolsReady().then(ready => {
+                    if (ready) setToolsReady(true)
+                }).catch(() => {})
+            }
             return () => {
                 cleanupStream(); cleanupActivity(); cleanupGlobalMemory();
                 cleanupSessionMemory(); cleanupFindings(); cleanupReport();
@@ -427,6 +442,7 @@ function App() {
                 cleanupExtractionStarted(); cleanupExtractionDone();
                 cleanupQueued(); cleanupQueueCleared(); cleanupQueueDispatched(); cleanupQueueDispatchedReply();
                 cleanupProfileChanged(); cleanupBackendChanged(); cleanupProfileList();
+                cleanupToolsReady();
             }
         }
     }, [])
@@ -703,10 +719,25 @@ function App() {
     // sidebar-local concern; the rename binding call is plumbed
     // back via the onRenameSession prop).
 
-    // On startup: load sessions, auto-create if none exist
+    // On startup: load sessions, auto-create if none exist.
+    //
+    // The backend dispatches binding calls concurrently with OnStartup,
+    // so this effect can run before the agent is constructed —
+    // LoadSession/NewSession then fail with "agent not initialised yet"
+    // and (with the old []-deps, no-retry effect) left the app stuck
+    // with no session selected. Wait for Ready() (b.agent != nil) before
+    // any agent-dependent call; startup is fast now (blocking init moved
+    // to StartBackground), so this resolves almost immediately. Bounded
+    // (~5s) so a genuinely stuck backend can't spin forever.
+    // (ADR-0024 Part D / §1.2)
     useEffect(() => {
         (async () => {
             if (!window.go) return
+            for (let i = 0; i < 50; i++) {
+                const ready = await window.go.main.Bindings.Ready().catch(() => false)
+                if (ready) break
+                await new Promise(r => setTimeout(r, 100))
+            }
             const s = await window.go.main.Bindings.ListSessions()
             setSessions(s || [])
             if (!s || s.length === 0) {
@@ -715,7 +746,7 @@ function App() {
                 const refreshed = await window.go.main.Bindings.ListSessions()
                 setSessions(refreshed || [])
             } else {
-                // Load the most recent session
+                // Load the most recent session (= last active in normal use)
                 const msgs = await window.go.main.Bindings.LoadSession(s[0].id)
                 setCurrentSessionId(s[0].id)
                 setMessages(restoredMessages(msgs))
@@ -789,7 +820,10 @@ function App() {
     const inputBusyTasks = bgTasks.filter(n => n !== 'memory-extraction')
     const postBusy = inputBusyTasks.length > 0
     const isBusy = state === 'busy' || postBusy
-    const canChat = state === 'idle' && !postBusy && currentSessionId !== ''
+    // toolsReady gates the composer until background startup (MCP +
+    // sandbox) finishes, so a SEND can't race a half-initialised agent
+    // (ADR-0024 Part D). Composes with the existing busy/session gates.
+    const canChat = state === 'idle' && !postBusy && currentSessionId !== '' && toolsReady
 
     const handleSend = useCallback(async (text: string, attachments: PendingAttachment[]) => {
         if ((!text && attachments.length === 0) || isBusy || !currentSessionId) return
@@ -1184,7 +1218,11 @@ function App() {
                         </div>
                     </div>
                 ) : (
-                    <ChatInput onSend={handleSend} disabled={!canChat} />
+                    <ChatInput
+                        onSend={handleSend}
+                        disabled={!canChat}
+                        disabledPlaceholder={!toolsReady && state === 'idle' && !postBusy ? 'Initializing…' : undefined}
+                    />
                 )}
             </div>
 

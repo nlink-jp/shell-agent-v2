@@ -32,6 +32,8 @@ declare global {
                 Bindings: {
                     Send(message: string): Promise<string>;
                     Abort(): Promise<void>;
+                    Ready(): Promise<boolean>;
+                    ToolsReady(): Promise<boolean>;
                     GetState(): Promise<string>;
                     GetBackend(): Promise<string>;
                     GetSystemRules(): Promise<string>;

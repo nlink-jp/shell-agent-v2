@@ -13,9 +13,13 @@ export interface PendingAttachment {
 interface Props {
     onSend: (text: string, attachments: PendingAttachment[]) => void
     disabled: boolean
+    // Placeholder shown while disabled. Defaults to the busy message;
+    // startup passes "Initializing…" so the gate isn't mistaken for
+    // the agent being busy (ADR-0024 Part D).
+    disabledPlaceholder?: string
 }
 
-function ChatInput({onSend, disabled}: Props) {
+function ChatInput({onSend, disabled, disabledPlaceholder}: Props) {
     const [input, setInput] = useState('')
     const [pendingImages, setPendingImages] = useState<PendingAttachment[]>([])
     const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -231,7 +235,7 @@ function ChatInput({onSend, disabled}: Props) {
                         onChange={e => { setInput(e.target.value); historyIndexRef.current = -1 }}
                         onKeyDown={handleKeyDown}
                         onPaste={handlePaste}
-                        placeholder={disabled ? 'Agent is busy...' : 'Type a message... (Cmd+Enter to send)'}
+                        placeholder={disabled ? (disabledPlaceholder ?? 'Agent is busy...') : 'Type a message... (Cmd+Enter to send)'}
                         disabled={disabled}
                         rows={3}
                         autoCorrect="off"
