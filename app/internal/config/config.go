@@ -337,7 +337,6 @@ type Config struct {
 	Agent         AgentConfig         `json:"agent,omitzero"`
 	Logger        LoggerConfig        `json:"logger,omitzero"`
 	Location      string              `json:"location,omitempty"`
-	LastSession   string              `json:"last_session,omitempty"`
 }
 
 // LogLevelString returns the configured logger level string with
