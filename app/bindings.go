@@ -570,22 +570,23 @@ func (b *Bindings) LoadSession(sessionID string) ([]MessageData, error) {
 			})
 			continue
 		case "assistant":
-			// Mirror the live chat behaviour: tool-call turns are
-			// surfaced through the activity stream (tool_start /
-			// tool_end and the transient "thinking" progressTool),
-			// not as chat bubbles. Restoring them as bubbles would
-			// also drag back any thought-style preamble the model
-			// wrote into Content (e.g. Gemini 2.5 Flash sometimes
-			// prefixes "シンクタイム: 3秒\n\n…" or "THOUGHT\n…"),
-			// which never appeared in the live view.
-			//   - Old format (pre-r3): Content="[Calling: foo]"
-			//   - New format (post-r3): Content possibly non-empty
-			//     plus ToolCalls non-empty (tracked via ToolCalls
-			//     on the persisted Record).
+			// Restore the assistant's text whether or not the turn
+			// also made tool calls. On a tool-call turn the model's
+			// "what I'm about to do" explanation is persisted in
+			// Content (already cleaned of thinking / gemma / guard
+			// tags before persist — see agentLoop) AND shown live as
+			// an assistant bubble via the `assistant_text` activity
+			// (agent.go) and frontend handler. So restore must show
+			// the same text, or the reloaded view loses bubbles that
+			// were present live (the discrepancy this fixes). The
+			// tool calls themselves are surfaced separately by the
+			// "tool" records as tool-event bubbles.
+			//   - Legacy pre-r3 placeholder "[Calling: foo]" was
+			//     never user-visible — skip it.
+			//   - Empty Content = a pure tool-call turn with no
+			//     explanation; nothing was shown live, nothing to
+			//     restore (the tool-event bubbles carry the turn).
 			if strings.HasPrefix(r.Content, "[Calling:") {
-				continue
-			}
-			if len(r.ToolCalls) > 0 {
 				continue
 			}
 			if r.Content == "" {

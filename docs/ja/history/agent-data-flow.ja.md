@@ -201,7 +201,7 @@ v0.1.19 より前のレコードは Status 空 — restore path で
 | ロール | 保存元 | LLM に送信 | UI 表示 | 備考 |
 |--------|--------|-----------|--------|------|
 | `user` | agentLoop | Yes (guarded) | Yes | ユーザメッセージ |
-| `assistant` | agentLoop | Yes | Yes (最終応答のみ) | `ToolCalls` を持つ turn は **チャットバブル復元しない** — そのナラティブは progressTool バナー扱いだから。最終応答 (tool calls なし) は復元する。 |
+| `assistant` | agentLoop | Yes | Yes | turn のテキストは `ToolCalls` の有無に関わらずバブルとして復元する: ツール呼び出しの説明テキスト（「これから何をするか」）は `assistant_text` アクティビティでライブ表示され、復元時も同様に表示される (ADR-0025)。スキップするもの: 空 Content の純ツール呼び出し turn、レガシー `[Calling: …]` プレースホルダ。ephemeral な progressTool「思考中」バナーは復元しない。 |
 | `tool` | agentLoop | Yes (guarded) | tool-event ピル (ライブ + 復元) | 結果テキスト + Status; LoadSession が tool-event バブル復元 |
 | `report` | toolCreateReport | Yes | Yes (特別表示) | レポート、セッションと objstore 両方に保存 |
 | `summary` | CompactIfNeeded (v1) | Yes | Yes (legacy block) | v1 destructive サマリー; v2 では生成されない |

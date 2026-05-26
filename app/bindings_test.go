@@ -536,10 +536,15 @@ func TestLoadSession_RestoresToolEventBubbles(t *testing.T) {
 		Title: "Restore Test",
 		Records: []memory.Record{
 			{Timestamp: time.Now(), Role: "user", Content: "hi"},
-			// Tool-call assistant turn — must be skipped at
-			// restore time (its narrative was a live activity).
+			// Tool-call assistant turn WITH explanation text — shown
+			// live as an assistant bubble (assistant_text activity),
+			// so it must restore as an assistant bubble too.
 			{Timestamp: time.Now(), Role: "assistant", Content: "calling tools",
 				ToolCalls: []memory.ToolCallRecord{{ID: "tc-1", Name: "shell", Arguments: "{}"}}},
+			// Pure tool-call turn, no explanation text — nothing was
+			// shown live, so it must still be skipped on restore.
+			{Timestamp: time.Now(), Role: "assistant", Content: "",
+				ToolCalls: []memory.ToolCallRecord{{ID: "tc-2", Name: "shell", Arguments: "{}"}}},
 			// Tool result — should restore as a tool-event bubble.
 			{Timestamp: time.Now(), Role: "tool", Content: "ok",
 				ToolCallID: "tc-1", ToolName: "shell", Status: "success"},
@@ -571,12 +576,14 @@ func TestLoadSession_RestoresToolEventBubbles(t *testing.T) {
 		t.Fatalf("LoadSession: %v", err)
 	}
 
-	// Expected: user, tool-event(success), tool-event(error),
-	// tool-event(success default for legacy), assistant.
+	// Expected: user, assistant(tool-explanation text), tool-event(success),
+	// tool-event(error), tool-event(success default for legacy), assistant.
+	// The empty-content pure tool-call turn produces no bubble.
 	want := []struct {
 		role, content, status string
 	}{
 		{"user", "hi", ""},
+		{"assistant", "calling tools", ""},
 		{"tool-event", "shell", "success"},
 		{"tool-event", "shell", "error"},
 		{"tool-event", "legacy-tool", "success"},

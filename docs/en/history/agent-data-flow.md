@@ -217,7 +217,7 @@ older chats stay readable. See
 | Role | Stored by | Sent to LLM | Shown in UI | Notes |
 |------|-----------|-------------|-------------|-------|
 | `user` | agentLoop | Yes (guarded) | Yes | User messages |
-| `assistant` | agentLoop | Yes | Yes (final reply only) | A turn that carries `ToolCalls` is **not** restored as a chat bubble — its narrative was a transient progressTool banner. Final replies (no tool calls) restore. |
+| `assistant` | agentLoop | Yes | Yes | A turn's text restores as a bubble whether or not it also carried `ToolCalls`: the tool-call explanation text ("what I'm about to do") appears live via the `assistant_text` activity and on restore alike (ADR-0025). Skipped: empty-Content pure tool-call turns, and the legacy `[Calling: …]` placeholder. The ephemeral progressTool "thinking" banner is never replayed. |
 | `tool` | agentLoop | Yes (guarded) | As tool-event pill (live + restored) | Result text + Status; LoadSession rebuilds tool-event bubbles |
 | `report` | toolCreateReport | Yes | Yes (special) | Report content, stored in session + objstore |
 | `summary` | CompactIfNeeded (v1) | Yes | Yes (legacy block) | v1 destructive summaries; v2 doesn't write these. |
