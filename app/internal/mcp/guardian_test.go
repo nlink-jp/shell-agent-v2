@@ -422,3 +422,51 @@ func TestGuardian_CallToolContextDoesNotLeakGoroutine(t *testing.T) {
 	}
 	t.Errorf("goroutines did not return to baseline: have %d, baseline %d", runtime.NumGoroutine(), baseline)
 }
+
+// writeExecStub writes an executable shell script and returns its path.
+func writeExecStub(t *testing.T, body string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "stub-guardian")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// TestGuardian_StartReportsSignalKilled verifies ADR-0026: a guardian
+// that is killed by a signal before answering initialize fails with an
+// error that names the exit signal plus the Gatekeeper hint — instead of
+// the opaque "read response: EOF". Models macOS SIGKILLing a
+// quarantined / cloud-synced binary.
+func TestGuardian_StartReportsSignalKilled(t *testing.T) {
+	g := NewGuardian(writeExecStub(t, "kill -KILL $$"))
+	err := g.Start()
+	if err == nil {
+		t.Fatal("expected Start to fail when the guardian is killed")
+	}
+	if !strings.Contains(err.Error(), "signal: killed") {
+		t.Errorf("error should name the exit signal, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "exited before initialising") {
+		t.Errorf("error should mention the process exit, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "codesign") {
+		t.Errorf("error should carry the Gatekeeper hint for signal: killed, got: %v", err)
+	}
+}
+
+// TestGuardian_StartReportsExitStatus verifies a non-signal early exit
+// surfaces the exit status and does NOT add the Gatekeeper hint.
+func TestGuardian_StartReportsExitStatus(t *testing.T) {
+	g := NewGuardian(writeExecStub(t, "exit 3"))
+	err := g.Start()
+	if err == nil {
+		t.Fatal("expected Start to fail when the guardian exits non-zero")
+	}
+	if !strings.Contains(err.Error(), "exit status 3") {
+		t.Errorf("error should name the exit status, got: %v", err)
+	}
+	if strings.Contains(err.Error(), "codesign") {
+		t.Errorf("non-signal exit must not get the Gatekeeper hint, got: %v", err)
+	}
+}

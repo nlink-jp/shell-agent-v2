@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
@@ -71,6 +72,14 @@ type Guardian struct {
 	id      int
 	tools   []ToolDef
 	stopped bool
+
+	// exited is closed by the stderr-drain goroutine once the child
+	// process has exited and been reaped; exitErr then holds the
+	// cmd.Wait() result (e.g. "signal: killed" for a SIGKILL). Start's
+	// failure path reads these to surface *why* the process died
+	// instead of just the closed-pipe symptom (ADR-0026).
+	exited  chan struct{}
+	exitErr error
 }
 
 // NewGuardian creates a guardian with the given binary path and arguments.
@@ -130,6 +139,7 @@ func (g *Guardian) Start() error {
 		return fmt.Errorf("start guardian: %w", err)
 	}
 
+	g.exited = make(chan struct{})
 	go func() {
 		s := bufio.NewScanner(stderrPipe)
 		s.Buffer(make([]byte, 0, 64*1024), 256*1024)
@@ -137,6 +147,15 @@ func (g *Guardian) Start() error {
 		for s.Scan() {
 			logger.Debug("mcp[%s] stderr: %s", name, s.Text())
 		}
+		// stderr EOF ⇒ the process has exited (or is exiting). This
+		// goroutine owns the stderr read, and the stdout read (in the
+		// init goroutine) has returned on the same EOF, so cmd.Wait
+		// no longer races any pipe read. It is the single Wait caller —
+		// Stop() only kills; the kill drives the child to exit, this
+		// goroutine sees EOF and reaps. exitErr then carries the cause
+		// (e.g. "signal: killed") for Start's failure path (ADR-0026).
+		g.exitErr = g.cmd.Wait()
+		close(g.exited)
 	}()
 
 	done := make(chan error, 1)
@@ -156,6 +175,21 @@ func (g *Guardian) Start() error {
 	case err := <-done:
 		if err != nil {
 			g.Stop()
+			// A closed-pipe failure (EOF / broken pipe) means the
+			// process died rather than answered. Surface *why* — the
+			// child's exit status — instead of the bare read error, so
+			// e.g. a SIGKILL'd quarantined/cloud-synced binary is
+			// diagnosable (ADR-0026). The process is dead, so the
+			// stderr goroutine reaps it quickly; bound the wait anyway.
+			if isPipeClosed(err) {
+				select {
+				case <-g.exited:
+				case <-time.After(2 * time.Second):
+				}
+				if g.exitErr != nil {
+					return fmt.Errorf("guardian process exited before initialising: %v%s", g.exitErr, gatekeeperHint(g.exitErr))
+				}
+			}
 			return err
 		}
 		return nil
@@ -163,6 +197,34 @@ func (g *Guardian) Start() error {
 		g.Stop()
 		return fmt.Errorf("guardian start timed out after %s", StartTimeout)
 	}
+}
+
+// isPipeClosed reports whether err is the symptom of the child's stdio
+// pipe closing — i.e. the process exited rather than answered. These are
+// the errors worth enriching with the child's exit status (ADR-0026).
+func isPipeClosed(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, io.EOF) {
+		return true
+	}
+	s := err.Error()
+	return strings.Contains(s, "EOF") ||
+		strings.Contains(s, "broken pipe") ||
+		strings.Contains(s, "file already closed")
+}
+
+// gatekeeperHint returns a one-line pointer when the child was killed by
+// a signal (SIGKILL renders as "signal: killed"). On macOS this is the
+// signature of Gatekeeper SIGKILLing a quarantined or cloud-synced
+// binary (see feedback_dropbox_synced_binary); the hint saves the next
+// person the diagnosis. Empty for non-signal exits.
+func gatekeeperHint(exitErr error) string {
+	if exitErr != nil && strings.Contains(exitErr.Error(), "signal: killed") {
+		return " — the process was killed on launch; if the binary lives under a quarantined or cloud-synced path (e.g. ~/bin via Dropbox), macOS may be SIGKILLing it: re-sign with `codesign --force --sign -` or move it out of the synced path"
+	}
+	return ""
 }
 
 // Stop terminates the guardian process. Safe to call from any goroutine
