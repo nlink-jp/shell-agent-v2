@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/nlink-jp/shell-agent-v2/internal/config"
 	"github.com/nlink-jp/shell-agent-v2/internal/pathfix"
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/menu"
@@ -29,6 +30,31 @@ var appIcon []byte
 // opened by the Help → View on GitHub menu item.
 const repoURL = "https://github.com/nlink-jp/shell-agent-v2"
 
+// defaultWindowWidth / Height match the long-standing hardcoded
+// window size; minWindowDimension floors absurd persisted values so a
+// corrupt config can't open an unusable sliver of a window.
+const (
+	defaultWindowWidth  = 1024
+	defaultWindowHeight = 768
+	minWindowDimension  = 200
+)
+
+// windowSize derives the initial window dimensions from the saved
+// config, falling back to the default and flooring sub-200px values
+// (ADR-0024 Part A).
+func windowSize(cfg *config.Config) (w, h int) {
+	w, h = defaultWindowWidth, defaultWindowHeight
+	if cfg != nil {
+		if cfg.UI.Window.Width >= minWindowDimension {
+			w = cfg.UI.Window.Width
+		}
+		if cfg.UI.Window.Height >= minWindowDimension {
+			h = cfg.UI.Window.Height
+		}
+	}
+	return w, h
+}
+
 func main() {
 	// Finder/launchd-launched .app bundles inherit a minimal PATH
 	// that excludes Homebrew and ~/bin, so anything we exec
@@ -36,7 +62,19 @@ func main() {
 	// Augment PATH before any subprocess work begins.
 	os.Setenv("PATH", pathfix.Augment(os.Getenv("PATH"), pathfix.Candidates(os.Getenv("HOME")), nil))
 
-	bindings := NewBindings()
+	// Load config up front so the saved window size sizes the window
+	// at creation, rather than resizing after OnStartup completes
+	// (ADR-0024 Part A). Wails v2 has no initial-position option, so
+	// position is restored early in the now-fast startup() instead.
+	// The same cfg is handed to the bindings so startup() doesn't
+	// re-read the file.
+	cfg, err := config.Load()
+	if err != nil {
+		cfg = config.Default()
+	}
+	winW, winH := windowSize(cfg)
+
+	bindings := NewBindings(cfg)
 
 	// Belt-and-braces shutdown for cases where the OS terminates
 	// the process before Wails's OnShutdown fires (e.g.
@@ -71,10 +109,10 @@ func main() {
 		}
 	})
 
-	err := wails.Run(&options.App{
+	err = wails.Run(&options.App{
 		Title:                    "Shell Agent v2",
-		Width:                    1024,
-		Height:                   768,
+		Width:                    winW,
+		Height:                   winH,
 		EnableDefaultContextMenu: true,
 		Menu:                     appMenu,
 		AssetServer: &assetserver.Options{

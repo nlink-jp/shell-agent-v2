@@ -67,20 +67,39 @@ type mitlSlot struct {
 	ch  chan agent.MITLResponse
 }
 
-// NewBindings creates a new Bindings instance.
-func NewBindings() *Bindings {
-	return &Bindings{}
+// NewBindings creates a new Bindings instance. The config is loaded in
+// main() (so the saved window geometry can size the window at creation)
+// and handed in here, so startup() reuses it rather than re-reading the
+// file (ADR-0024 Part A).
+func NewBindings(cfg *config.Config) *Bindings {
+	return &Bindings{cfg: cfg}
 }
 
 func (b *Bindings) startup(ctx context.Context) {
 	b.ctx = ctx
 
-	cfg, err := config.Load()
-	if err != nil {
-		fmt.Println("Warning: using default config:", err.Error())
-		cfg = config.Default()
+	// main() loads the config (to size the window at creation) and
+	// passes it to NewBindings. Reuse it; only fall back to a fresh
+	// load/default if somehow unset (ADR-0024 Part A).
+	cfg := b.cfg
+	if cfg == nil {
+		var err error
+		cfg, err = config.Load()
+		if err != nil {
+			fmt.Println("Warning: using default config:", err.Error())
+			cfg = config.Default()
+		}
+		b.cfg = cfg
 	}
-	b.cfg = cfg
+
+	// Restore window position. Size is applied at creation in main()
+	// (ADR-0024 Part A); Wails v2 has no initial-position option, so
+	// position is set here — but startup is now fast (the blocking
+	// init moved to StartBackground), so it applies near-immediately.
+	// A saved 0,0 means "let the OS place the window", so skip it.
+	if win := cfg.UI.Window; win.X != 0 || win.Y != 0 {
+		wailsRuntime.WindowSetPosition(ctx, win.X, win.Y)
+	}
 
 	_ = logger.Init(config.DataDir())
 	logger.SetLevel(parseLogLevel(cfg.LogLevelString()))
@@ -230,12 +249,8 @@ func (b *Bindings) startup(ctx context.Context) {
 		},
 	})
 
-	// Restore window position and size
-	w := cfg.UI.Window
-	if w.Width > 0 && w.Height > 0 {
-		wailsRuntime.WindowSetSize(ctx, w.Width, w.Height)
-		wailsRuntime.WindowSetPosition(ctx, w.X, w.Y)
-	}
+	// Window size/position are applied at creation in main() from the
+	// same config (ADR-0024 Part A); no post-startup resize here.
 
 	// b.agent is now usable: the frontend may restore the last session.
 	wailsRuntime.EventsEmit(b.ctx, "app:ready", nil)
