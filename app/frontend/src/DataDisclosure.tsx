@@ -8,6 +8,7 @@
 
 import {useCallback, useEffect, useMemo, useState} from 'react'
 import ObjectImage from './ObjectImage'
+import {showError} from './notify'
 
 interface ObjectInfo {
     id: string;
@@ -204,7 +205,7 @@ export default function DataDisclosure({sessionId, refreshTick, sandboxEnabled, 
                                             await refetch()
                                             onObjectsChanged?.()
                                         } catch (err) {
-                                            alert('Delete failed: ' + ((err as any)?.message ?? String(err)))
+                                            showError('Delete failed', (err as any)?.message ?? String(err))
                                         }
                                     }}>Delete</button>
                                     <button className="data-confirm-no" onClick={() => setConfirmDeleteBulk(false)}>Cancel</button>
@@ -236,7 +237,7 @@ export default function DataDisclosure({sessionId, refreshTick, sandboxEnabled, 
                                             await refetch()
                                             onObjectsChanged?.()
                                         } catch (err) {
-                                            alert('Delete failed: ' + ((err as any)?.message ?? String(err)))
+                                            showError('Delete failed', (err as any)?.message ?? String(err))
                                         }
                                     }}
                                     onCancelDelete={() => setConfirmDeleteSingle(null)}

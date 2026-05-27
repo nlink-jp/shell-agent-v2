@@ -13,6 +13,7 @@
 
 import {useCallback, useEffect, useMemo, useState} from 'react'
 import type {Finding} from './types'
+import {showError} from './notify'
 
 interface Props {
     sessionId: string;
@@ -138,7 +139,7 @@ export default function FindingsDisclosure({sessionId, refreshTick, onPinFinding
                                 setSelectedIds(new Set())
                                 await refetch()
                             } catch (err) {
-                                alert('Delete failed: ' + ((err as any)?.message ?? String(err)))
+                                showError('Delete failed', (err as any)?.message ?? String(err))
                             }
                         }}>Delete</button>
                         <button className="data-confirm-no" onClick={() => setConfirmBulkDelete(false)}>Cancel</button>
@@ -200,7 +201,7 @@ export default function FindingsDisclosure({sessionId, refreshTick, onPinFinding
                                                     await window.go.main.Bindings.DeleteFindings([f.id])
                                                     await refetch()
                                                 } catch (err) {
-                                                    alert('Delete failed: ' + ((err as any)?.message ?? String(err)))
+                                                    showError('Delete failed', (err as any)?.message ?? String(err))
                                                 }
                                             }}>Yes</button>
                                             <button className="data-confirm-no" onClick={() => setConfirmDeleteOne(null)}>No</button>

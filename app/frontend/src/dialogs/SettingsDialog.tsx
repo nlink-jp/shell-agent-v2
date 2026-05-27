@@ -8,6 +8,7 @@
 
 import {useState, useEffect, useRef} from 'react'
 import BackendBudgetEditor from '../components/BackendBudgetEditor'
+import {showError} from '../notify'
 import type {MCPProfile, MCPStatus, Settings, ToolInfo, SandboxImageStatus, SandboxImageInfo} from '../types'
 import type {main} from '../../wailsjs/go/models'
 
@@ -428,7 +429,7 @@ export default function SettingsDialog({settings, tools, mcpStatus, onUpdate, on
                                             ) : (
                                                 <button onClick={async () => {
                                                     if (!window.go) return
-                                                    try { await window.go.main.Bindings.SetActiveSandboxImage(img.tag) } catch (e: any) { alert(String(e?.message || e)) }
+                                                    try { await window.go.main.Bindings.SetActiveSandboxImage(img.tag) } catch (e: any) { showError('Error', String(e?.message || e)) }
                                                     refreshImageStatus()
                                                 }}>Use</button>
                                             )}
@@ -445,7 +446,7 @@ export default function SettingsDialog({settings, tools, mcpStatus, onUpdate, on
                                                     try {
                                                         await window.go.main.Bindings.RemoveSandboxImage(img.tag)
                                                     } catch (e: any) {
-                                                        alert(String(e?.message || e))
+                                                        showError('Error', String(e?.message || e))
                                                     }
                                                     refreshImageStatus()
                                                 }}

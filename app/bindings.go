@@ -2008,6 +2008,13 @@ func (b *Bindings) notifyDialog(t wailsRuntime.DialogType, title, message string
 	})
 }
 
+// ShowErrorDialog displays a native error dialog. The frontend calls this
+// instead of window.alert(), which is not reliably rendered in the Wails
+// v2 WKWebView (see ADR-0027 §2.4). Use for user-facing failure notices.
+func (b *Bindings) ShowErrorDialog(title, message string) {
+	b.notifyDialog(wailsRuntime.ErrorDialog, title, message)
+}
+
 // ExportGlobalMemory writes all Global Memory entries to a
 // user-chosen JSON file via a native save dialog (ADR-0027). Returns
 // the chosen path, or an empty string if the user cancelled. The save

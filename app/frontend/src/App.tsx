@@ -21,6 +21,7 @@ import ReportViewer from './dialogs/ReportViewer'
 import BlobPreview, {type BlobPreviewData} from './dialogs/BlobPreview'
 import PinToGlobalDialog, {type PinSource} from './dialogs/PinToGlobalDialog'
 import ToolCallDetailsDialog from './dialogs/ToolCallDetailsDialog'
+import {showError} from './notify'
 import 'highlight.js/styles/github-dark.css'
 import 'katex/dist/katex.min.css'
 import './themes.css'
@@ -610,7 +611,7 @@ function App() {
             // state was touched (analysis engine close+reopen).
             await refreshSessions()
         } catch (e) {
-            alert('Export failed: ' + String(e))
+            showError('Export failed', String(e))
         }
     }, [state, bgTasks, refreshSessions])
 
@@ -634,7 +635,7 @@ function App() {
             setStreaming('')
             await refreshSessions()
         } catch (e) {
-            alert('Import failed: ' + String(e))
+            showError('Import failed', String(e))
         }
     }, [state, bgTasks, refreshSessions])
 
@@ -719,7 +720,7 @@ function App() {
         try {
             await window.go.main.Bindings.DeleteSession(id)
         } catch (e) {
-            alert('Delete failed: ' + String(e))
+            showError('Delete failed', String(e))
             return
         }
         const remaining = await window.go.main.Bindings.ListSessions()
@@ -1332,7 +1333,7 @@ function App() {
                             const updatedG = await window.go.main.Bindings.GetGlobalMemories()
                             setGlobalMemories(updatedG)
                         } catch (err) {
-                            alert('Pin failed: ' + ((err as any)?.message ?? String(err)))
+                            showError('Pin failed', (err as any)?.message ?? String(err))
                         }
                     }}
                 />

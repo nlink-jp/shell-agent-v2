@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.15.1] - 2026-05-27
+
+### Fixed
+
+- **Failure notices now actually appear.** `window.alert()` is not
+  reliably rendered in the Wails v2 WKWebView, so error messages on
+  session export/import, session/finding/object delete, pin-to-global,
+  oversized attachments, and sandbox-image actions were silently
+  swallowed. All of these now route through a native dialog
+  (`showError` → `Bindings.ShowErrorDialog` → `wailsRuntime.MessageDialog`),
+  the same mechanism the v0.15.0 Global Memory import/export already uses.
+  `window.alert()` is no longer used anywhere in the frontend.
+
 ## [0.15.0] - 2026-05-27
 
 ### Added

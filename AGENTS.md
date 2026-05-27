@@ -198,6 +198,11 @@ shell-agent-v2/
   skips duplicates by fact text. Entries carry no machine-local session
   back-reference (ADR-0028 removed `SessionID`/`SourceTurnIndex`/
   `PromotedFromID` — they were never read).
+- **User-facing dialogs: never `window.alert()`** — it is not reliably
+  rendered in the Wails v2 WKWebView. Frontend failure notices go through
+  the `showError(title, msg)` helper (`frontend/src/notify.ts`) →
+  `Bindings.ShowErrorDialog` → `wailsRuntime.MessageDialog`. Confirmations
+  use inline UI (e.g. two-click delete) or `wailsRuntime` dialogs.
 - Pin to Global Memory dialog (v0.2.0 Phase 9): category picker
   shown when promoting a Session Memory entry or a Finding into
   the cross-session pool.

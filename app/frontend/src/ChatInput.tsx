@@ -1,4 +1,5 @@
 import {useState, useRef, useEffect, useLayoutEffect, memo} from 'react'
+import {showError} from './notify'
 
 // PendingAttachment tracks both the data URL and the original
 // filename so the chat input can preserve the name through the
@@ -156,7 +157,7 @@ function ChatInput({onSend, disabled, disabledPlaceholder}: Props) {
         const oversized = fileArr.filter(f => f.size > MAX_ATTACHMENT_BYTES)
         if (oversized.length > 0) {
             const names = oversized.map(f => `${f.name} (${(f.size / 1024 / 1024).toFixed(1)} MB)`).join(', ')
-            alert(`File too large to attach (limit 50 MB): ${names}\nFor larger documents, copy the file into the sandbox /work directory and use register_object instead.`)
+            showError('Attachment too large', `File too large to attach (limit 50 MB): ${names}\nFor larger documents, copy the file into the sandbox /work directory and use register_object instead.`)
         }
         const accepted = fileArr.filter(f => f.size <= MAX_ATTACHMENT_BYTES)
         const attached: PendingAttachment[] = await Promise.all(accepted.map(file =>
