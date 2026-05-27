@@ -193,6 +193,11 @@ shell-agent-v2/
 - Tool-call timeline: every tool start/end appears inline in chat
   as a transient pill, in addition to the status-bar indicator.
 - Bulk select / delete for Findings, Global Memory, Session Memory.
+- Global Memory export / import (ADR-0027, v0.15.0): sidebar Memory-tab
+  buttons; export writes a versioned JSON envelope, import merges and
+  skips duplicates by fact text. Entries carry no machine-local session
+  back-reference (ADR-0028 removed `SessionID`/`SourceTurnIndex`/
+  `PromotedFromID` — they were never read).
 - Pin to Global Memory dialog (v0.2.0 Phase 9): category picker
   shown when promoting a Session Memory entry or a Finding into
   the cross-session pool.

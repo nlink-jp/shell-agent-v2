@@ -79,6 +79,10 @@ interface Props {
     globalMemories: GlobalMemory[];
     onGlobalMemoryDelete: (facts: string[]) => Promise<void>;
     onGlobalMemoryDeleteOne: (fact: string) => Promise<void>;
+    /** ADR-0027: export the whole Global Memory to a JSON file /
+     *  import (merge, skip duplicates) from one. */
+    onExportGlobalMemory: () => void;
+    onImportGlobalMemory: () => void;
     sessionMemories: SessionMemory[];
     onSessionMemoryDelete: (facts: string[]) => Promise<void>;
     onPinSessionMemory: (fact: string) => void;
@@ -96,6 +100,7 @@ export default function Sidebar({
     onExportSession, onImportSession,
     onDeleteSession, onRenameSession,
     globalMemories, onGlobalMemoryDelete, onGlobalMemoryDeleteOne,
+    onExportGlobalMemory, onImportGlobalMemory,
     sessionMemories, onSessionMemoryDelete, onPinSessionMemory,
     onOpenSettings,
 }: Props) {
@@ -293,6 +298,18 @@ export default function Sidebar({
                             <div className={`status-section ${selectedGlobalFacts.size > 0 ? 'bulk-active' : ''}`}>
                                 <div className="bulk-section-header">
                                     <h3>Global Memory</h3>
+                                    <div className="memory-io-actions">
+                                        <button
+                                            onClick={onImportGlobalMemory}
+                                            title="Import Global Memory from a JSON file (merge, skip duplicates)"
+                                        >Import</button>
+                                        {globalMemories.length > 0 && (
+                                            <button
+                                                onClick={onExportGlobalMemory}
+                                                title="Export all Global Memory to a JSON file"
+                                            >Export</button>
+                                        )}
+                                    </div>
                                     {globalMemories.length > 0 && (
                                         <BulkActions
                                             total={globalMemories.length}

@@ -241,14 +241,11 @@ type GlobalMemoryEntry struct {
     SourceTime      time.Time
     CreatedAt       time.Time
 
-    // Provenance
-    SessionID       string    // 由来セッション ID (手動エントリは空)
-    SourceTurnIndex int
+    // Provenance (移植可能)。マシンローカルなセッション back-reference
+    // (SessionID, SourceTurnIndex, PromotedFromID) は ADR-0028 で削除
+    // — read されず、マシンをまたぐと安全でないため。
     Source          string    // user_turn | assistant_turn | manual | promoted_from_session_memory | promoted_from_finding
     ToolOriginated  bool
-
-    // 昇格時の back-reference (Source が promoted_from_* の場合)
-    PromotedFromID  string    // Session Memory entry index, or Finding ID
 }
 ```
 

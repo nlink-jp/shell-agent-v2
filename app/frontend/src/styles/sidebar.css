@@ -372,6 +372,32 @@
     color: var(--text-dim, #556677);
 }
 
+/* Global Memory Export / Import buttons in the Memory-tab section
+   header (ADR-0027). Unlike .session-actions these are always
+   visible (not hover-revealed), since the header is not a hoverable
+   row. margin-right:auto clusters them next to the title and pushes
+   the bulk-select toolbar to the right edge. */
+.memory-io-actions {
+    display: flex;
+    gap: 4px;
+    margin-right: auto;
+}
+
+.memory-io-actions button {
+    border: 1px solid var(--border, #2a3a4a);
+    background: transparent;
+    color: var(--text-dim, #556677);
+    cursor: pointer;
+    font-size: 11px;
+    padding: 1px 6px;
+    border-radius: 3px;
+}
+
+.memory-io-actions button:hover {
+    background: #2a3a4a;
+    color: #aabbcc;
+}
+
 /* Delete-confirm: ✕ icon swapped for the text "Confirm" with
  * the same red emphasis the BulkActions confirm state uses
  * (Findings / Global Memory / Session Memory bulk-delete) so

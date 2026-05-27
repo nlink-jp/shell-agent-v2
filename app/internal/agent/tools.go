@@ -281,10 +281,9 @@ func (a *Agent) toolRememberFact(argsJSON string) (string, error) {
 	}
 	if isGlobal {
 		added := a.globalMemory.Add(memory.GlobalMemoryEntry{
-			Fact:      fact,
-			Category:  args.Category,
-			SessionID: a.session.ID,
-			Source:    memory.GlobalSourceToolCall,
+			Fact:     fact,
+			Category: args.Category,
+			Source:   memory.GlobalSourceToolCall,
 		})
 		if !added {
 			return fmt.Sprintf("Fact already recorded (deduplicated): %q. No new entry created.", fact), nil

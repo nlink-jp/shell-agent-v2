@@ -1609,6 +1609,30 @@ func (a *Agent) GlobalMemoryDeleteByFacts(facts []string) (int, error) {
 	return n, a.globalMemory.Save()
 }
 
+// GlobalMemoryExportJSON serialises all Global Memory entries into a
+// versioned export envelope (ADR-0027). appVersion is recorded in the
+// envelope for informational purposes.
+func (a *Agent) GlobalMemoryExportJSON(appVersion string) ([]byte, error) {
+	return memory.MarshalGlobalMemoryExport(a.globalMemory.All(), appVersion)
+}
+
+// GlobalMemoryImportJSON parses an export envelope and merges its entries
+// into Global Memory (merge, skip duplicates — ADR-0027), then persists.
+// Returns how many entries were added and skipped.
+func (a *Agent) GlobalMemoryImportJSON(data []byte) (added, skipped int, err error) {
+	entries, err := memory.ParseGlobalMemoryImport(data)
+	if err != nil {
+		return 0, 0, err
+	}
+	added, skipped = a.globalMemory.Import(entries)
+	if added > 0 {
+		if err := a.globalMemory.Save(); err != nil {
+			return added, skipped, err
+		}
+	}
+	return added, skipped, nil
+}
+
 // SessionMemoryAll returns the active session's Session Memory
 // entries, or empty when no session is loaded.
 func (a *Agent) SessionMemoryAll() []memory.SessionMemoryEntry {
@@ -1793,15 +1817,10 @@ func (a *Agent) PromoteSessionMemoryToGlobal(fact, category string) error {
 	if !ok {
 		return fmt.Errorf("session memory entry not found: %q", fact)
 	}
-	sessionID := ""
-	if a.session != nil {
-		sessionID = a.session.ID
-	}
 	added := a.globalMemory.Add(memory.GlobalMemoryEntry{
 		Fact:           entry.Fact,
 		NativeFact:     entry.NativeFact,
 		Category:       category,
-		SessionID:      sessionID,
 		Source:         memory.GlobalSourcePromotedFromSession,
 		ToolOriginated: entry.ToolOriginated,
 	})
@@ -1838,15 +1857,10 @@ func (a *Agent) PromoteFindingToGlobal(id, category string) error {
 	if !ok {
 		return fmt.Errorf("finding not found: %q", id)
 	}
-	sessionID := ""
-	if a.session != nil {
-		sessionID = a.session.ID
-	}
 	added := a.globalMemory.Add(memory.GlobalMemoryEntry{
 		Fact:           f.Content,
 		NativeFact:     f.Content,
 		Category:       category,
-		SessionID:      sessionID,
 		Source:         memory.GlobalSourcePromotedFromFinding,
 		ToolOriginated: f.ToolOriginated,
 	})

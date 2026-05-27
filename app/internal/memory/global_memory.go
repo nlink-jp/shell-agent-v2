@@ -53,16 +53,13 @@ type GlobalMemoryEntry struct {
 	SourceTime time.Time `json:"source_time"`
 	CreatedAt  time.Time `json:"created_at"`
 
-	// Provenance.
-	SessionID       string `json:"session_id,omitempty"`        // originating session (empty for manual)
-	SourceTurnIndex int    `json:"source_turn_index,omitempty"`
-	Source          string `json:"source,omitempty"`            // GlobalSource* constants
-	ToolOriginated  bool   `json:"tool_originated,omitempty"`
-
-	// Promotion back-reference. Set when Source is one of the
-	// promoted_from_* values; points back to the source entry
-	// (Session Memory index as string, or Finding ID).
-	PromotedFromID string `json:"promoted_from_id,omitempty"`
+	// Provenance. Source records how the entry arose (a portable
+	// enum, see GlobalSource* constants) and drives the trust tag.
+	// ToolOriginated marks tool-call origin. Machine-local session
+	// back-references were removed in ADR-0028 (never read; unsafe
+	// across machines).
+	Source         string `json:"source,omitempty"`
+	ToolOriginated bool   `json:"tool_originated,omitempty"`
 }
 
 // DefaultMaxGlobalMemory is the soft cap on GlobalMemoryStore
@@ -205,6 +202,83 @@ func (s *GlobalMemoryStore) DeleteByFacts(facts []string) int {
 // All returns all entries.
 func (s *GlobalMemoryStore) All() []GlobalMemoryEntry {
 	return s.Entries
+}
+
+// --- Export / Import (ADR-0027) ---
+
+// GlobalMemoryExportKind / GlobalMemoryExportSchemaVersion identify a
+// Global Memory export file. The kind discriminator lets import reject a
+// session bundle or an arbitrary JSON file rather than mis-parsing it.
+const (
+	GlobalMemoryExportKind          = "shell-agent-v2-global-memory"
+	GlobalMemoryExportSchemaVersion = 1
+)
+
+// GlobalMemoryExport is the on-disk envelope wrapping exported entries.
+// Entries are stored verbatim; after ADR-0028 every field is portable
+// (no machine-local session back-references).
+type GlobalMemoryExport struct {
+	Kind                 string              `json:"kind"`
+	SchemaVersion        int                 `json:"schema_version"`
+	ExportedAt           time.Time           `json:"exported_at"`
+	ExportedByAppVersion string              `json:"exported_by_app_version,omitempty"`
+	Entries              []GlobalMemoryEntry `json:"entries"`
+}
+
+// MarshalGlobalMemoryExport builds an indented export envelope around the
+// given entries, stamped with the current UTC time and the app version.
+func MarshalGlobalMemoryExport(entries []GlobalMemoryEntry, appVersion string) ([]byte, error) {
+	if entries == nil {
+		entries = []GlobalMemoryEntry{}
+	}
+	return json.MarshalIndent(GlobalMemoryExport{
+		Kind:                 GlobalMemoryExportKind,
+		SchemaVersion:        GlobalMemoryExportSchemaVersion,
+		ExportedAt:           time.Now().UTC(),
+		ExportedByAppVersion: appVersion,
+		Entries:              entries,
+	}, "", "  ")
+}
+
+// ParseGlobalMemoryImport validates an export envelope and returns its
+// entries. It rejects non-JSON, a wrong kind, and an unsupported schema
+// version with distinct errors so the caller can surface a precise reason.
+func ParseGlobalMemoryImport(data []byte) ([]GlobalMemoryEntry, error) {
+	var env GlobalMemoryExport
+	if err := json.Unmarshal(data, &env); err != nil {
+		return nil, fmt.Errorf("not a valid global-memory export (invalid JSON): %w", err)
+	}
+	if env.Kind != GlobalMemoryExportKind {
+		return nil, fmt.Errorf("not a global-memory export: kind=%q, want %q", env.Kind, GlobalMemoryExportKind)
+	}
+	if env.SchemaVersion != GlobalMemoryExportSchemaVersion {
+		return nil, fmt.Errorf("unsupported global-memory export schema version: %d", env.SchemaVersion)
+	}
+	return env.Entries, nil
+}
+
+// Import merges entries into the store using normal Add semantics: new
+// facts are appended, facts whose text already exists are skipped (merge,
+// skip-duplicates — ADR-0027). Invalid categories are coerced to
+// `decision` (mirrors Set); entries with an empty Fact are skipped.
+// Returns how many were added and how many were skipped. The caller is
+// responsible for persisting via Save.
+func (s *GlobalMemoryStore) Import(entries []GlobalMemoryEntry) (added, skipped int) {
+	for _, e := range entries {
+		if strings.TrimSpace(e.Fact) == "" {
+			skipped++
+			continue
+		}
+		if !ValidGlobalMemoryCategories[e.Category] {
+			e.Category = "decision"
+		}
+		if s.Add(e) {
+			added++
+		} else {
+			skipped++
+		}
+	}
+	return added, skipped
 }
 
 // FormatForPrompt returns the entries formatted for system

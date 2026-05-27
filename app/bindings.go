@@ -1923,14 +1923,13 @@ func (b *Bindings) GetTools() []ToolInfo {
 // GlobalMemoryData is a cross-session memory entry for the frontend.
 //
 // Renamed from PinnedMemoryData in v0.2.0; only preference / decision
-// categories belong here. Source / SessionID / ToolOriginated /
-// CreatedAt drive the trust badge and learned-date in the sidebar.
+// categories belong here. Source / ToolOriginated / CreatedAt drive the
+// trust badge and learned-date in the sidebar.
 type GlobalMemoryData struct {
 	Fact           string `json:"fact"`
 	NativeFact     string `json:"native_fact"`
 	Category       string `json:"category"`
 	Source         string `json:"source"`
-	SessionID      string `json:"session_id"`
 	ToolOriginated bool   `json:"tool_originated"`
 	CreatedAt      string `json:"created_at"` // RFC3339 if present, empty otherwise
 }
@@ -1961,7 +1960,6 @@ func (b *Bindings) GetGlobalMemories() []GlobalMemoryData {
 			NativeFact:     f.NativeFact,
 			Category:       f.Category,
 			Source:         f.Source,
-			SessionID:      f.SessionID,
 			ToolOriginated: f.ToolOriginated,
 			CreatedAt:      createdAt,
 		}
@@ -1985,6 +1983,97 @@ func (b *Bindings) DeleteGlobalMemory(fact string) error {
 // text. Returns count actually deleted.
 func (b *Bindings) DeleteGlobalMemories(facts []string) (int, error) {
 	return b.agent.GlobalMemoryDeleteByFacts(facts)
+}
+
+// GlobalMemoryImportResult reports the outcome of an import to the
+// frontend: how many entries were added and how many skipped
+// (duplicates / empty).
+type GlobalMemoryImportResult struct {
+	Added   int `json:"added"`
+	Skipped int `json:"skipped"`
+}
+
+// notifyDialog shows a native message dialog. JS window.alert() is not
+// reliably rendered in the Wails v2 WKWebView (the app deliberately uses
+// native dialogs / inline UI elsewhere), so user-facing import/export
+// feedback goes through wailsRuntime.MessageDialog instead.
+func (b *Bindings) notifyDialog(t wailsRuntime.DialogType, title, message string) {
+	if b.ctx == nil {
+		return
+	}
+	_, _ = wailsRuntime.MessageDialog(b.ctx, wailsRuntime.MessageDialogOptions{
+		Type:    t,
+		Title:   title,
+		Message: message,
+	})
+}
+
+// ExportGlobalMemory writes all Global Memory entries to a
+// user-chosen JSON file via a native save dialog (ADR-0027). Returns
+// the chosen path, or an empty string if the user cancelled. The save
+// dialog itself is the success confirmation; only failures notify.
+func (b *Bindings) ExportGlobalMemory() (string, error) {
+	if b.agent == nil {
+		return "", fmt.Errorf("agent not initialised")
+	}
+	dest, err := wailsRuntime.SaveFileDialog(b.ctx, wailsRuntime.SaveDialogOptions{
+		DefaultFilename: "global-memory-" + time.Now().Format("20060102-150405") + ".json",
+		Filters: []wailsRuntime.FileFilter{
+			{DisplayName: "Global Memory export", Pattern: "*.json"},
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+	if dest == "" {
+		return "", nil // cancelled
+	}
+	data, err := b.agent.GlobalMemoryExportJSON(version)
+	if err != nil {
+		b.notifyDialog(wailsRuntime.ErrorDialog, "Export failed", err.Error())
+		return "", err
+	}
+	// 0600: the file may contain personal facts (matches the store's
+	// own on-disk permissions).
+	if err := os.WriteFile(dest, data, 0600); err != nil {
+		b.notifyDialog(wailsRuntime.ErrorDialog, "Export failed", err.Error())
+		return "", err
+	}
+	return dest, nil
+}
+
+// ImportGlobalMemory reads a Global Memory export file chosen via a
+// native open dialog and merges it (skip-duplicates — ADR-0027). Shows a
+// native dialog reporting the outcome (or the rejection reason for a bad
+// file). Returns a zero result if the user cancelled.
+func (b *Bindings) ImportGlobalMemory() (GlobalMemoryImportResult, error) {
+	if b.agent == nil {
+		return GlobalMemoryImportResult{}, fmt.Errorf("agent not initialised")
+	}
+	src, err := wailsRuntime.OpenFileDialog(b.ctx, wailsRuntime.OpenDialogOptions{
+		Filters: []wailsRuntime.FileFilter{
+			{DisplayName: "Global Memory export", Pattern: "*.json"},
+		},
+	})
+	if err != nil {
+		return GlobalMemoryImportResult{}, err
+	}
+	if src == "" {
+		return GlobalMemoryImportResult{}, nil // cancelled
+	}
+	data, err := os.ReadFile(src)
+	if err != nil {
+		b.notifyDialog(wailsRuntime.ErrorDialog, "Import failed", err.Error())
+		return GlobalMemoryImportResult{}, err
+	}
+	added, skipped, err := b.agent.GlobalMemoryImportJSON(data)
+	if err != nil {
+		b.notifyDialog(wailsRuntime.ErrorDialog, "Import failed", err.Error())
+		return GlobalMemoryImportResult{}, err
+	}
+	b.notifyDialog(wailsRuntime.InfoDialog, "Global Memory imported",
+		fmt.Sprintf("Imported %d fact(s).\n%d duplicate(s) skipped.", added, skipped))
+	return GlobalMemoryImportResult{Added: added, Skipped: skipped}, nil
 }
 
 // GetSessionMemories returns the active session's Session Memory

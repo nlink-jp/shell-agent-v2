@@ -12,6 +12,7 @@
 import type {
     Finding,
     GlobalMemory,
+    GlobalMemoryImportResult,
     LLMStatus,
     MessageData,
     ObjectInfo,
@@ -76,6 +77,8 @@ declare global {
                     GetGlobalMemories(): Promise<GlobalMemory[]>;
                     UpdateGlobalMemory(fact: string, native: string, category: string): Promise<void>;
                     DeleteGlobalMemory(fact: string): Promise<void>;
+                    ExportGlobalMemory(): Promise<string>;
+                    ImportGlobalMemory(): Promise<GlobalMemoryImportResult>;
                     GetSessionMemories(): Promise<SessionMemory[]>;
                     PinSessionMemory(fact: string, category: string): Promise<void>;
                     PinFinding(id: string, category: string): Promise<void>;

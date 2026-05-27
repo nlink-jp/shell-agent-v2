@@ -93,9 +93,6 @@ func TestExtractPinned_StampsSourceFromUserTurn(t *testing.T) {
 	if got.Source != memory.GlobalSourceUserTurn {
 		t.Errorf("Source = %q, want %q", got.Source, memory.GlobalSourceUserTurn)
 	}
-	if got.SessionID != "extract-test" {
-		t.Errorf("SessionID = %q, want extract-test", got.SessionID)
-	}
 }
 
 // TestExtractPinned_StampsSourceFromAssistantTurn confirms a fact

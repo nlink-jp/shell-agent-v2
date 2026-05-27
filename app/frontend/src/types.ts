@@ -109,10 +109,16 @@ export interface GlobalMemory {
      *  (lower trust; content traces back through the LLM and may
      *  be attacker-influenced). See docs/en/memory-model.md. */
     source?: string;
-    session_id?: string;
     tool_originated?: boolean;
     /** RFC3339 timestamp when learned, or empty for legacy entries. */
     created_at?: string;
+}
+
+/** Outcome of a Global Memory import (ADR-0027): how many entries
+ *  were added vs skipped (duplicate fact text or empty). */
+export interface GlobalMemoryImportResult {
+    added: number;
+    skipped: number;
 }
 
 /** Per-session memory entry (fact / context categories only).

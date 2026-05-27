@@ -267,13 +267,11 @@ Already known:
 				src = memory.GlobalSourceAssistantTurn
 			}
 			if a.globalMemory.Add(memory.GlobalMemoryEntry{
-				Fact:            fact,
-				NativeFact:      native,
-				Category:        category,
-				SessionID:       a.session.ID,
-				SourceTurnIndex: recIdx,
-				Source:          src,
-				ToolOriginated:  hasToolNeighbor,
+				Fact:           fact,
+				NativeFact:     native,
+				Category:       category,
+				Source:         src,
+				ToolOriginated: hasToolNeighbor,
 			}) {
 				addedToPinned++
 			} else {

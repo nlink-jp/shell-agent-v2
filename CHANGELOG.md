@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.15.0] - 2026-05-27
+
+### Added
+
+- **Global Memory export / import.** Export the entire cross-session
+  Global Memory to a JSON file, and import one back, from two buttons in
+  the sidebar Memory tab. Import **merges, skipping duplicates** (by fact
+  text) — it never overwrites or deletes existing facts, so re-importing a
+  file or importing several in sequence is idempotent. The file is a
+  versioned envelope (`kind` + `schema_version`) so a wrong file (a
+  session bundle, arbitrary JSON) is rejected with a clear message rather
+  than mis-parsed. Enables backup and cross-machine migration of Global
+  Memory, closing the gap that session bundles intentionally left.
+  (ADR-0027.)
+
+### Removed
+
+- **Unused provenance fields dropped from Global Memory entries**
+  (`SessionID`, `SourceTurnIndex`, `PromotedFromID`). They were written
+  at promotion/extraction time but read by nothing, and — being
+  references into the machine-local session namespace — were unreliable
+  across machines. Removing them eliminates a cross-machine collision
+  hazard at the schema level and simplifies export/import (no
+  machine-local data to sanitise). Backward compatible: existing
+  `global_memory.json` files load fine; the obsolete keys are ignored and
+  drop out on the next save. `Source` (trust tag) and `ToolOriginated` are
+  unchanged. (ADR-0028.)
+
 ## [0.14.9] - 2026-05-26
 
 ### Changed

@@ -249,14 +249,11 @@ type GlobalMemoryEntry struct {
     SourceTime      time.Time
     CreatedAt       time.Time
 
-    // Provenance
-    SessionID       string    // Originating session ID (or empty for manual entry)
-    SourceTurnIndex int
+    // Provenance (portable). Machine-local session back-references
+    // (SessionID, SourceTurnIndex, PromotedFromID) were removed in
+    // ADR-0028 — never read, and unsafe across machines.
     Source          string    // user_turn | assistant_turn | manual | promoted_from_session_memory | promoted_from_finding
     ToolOriginated  bool
-
-    // Promotion back-reference (if Source is promoted_from_*)
-    PromotedFromID  string    // Session Memory entry index, or Finding ID
 }
 ```
 

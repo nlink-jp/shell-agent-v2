@@ -638,6 +638,32 @@ function App() {
         }
     }, [state, bgTasks, refreshSessions])
 
+    // Export the whole Global Memory to a JSON file (ADR-0027). The
+    // save dialog is the confirmation; the binding shows a native
+    // dialog on failure (alert() is unreliable in the Wails webview).
+    const handleExportGlobalMemory = useCallback(async () => {
+        if (!window.go) return
+        try {
+            await window.go.main.Bindings.ExportGlobalMemory()
+        } catch {
+            // Error already surfaced via native dialog by the binding.
+        }
+    }, [])
+
+    // Import a Global Memory JSON file (merge, skip duplicates). The
+    // binding reports the outcome / rejection via a native dialog; here
+    // we just refresh the sidebar list afterwards.
+    const handleImportGlobalMemory = useCallback(async () => {
+        if (!window.go) return
+        try {
+            await window.go.main.Bindings.ImportGlobalMemory()
+        } catch {
+            // Error already surfaced via native dialog by the binding.
+        }
+        const updated = await window.go.main.Bindings.GetGlobalMemories()
+        setGlobalMemories(updated)
+    }, [])
+
     // restoredMessages converts the backend's MessageData[] into
     // the ChatMessage[] the chat pane consumes. The mapping is
     // mostly a 1:1 — the only field that needs care is `status`,
@@ -993,6 +1019,8 @@ function App() {
                     const updated = await window.go.main.Bindings.GetGlobalMemories()
                     setGlobalMemories(updated)
                 }}
+                onExportGlobalMemory={handleExportGlobalMemory}
+                onImportGlobalMemory={handleImportGlobalMemory}
                 sessionMemories={sessionMemories}
                 onSessionMemoryDelete={async facts => {
                     await window.go.main.Bindings.DeleteSessionMemories(facts)
