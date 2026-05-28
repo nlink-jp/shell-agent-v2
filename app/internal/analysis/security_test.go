@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/nlink-jp/shell-agent-v2/internal/config"
 )
 
 func TestValidateFilePath(t *testing.T) {
@@ -71,8 +73,8 @@ func TestEscapeSQLString(t *testing.T) {
 }
 
 func TestQuerySQLRowLimit(t *testing.T) {
-	if MaxQueryRows < 100 {
-		t.Errorf("MaxQueryRows too low: %d", MaxQueryRows)
+	if config.DefaultMaxQueryRows < 100 {
+		t.Errorf("DefaultMaxQueryRows too low: %d", config.DefaultMaxQueryRows)
 	}
 	// Sanity check: error message references the constant
 	// (ensures the limit is actually enforced; integration test in agent package

@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/nlink-jp/shell-agent-v2/internal/config"
 )
 
 // writeCSV writes a CSV with `id,value` columns and `n` data rows
@@ -68,13 +70,13 @@ func TestQuerySQL_StillCapsAt10k(t *testing.T) {
 		t.Fatalf("Open: %v", err)
 	}
 
-	if err := e.LoadCSV("rows", writeCSV(t, MaxQueryRows+50)); err != nil {
+	if err := e.LoadCSV("rows", writeCSV(t, config.DefaultMaxQueryRows+50)); err != nil {
 		t.Fatalf("LoadCSV: %v", err)
 	}
 
 	_, err := e.QuerySQL(`SELECT id FROM "rows"`)
 	if err == nil {
-		t.Fatalf("expected QuerySQL to error past MaxQueryRows=%d", MaxQueryRows)
+		t.Fatalf("expected QuerySQL to error past DefaultMaxQueryRows=%d", config.DefaultMaxQueryRows)
 	}
 	if !strings.Contains(err.Error(), "exceeds 10000 rows") {
 		t.Errorf("expected 'exceeds 10000 rows' in error, got: %v", err)

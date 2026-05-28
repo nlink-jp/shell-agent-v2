@@ -312,6 +312,50 @@ func (a AgentConfig) MaxToolRoundsResolved() int {
 	return DefaultMaxToolRounds
 }
 
+// AnalysisConfig controls the DuckDB analysis engine's row caps.
+//
+// Two distinct caps protect two distinct resources (see ADR-0029):
+//   - MaxQueryRows bounds interactive chat-output queries
+//     (query-sql / query-preview / quick-summary). Their rows are
+//     JSON-serialised into the LLM tool result, so the cap protects
+//     the model's context window.
+//   - MaxExportRows bounds export-sql-to-csv, which writes rows to a
+//     file in the sandbox /work dir. Those rows never enter the chat,
+//     so the only ceiling that matters is memory — hence the much
+//     higher default. Sharing the chat cap here was the bug fixed by
+//     ADR-0029 (issue #14).
+type AnalysisConfig struct {
+	MaxQueryRows  int `json:"max_query_rows,omitempty"`  // 0 → DefaultMaxQueryRows
+	MaxExportRows int `json:"max_export_rows,omitempty"` // 0 → DefaultMaxExportRows
+}
+
+// DefaultMaxQueryRows caps chat-output queries when
+// AnalysisConfig.MaxQueryRows is unset. Matches the long-time
+// hardcoded value (engine.MaxQueryRows) for backward compat.
+const DefaultMaxQueryRows = 10_000
+
+// DefaultMaxExportRows caps export-sql-to-csv when
+// AnalysisConfig.MaxExportRows is unset. Matches analysis.MaxAnalyzeRows
+// because both paths write rows to a file rather than the chat, so the
+// ceiling is memory, not context (ADR-0029 §3.5).
+const DefaultMaxExportRows = 1_000_000
+
+// MaxQueryRowsResolved returns MaxQueryRows or the default when 0.
+func (a AnalysisConfig) MaxQueryRowsResolved() int {
+	if a.MaxQueryRows > 0 {
+		return a.MaxQueryRows
+	}
+	return DefaultMaxQueryRows
+}
+
+// MaxExportRowsResolved returns MaxExportRows or the default when 0.
+func (a AnalysisConfig) MaxExportRowsResolved() int {
+	if a.MaxExportRows > 0 {
+		return a.MaxExportRows
+	}
+	return DefaultMaxExportRows
+}
+
 // LoggerConfig holds app.log verbosity settings.
 //
 // Level controls which log calls reach the file:
@@ -335,6 +379,7 @@ type Config struct {
 	UI            UIConfig            `json:"ui"`
 	Sandbox       SandboxConfig       `json:"sandbox,omitzero"`
 	Agent         AgentConfig         `json:"agent,omitzero"`
+	Analysis      AnalysisConfig      `json:"analysis,omitzero"`
 	Logger        LoggerConfig        `json:"logger,omitzero"`
 	Location      string              `json:"location,omitempty"`
 }

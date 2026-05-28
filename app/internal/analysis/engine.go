@@ -42,6 +42,44 @@ type Engine struct {
 	db        *sql.DB
 	tables    map[string]*TableMeta
 	mu        sync.Mutex
+
+	// Row caps, configurable per session (ADR-0029). 0 → the
+	// package default (DefaultMaxQueryRows / DefaultMaxExportRows).
+	// maxQueryRows bounds chat-output queries; maxExportRows bounds
+	// the file-bound export-sql-to-csv path. Set via SetRowCaps.
+	maxQueryRows  int
+	maxExportRows int
+}
+
+// SetRowCaps configures the chat-output (maxQuery) and CSV-export
+// (maxExport) row caps. A 0 for either keeps the package default.
+// Safe to call on a live engine; callers (bindings) invoke it on
+// session switch and on Settings save (ADR-0029 §3.3).
+func (e *Engine) SetRowCaps(maxQuery, maxExport int) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.maxQueryRows = maxQuery
+	e.maxExportRows = maxExport
+}
+
+// MaxQueryRows returns the resolved chat-output row cap.
+func (e *Engine) MaxQueryRows() int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.maxQueryRows > 0 {
+		return e.maxQueryRows
+	}
+	return config.DefaultMaxQueryRows
+}
+
+// MaxExportRows returns the resolved CSV-export row cap.
+func (e *Engine) MaxExportRows() int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.maxExportRows > 0 {
+		return e.maxExportRows
+	}
+	return config.DefaultMaxExportRows
 }
 
 // New creates a new analysis engine for the given session.
@@ -358,19 +396,23 @@ func (e *Engine) Schema() string {
 }
 
 // QuerySQL executes a read-only SQL query and returns results.
-// MaxQueryRows caps QuerySQL results to prevent memory exhaustion
-// from unbounded SELECT queries that land in the LLM's tool result
-// (the chat-output path: query-sql, query-preview, quick-summary).
-const MaxQueryRows = 10000
+// The result count is capped by the engine's resolved chat-output
+// cap (Engine.MaxQueryRows, default config.DefaultMaxQueryRows) to
+// prevent memory exhaustion from unbounded SELECT queries that land
+// in the LLM's tool result (the chat-output path: query-sql,
+// query-preview, quick-summary). Configurable per ADR-0029.
 
 // MaxAnalyzeRows caps QuerySQLForAnalyze results — the path
 // analyze-data uses to feed rows to its sliding-window summarizer.
-// Two orders of magnitude larger than MaxQueryRows because the
-// rows never enter the chat: they are chunked into per-window
+// Two orders of magnitude larger than the chat-output cap because
+// the rows never enter the chat: they are chunked into per-window
 // LLM calls instead. The cap exists strictly as a memory backstop
 // against pointing analyze-data at a billion-row table; the
 // practical ceiling is set by LLM call latency long before this
 // constant is hit. See docs/en/adr/0005-analyze-data-row-cap.md §3.3.
+// Unlike the query/export caps it is intentionally not configurable
+// (ADR-0029 §3.2): it is a pure memory backstop the user can't
+// meaningfully tune.
 //
 // Implementation seam: tests call setMaxAnalyzeRowsForTesting to
 // shrink this without making the test materialise a million rows.
@@ -378,13 +420,20 @@ var MaxAnalyzeRows = 1_000_000
 
 // QuerySQLToCSV runs a SELECT query and writes the result rows as CSV
 // to w. Returns the column order, row count written, and any error.
-// Uses the same MaxQueryRows guard and read-only enforcement as
-// QuerySQL. Column order is preserved from rows.Columns() so the
-// output matches what the user wrote in their SELECT list.
+// Capped by the engine's export cap (Engine.MaxExportRows) and the
+// same read-only enforcement as QuerySQL. The export cap is separate
+// from — and by default much higher than — the chat-output cap,
+// because these rows are written to a file in the sandbox and never
+// enter the chat (ADR-0029). Column order is preserved from
+// rows.Columns() so the output matches the user's SELECT list.
 func (e *Engine) QuerySQLToCSV(query string, w io.Writer) (columns []string, rowCount int, err error) {
 	if err := e.Open(); err != nil {
 		return nil, 0, err
 	}
+
+	// Resolve the export cap before taking the lock: MaxExportRows
+	// acquires e.mu, which is non-reentrant and held below.
+	maxRows := e.MaxExportRows()
 
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -417,8 +466,8 @@ func (e *Engine) QuerySQLToCSV(query string, w io.Writer) (columns []string, row
 		valuePtrs[i] = &values[i]
 	}
 	for rows.Next() {
-		if rowCount >= MaxQueryRows {
-			return columns, rowCount, fmt.Errorf("query result exceeds %d rows; refine query (e.g. add LIMIT or WHERE)", MaxQueryRows)
+		if rowCount >= maxRows {
+			return columns, rowCount, fmt.Errorf("query result exceeds %d rows; refine query (e.g. add LIMIT or WHERE) or raise analysis.max_export_rows in Settings", maxRows)
 		}
 		if err := rows.Scan(valuePtrs...); err != nil {
 			return columns, rowCount, err
@@ -542,14 +591,14 @@ func (e *Engine) PreviewTable(tableName string, limit int) (*TablePreview, error
 }
 
 // QuerySQL runs a read-only SELECT and materialises results into
-// a slice of column-keyed maps, capped at MaxQueryRows. Use this
-// for any path where the rows land in the LLM's tool result —
-// the cap protects the chat from unbounded SELECT output. For
-// the analyze-data sliding-window path, use QuerySQLForAnalyze
-// instead (the rows never enter the chat, so the cap can be much
-// higher).
+// a slice of column-keyed maps, capped at the engine's chat-output
+// cap (Engine.MaxQueryRows). Use this for any path where the rows
+// land in the LLM's tool result — the cap protects the chat from
+// unbounded SELECT output. For the analyze-data sliding-window path,
+// use QuerySQLForAnalyze instead (the rows never enter the chat, so
+// the cap can be much higher).
 func (e *Engine) QuerySQL(query string) ([]map[string]any, error) {
-	return e.querySQLBounded(query, MaxQueryRows, queryRefineHint)
+	return e.querySQLBounded(query, e.MaxQueryRows(), queryRefineHint)
 }
 
 // QuerySQLForAnalyze runs a read-only SELECT and materialises
