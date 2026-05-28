@@ -1921,9 +1921,14 @@ func (a *Agent) LLMStatus() struct {
 // agentLoop implements the core agent execution loop.
 // Design: docs/en/history/agent-data-flow.md Section 2.2
 func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, dataURLs, documentObjectIDs []string) (string, error) {
+	// ADR-0030: nil-init must be synchronised — postResponseTasks
+	// can have a title goroutine reading a.session concurrently with
+	// the auto-dispatched SendWithAttachments that lands here.
+	a.mu.Lock()
 	if a.session == nil {
 		a.session = &memory.Session{ID: "default", Records: []memory.Record{}}
 	}
+	a.mu.Unlock()
 
 	// Background post-response tasks fire on every return path —
 	// success, max-rounds, or any error. The helpers each guard
@@ -2917,7 +2922,18 @@ func (a *Agent) setBackend(backend config.LLMBackend) {
 
 // generateTitleIfNeeded generates a session title from the first user message.
 func (a *Agent) generateTitleIfNeeded(ctx context.Context) error {
-	if a.session == nil || a.session.Title != "New Session" {
+	// ADR-0030: snapshot a.session under the lock once. Holding
+	// a.mu across the backend.Chat call below would block every
+	// other agent operation for seconds, so the snapshot pattern
+	// keeps the lock window short. The pointee (*memory.Session)
+	// is treated as owned by this goroutine during the title-gen
+	// window — LoadSession swaps a.session atomically under a.mu,
+	// so a concurrent session swap leaves us operating on the
+	// previous *Session safely.
+	a.mu.Lock()
+	sess := a.session
+	a.mu.Unlock()
+	if sess == nil || sess.Title != "New Session" {
 		return nil
 	}
 	// ADR-0020: skip the title-generation LLM call entirely when
@@ -2932,7 +2948,7 @@ func (a *Agent) generateTitleIfNeeded(ctx context.Context) error {
 	}
 
 	var firstUser string
-	for _, r := range a.session.Records {
+	for _, r := range sess.Records {
 		if r.Role == "user" {
 			firstUser = r.Content
 			break
@@ -2957,14 +2973,14 @@ func (a *Agent) generateTitleIfNeeded(ctx context.Context) error {
 		return nil
 	}
 
-	a.session.Title = title
-	_ = a.session.Save()
+	sess.Title = title
+	_ = sess.Save()
 
 	a.mu.Lock()
 	h := a.handlers.Title
 	a.mu.Unlock()
 	if h != nil {
-		h(a.session.ID, title)
+		h(sess.ID, title)
 	}
 	return nil
 }

@@ -133,6 +133,13 @@ release order.
   default 10 000) and `max_export_rows` (sandbox CSV handoff, default
   1 000 000); fixes `export-sql-to-csv` mis-sharing the chat cap;
   surfaced in Settings → General → Data analysis (v0.16.0)
+- [`ADR-0030`](adr/0030-session-pointer-race.md) — Synchronise the
+  `a.session` pointer access between `agentLoop`'s defensive nil-init
+  and `generateTitleIfNeeded`'s read. Race caught by `-race` while
+  investigating issue #13: the title-gen goroutine and the
+  extraction's auto-dispatched SendWithAttachments both touched
+  `a.session` without holding `a.mu`. Snapshot-under-lock pattern at
+  both sites — minimal, no API change (post-v0.16.0, unreleased)
 
 ## History
 
