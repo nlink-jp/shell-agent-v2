@@ -271,8 +271,17 @@ func TestAutoDispatch_DrainedByWait(t *testing.T) {
 
 	// Wait() must block until BOTH the extraction goroutine AND
 	// the auto-dispatch goroutine complete. The dispatched
-	// SendWithAttachments will fail fast (no session), but the
-	// invariant is that it's wg-tracked.
+	// SendWithAttachments runs against a default Local backend
+	// pointed at localhost:1234 (LM Studio); when the endpoint is
+	// not listening, the path still walks through agentLoop +
+	// retry/backoff before returning an error. Under heavy
+	// concurrent load (full agent-package suite or -race) that can
+	// blow past a few seconds even though there's no real LLM in
+	// the loop. The invariant this test pins is "Wait returns at
+	// all" (i.e. the auto-dispatch goroutine IS wg-tracked) —
+	// timing is not part of the invariant. A generous 30 s
+	// deadline still catches a real wg gap (Wait would never
+	// return) without flaking on a slow scheduler. See issue #13.
 	doneCh := make(chan struct{})
 	go func() {
 		a.postTasksWg.Wait()
@@ -281,8 +290,8 @@ func TestAutoDispatch_DrainedByWait(t *testing.T) {
 	select {
 	case <-doneCh:
 		// OK — both goroutines drained.
-	case <-time.After(3 * time.Second):
-		t.Fatal("postTasksWg.Wait() never returned; auto-dispatch likely not wg-tracked")
+	case <-time.After(30 * time.Second):
+		t.Fatal("postTasksWg.Wait() did not return within 30s; auto-dispatch likely not wg-tracked")
 	}
 }
 
@@ -656,7 +665,18 @@ func TestQueuedSend_ExtractionErrorStillDispatches(t *testing.T) {
 	a := New(withAutoExtract(config.Default()))
 	a.baseCtx = context.Background()
 
+	// Barrier pattern (issue #13): the override must BLOCK until
+	// the test releases it. A fast-returning override races the
+	// test's first poll under load — by the time waitFor checks
+	// extractionInFlight, the goroutine's cleanup defer has already
+	// flipped it back to false, so the test never observes the
+	// in-flight window even though the production path is correct.
+	// Other tests in this file (TestQueuedSend_HeldDuringExtraction,
+	// TestAbortClearsQueue, TestIsBusyDuringExtraction, ...) use the
+	// same release-channel pattern for the same reason.
+	release := make(chan struct{})
 	a.extractMemoriesOverride = func(ctx context.Context) error {
+		<-release
 		return context.DeadlineExceeded // simulate extraction error
 	}
 
@@ -665,11 +685,10 @@ func TestQueuedSend_ExtractionErrorStillDispatches(t *testing.T) {
 	a.mu.Unlock()
 	a.postResponseTasks(context.Background())
 
-	// Slip a queued SEND in before extraction finishes — easiest
-	// way is to set it directly under the lock; the production
-	// path goes via SendWithAttachments but the field semantics
-	// are the same and racing with the goroutine is harder to
-	// orchestrate in a test.
+	// extractionInFlight is set true by postResponseTasks under
+	// lock BEFORE the goroutine spawns (agent.go around line
+	// 2183), so this observation is deterministic now that the
+	// override blocks.
 	if !waitFor(20*time.Millisecond, 2*time.Second, func() bool {
 		a.mu.Lock()
 		defer a.mu.Unlock()
@@ -680,6 +699,10 @@ func TestQueuedSend_ExtractionErrorStillDispatches(t *testing.T) {
 	a.mu.Lock()
 	a.queuedSend = &queuedSend{Message: "post-error", QueuedAt: time.Now()}
 	a.mu.Unlock()
+
+	// Release extraction; the cleanup defer fires next, captures
+	// the queued send, clears the slot, and spawns auto-dispatch.
+	close(release)
 
 	// After extraction returns (with the simulated error), the
 	// completion goroutine should clear queuedSend and dispatch.
