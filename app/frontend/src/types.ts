@@ -236,6 +236,14 @@ export interface Settings {
     mitl_overrides: Record<string, boolean>;
     sandbox: SandboxSettings;
     max_tool_rounds: number;
+    /** Max rows returned into the chat by query-sql / query-preview /
+     *  quick-summary. Default 10000. Set in Settings → General →
+     *  Data analysis. See ADR-0029. */
+    max_query_rows: number;
+    /** Max rows written to the sandbox by export-sql-to-csv. These
+     *  never enter the chat, so the default is far higher (1000000).
+     *  See ADR-0029. */
+    max_export_rows: number;
     /** app.log verbosity: "debug" | "info" | "warn" | "error".
      *  Default "info" keeps user messages, LLM responses, and
      *  tool arguments out of the log file. See

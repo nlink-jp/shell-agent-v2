@@ -209,6 +209,19 @@ export default function SettingsDialog({settings, tools, mcpStatus, onUpdate, on
                             <p className="sidebar-hint">Maximum tool calls the agent makes before being forced to reply. Raise it for long analyses that legitimately need more steps.</p>
                         </div>
                         <div className="settings-section">
+                            <h3>Data analysis</h3>
+                            <label>
+                                <span>Max rows per query result</span>
+                                <input type="number" min={1} value={settings.max_query_rows || 10000} onChange={e => onUpdate({max_query_rows: parseInt(e.target.value, 10) || 10000})} />
+                            </label>
+                            <p className="sidebar-hint">Cap on rows returned into the chat by <code>query-sql</code> / <code>query-preview</code> / <code>quick-summary</code>. These rows enter the LLM's context, so raising it sends more data to the model and uses more of its context window.</p>
+                            <label>
+                                <span>Max rows for CSV export to sandbox</span>
+                                <input type="number" min={1} value={settings.max_export_rows || 1000000} onChange={e => onUpdate({max_export_rows: parseInt(e.target.value, 10) || 1000000})} />
+                            </label>
+                            <p className="sidebar-hint">Cap on rows written to a file by <code>export-sql-to-csv</code>. These never enter the chat, so the ceiling is memory rather than context — the default is much higher. Raise it if data handoff to the sandbox is being truncated.</p>
+                        </div>
+                        <div className="settings-section">
                             <h3>Privacy</h3>
                             <label>
                                 <span>Log verbosity</span>

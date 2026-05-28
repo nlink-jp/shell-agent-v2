@@ -1014,6 +1014,10 @@ type SettingsData struct {
 	MITLOverrides  map[string]bool   `json:"mitl_overrides"`
 	Sandbox        SandboxData       `json:"sandbox"`
 	MaxToolRounds  int               `json:"max_tool_rounds"`
+	// Analysis row caps (ADR-0029). MaxQueryRows bounds chat-output
+	// queries; MaxExportRows bounds the sandbox CSV-export path.
+	MaxQueryRows   int               `json:"max_query_rows"`
+	MaxExportRows  int               `json:"max_export_rows"`
 	LogLevel       string            `json:"log_level"` // debug | info | warn | error; "" → info
 }
 
@@ -1052,6 +1056,8 @@ func (b *Bindings) GetSettings() SettingsData {
 		DisabledTools:  b.cfg.Tools.DisabledTools,
 		MITLOverrides:  b.cfg.Tools.MITLOverrides,
 		MaxToolRounds:  b.cfg.Agent.MaxToolRoundsResolved(),
+		MaxQueryRows:   b.cfg.Analysis.MaxQueryRowsResolved(),
+		MaxExportRows:  b.cfg.Analysis.MaxExportRowsResolved(),
 		Sandbox: SandboxData{
 			Enabled:        b.cfg.Sandbox.Enabled,
 			Engine:         b.cfg.Sandbox.Engine,
@@ -1107,6 +1113,8 @@ func (b *Bindings) SaveSettings(s SettingsData) error {
 	b.cfg.UI.Theme = s.Theme
 	b.cfg.Location = s.Location
 	b.cfg.Agent.MaxToolRounds = s.MaxToolRounds
+	b.cfg.Analysis.MaxQueryRows = s.MaxQueryRows
+	b.cfg.Analysis.MaxExportRows = s.MaxExportRows
 
 	// Update MCP profiles
 	profiles := make([]config.MCPProfileConfig, len(s.MCPProfiles))
@@ -1143,6 +1151,12 @@ func (b *Bindings) SaveSettings(s SettingsData) error {
 	if newLevel := b.cfg.LogLevelString(); newLevel != prevLogLevel {
 		logger.SetLevel(parseLogLevel(newLevel))
 		logger.Info("logger level changed: %s → %s", prevLogLevel, newLevel)
+	}
+
+	// Apply analysis row caps to the live engine so a change takes
+	// effect without a session switch or restart (ADR-0029 §3.3).
+	if b.analysis != nil {
+		b.analysis.SetRowCaps(b.cfg.Analysis.MaxQueryRowsResolved(), b.cfg.Analysis.MaxExportRowsResolved())
 	}
 
 	// If the sandbox config changed, tear down running containers
@@ -2174,6 +2188,9 @@ func (b *Bindings) switchAnalysis(sessionID string) {
 		b.analysis.Close()
 	}
 	b.analysis = analysis.New(sessionID)
+	// Apply the configured row caps (ADR-0029) so every session's
+	// engine honours analysis.max_query_rows / analysis.max_export_rows.
+	b.analysis.SetRowCaps(b.cfg.Analysis.MaxQueryRowsResolved(), b.cfg.Analysis.MaxExportRowsResolved())
 	// Eagerly reopen if a DuckDB file already exists for this
 	// session — otherwise the engine's tables map stays empty
 	// until the first analysis tool call, and HasData() (used to
