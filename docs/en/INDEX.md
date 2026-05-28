@@ -139,7 +139,7 @@ release order.
   investigating issue #13: the title-gen goroutine and the
   extraction's auto-dispatched SendWithAttachments both touched
   `a.session` without holding `a.mu`. Snapshot-under-lock pattern at
-  both sites — minimal, no API change (post-v0.16.0, unreleased)
+  both sites — minimal, no API change (v0.16.1)
 
 ## History
 

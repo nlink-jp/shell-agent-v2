@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.16.1] - 2026-05-28
+
+### Fixed
+
+- **Data race on `a.session` pointer between title generation and
+  the extraction's auto-dispatched SendWithAttachments.** Caught by
+  the Go race detector while investigating issue #13. The title
+  goroutine read `a.session` (in `generateTitleIfNeeded`) while
+  `agentLoop`'s defensive nil-init wrote to it, both without
+  holding `a.mu`. In normal use `a.session` is initialised by
+  `LoadSession` before any SEND, so the agentLoop nil-init is
+  usually a no-op and the race rarely manifests in practice — but
+  the same race also exists between `LoadSession`'s write and a
+  concurrent title-gen read, so the bug is latent regardless.
+  Fixed by snapshotting `a.session` under `a.mu` at both sites
+  (the lock is NOT held across `backend.Chat`, which can take
+  seconds). No API or on-disk behaviour change.
+  See [ADR-0030](docs/en/adr/0030-session-pointer-race.md).
+
+- **Two flaky tests in the agent package (issue #13).** Pure test
+  fixes, no production code touched for these:
+  `TestQueuedSend_ExtractionErrorStillDispatches` switched to the
+  same release-channel barrier pattern other extraction tests
+  already use (the fast-returning override raced the test's
+  in-flight observation under load).
+  `TestAutoDispatch_DrainedByWait`'s 3 s wall-clock deadline was
+  raised to 30 s — the test's invariant is "Wait() returns at
+  all", not "in 3 s", and the auto-dispatched SendWithAttachments
+  walks through agentLoop + backend retry against localhost:1234
+  which can exceed 3 s on a busy scheduler.
+
 ## [0.16.0] - 2026-05-28
 
 ### Added
