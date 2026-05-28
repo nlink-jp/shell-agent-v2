@@ -83,6 +83,13 @@ override the legacy top-level fallbacks in `config.json`.
 |---|---|---|---|
 | Max tool rounds per message | `agent.max_tool_rounds` | 10 | Hard cap on tool-call rounds for one user message. The loop-detection ring buffer (Feature 1, v0.1.16) catches stuck same-error stretches early, so raising this is reasonably safe when a long, legitimate analysis legitimately needs more rounds. |
 
+#### Data analysis
+
+| Setting | JSON path | Default | Notes |
+|---|---|---|---|
+| Max rows per query result | `analysis.max_query_rows` | 10000 | Cap on rows returned into the chat by `query-sql` / `query-preview` / `quick-summary`. These rows enter the LLM's context, so raising it sends more data to the model and uses more of its context window. See [`ADR-0029`](docs/en/adr/0029-configurable-analysis-row-caps.md). |
+| Max rows for CSV export to sandbox | `analysis.max_export_rows` | 1000000 | Cap on rows written to a file by `export-sql-to-csv`. These never enter the chat, so the ceiling is memory rather than context — hence the much higher default. Raise it if data handoff to the sandbox is being truncated. Pre-v0.16.0 this path shared the 10 000-row chat cap (issue #14). |
+
 #### Per-backend context budget (Local / Vertex AI)
 
 | Setting | JSON path | Default (Local) | Default (Vertex) | Notes |

@@ -82,6 +82,57 @@ release order.
   extraction completes, so the next turn's `BuildSystemPrompt`
   always sees the prior turn's facts. Zero fact loss, no
   abort — only the UI gate changes (v0.11.0, implemented)
+- [`ADR-0016`](adr/0016-multi-profile-llm-backend.md) — Multi-profile
+  LLM backend: replace the single (Local, Vertex, default) triple
+  with a list of named profiles + a default-profile pointer;
+  `UnmarshalJSON` migrates v0.11.x configs on first load (v0.12.0)
+- [`ADR-0017`](adr/0017-prompt-prefix-stability.md) — Prompt prefix
+  stability for KV-cache reuse: keep the system-prompt prefix
+  byte-identical across turns so local llama.cpp reuses its
+  single prefix-KV slot instead of cold re-encoding (v0.13.0)
+- [`ADR-0018`](adr/0018-guard-nonce-stability.md) — Guard nonce
+  stability: hold the prompt-injection guard nonce stable within a
+  session so it doesn't bust the KV-cache prefix every turn (v0.13.1)
+- [`ADR-0019`](adr/0019-llm-driven-memory-tool.md) — LLM-driven
+  memory tool + extraction toggle: explicit memory tool plus an
+  `auto_extract_enabled` switch (local default off to protect the
+  prefix-KV cache, vertex default on) (v0.13.2)
+- [`ADR-0020`](adr/0020-title-generation-toggle.md) — Title
+  generation toggle: `auto_title_enabled` gates the one-shot
+  title-gen LLM call, heuristic fallback when off (v0.13.2)
+- [`ADR-0021`](adr/0021-state-machine-consistency.md) — State machine
+  consistency: formal Idle/Busy FSM + authoritative Send response so
+  UI state never diverges from agent state (v0.14.0)
+- [`ADR-0022`](adr/0022-agent-file-decomposition.md) — Minimum-viable
+  decomposition of the monolithic `agent.go` into focused files
+  without behaviour change (v0.14.3)
+- [`ADR-0023`](adr/0023-tool-name-normalization.md) — Canonical
+  `snake_case` tool names + boundary normalization: built-ins/bundled
+  renamed, kebab inputs normalised at the edge so MCP servers
+  publishing kebab names keep working (v0.14.5)
+- [`ADR-0024`](adr/0024-non-blocking-startup-session-restore.md) —
+  Non-blocking startup + deterministic session restore: window sized
+  at creation, external init on a goroutine behind a readiness gate
+  (v0.14.7)
+- [`ADR-0025`](adr/0025-restore-tool-call-assistant-text.md) — Restore
+  the assistant's tool-call explanation text on session reload so a
+  reopened session reads the same as the live one (v0.14.8)
+- [`ADR-0026`](adr/0026-surface-guardian-process-exit-status.md) —
+  Surface the MCP guardian process exit status on Start failure
+  (`exit status N` / `signal: killed`) instead of an opaque pipe
+  symptom (v0.14.9)
+- [`ADR-0027`](adr/0027-global-memory-export-import.md) — Global
+  Memory export / import: round-trip the entire cross-session memory
+  store, omitting machine-local provenance (v0.15.0)
+- [`ADR-0028`](adr/0028-drop-unused-global-memory-provenance.md) — Drop
+  unused provenance fields (`SessionID`, `SourceTurnIndex`,
+  `PromotedFromID`) from Global Memory entries; simplifies ADR-0027
+  (v0.15.0)
+- [`ADR-0029`](adr/0029-configurable-analysis-row-caps.md) —
+  Configurable analysis row caps: `max_query_rows` (chat-output,
+  default 10 000) and `max_export_rows` (sandbox CSV handoff, default
+  1 000 000); fixes `export-sql-to-csv` mis-sharing the chat cap;
+  surfaced in Settings → General → Data analysis (v0.16.0)
 
 ## History
 

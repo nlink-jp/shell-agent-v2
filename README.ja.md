@@ -81,6 +81,13 @@ gcloud auth application-default login
 |---|---|---|---|
 | 1 メッセージあたりの最大ツールラウンド | `agent.max_tool_rounds` | 10 | 1 つの user message に対するツール呼び出しラウンド数の上限。loop-detection ring buffer（v0.1.16 の Feature 1）が同一エラー連発を早期検出するので、長い正規分析が本当にラウンド不足になった時のみ引き上げる。 |
 
+#### Data analysis
+
+| 項目 | JSON パス | 既定値 | 備考 |
+|---|---|---|---|
+| 1 クエリあたりの最大行数 | `analysis.max_query_rows` | 10000 | `query-sql` / `query-preview` / `quick-summary` がチャットに返す行数の上限。これらの行は LLM のコンテキストに入るため、上げるとモデルへ送るデータ量とコンテキスト消費が増える。[`ADR-0029`](docs/ja/adr/0029-configurable-analysis-row-caps.ja.md) 参照。 |
+| サンドボックスへの CSV エクスポート最大行数 | `analysis.max_export_rows` | 1000000 | `export-sql-to-csv` がファイルに書き出す行数の上限。チャットには入らないので上限はコンテキストではなくメモリ — ゆえに既定値ははるかに高い。サンドボックスへのデータ受け渡しが切り詰められる場合に引き上げる。v0.16.0 より前はこの経路もチャット用の 10,000 行上限を共有していた (issue #14)。 |
+
 #### per-backend コンテキスト予算（Local / Vertex AI）
 
 | 項目 | JSON パス | Local 既定 | Vertex 既定 | 備考 |
