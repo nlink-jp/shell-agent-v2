@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.16.0] - 2026-05-28
+
+### Added
+
+- **Configurable analysis row caps.** New `analysis.max_query_rows`
+  (default 10 000, chat-output queries) and `analysis.max_export_rows`
+  (default 1 000 000, sandbox CSV export) settings, surfaced under
+  Settings → General → Data analysis. Per-session engine honours both
+  via `Engine.SetRowCaps`; changes apply live on Save without a
+  session switch. See [ADR-0029](docs/en/adr/0029-configurable-analysis-row-caps.md).
+
+### Fixed
+
+- **`export-sql-to-csv` no longer throttled by the chat-output cap
+  (issue #14).** The path that writes a SELECT's rows as CSV into the
+  sandbox `/work` dir was capped at the same 10 000-row chat-output
+  limit, even though its rows never enter the chat. Users frequently
+  hit the cap on real workloads (~27 k-row tables) and had to ask the
+  agent to "split the data", or the agent invented convoluted
+  workarounds. The default for this path is now 1 000 000 rows
+  (matching `MaxAnalyzeRows`, which has the same "rows never hit the
+  chat" property), and the cap is configurable — see Added above.
+  The previous behaviour is recoverable by setting
+  `analysis.max_export_rows: 10000`.
+
 ## [0.15.1] - 2026-05-27
 
 ### Fixed
