@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- **Memory sidebar stayed on the previous session's facts after New /
+  Import / Load Session while the panel was open (issue #15).** The
+  Memory-panel refresh effect only depended on `sidebarPanel`, so a
+  session switch updated the chat pane (which sets `messages`
+  directly) but never refetched `GetSessionMemories()`. Added
+  `currentSessionId` to the effect's dependency list so the panel
+  refreshes when the active session changes while it is visible.
+  No backend or binding change.
+
 ## [0.16.1] - 2026-05-28
 
 ### Fixed

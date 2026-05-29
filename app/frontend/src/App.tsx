@@ -788,6 +788,11 @@ function App() {
         }
     }, [])
 
+    // Refetch Memory-panel data when the tab is opened, AND when the
+    // active session changes while the tab is already open. Without
+    // currentSessionId in the deps, New/Import/Load Session leave the
+    // Memory panel showing the previous session's facts even though
+    // the chat pane has switched (issue #15).
     useEffect(() => {
         if (sidebarPanel === 'memory' && window.go) {
             refreshFindings()
@@ -795,7 +800,7 @@ function App() {
             window.go.main.Bindings.GetGlobalMemories().then(setGlobalMemories)
             window.go.main.Bindings.GetSessionMemories().then(setSessionMemories)
         }
-    }, [sidebarPanel, refreshFindings])
+    }, [sidebarPanel, currentSessionId, refreshFindings])
 
     // Auto-save settings on change
     const updateSetting = useCallback(async (patch: Partial<Settings>) => {
