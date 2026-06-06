@@ -512,6 +512,98 @@ func (a *Agent) notifySessionMemoryUpdated() {
 	}
 }
 
+// notifyGlobalMemoryUpdated fires the global-memory handler if
+// registered. Mirrors notifySessionMemoryUpdated. Used by the
+// lifecycle hook (ADR-0031) when a DecayAll/Touch round changes
+// at least one entry's state.
+func (a *Agent) notifyGlobalMemoryUpdated() {
+	a.mu.Lock()
+	h := a.handlers.GlobalMemory
+	a.mu.Unlock()
+	if h != nil {
+		h()
+	}
+}
+
+// userTurnCount returns the 1-based count of user-role records in
+// the slice — the lifecycle's notion of "currentTurn". Called
+// after AddUserMessage so the just-appended record is included.
+func userTurnCount(records []memory.Record) int {
+	n := 0
+	for _, r := range records {
+		if r.Role == "user" {
+			n++
+		}
+	}
+	return n
+}
+
+// lifecycleThresholds copies the config knobs into the memory
+// package's local type. Done inline (instead of a method on
+// config.LifecycleConfig) to keep the dependency direction
+// agent → {config, memory} acyclic.
+func (a *Agent) lifecycleThresholds() memory.LifecycleThresholds {
+	c := a.cfg.Memory.Lifecycle
+	return memory.LifecycleThresholds{
+		DecayRate:                     c.DecayRate,
+		FreshTurns:                    c.FreshTurns,
+		ActiveThreshold:               c.ActiveThreshold,
+		ArchiveThreshold:              c.ArchiveThreshold,
+		TouchJaccardThreshold:         c.TouchJaccardThreshold,
+		ConsolidationJaccardThreshold: c.ConsolidationJaccardThreshold,
+	}
+}
+
+// runMemoryLifecycle decays every memory entry by one turn and
+// lexically touches entries referenced by the just-arrived user
+// message. Emits memory:updated events when at least one state
+// flipped or one touch landed. ADR-0031 §4.2.
+//
+// Called from the agent loop immediately after AddUserMessage +
+// Save, before buildMessagesV2. Stores are mutex-protected
+// internally; this method just orchestrates the order.
+func (a *Agent) runMemoryLifecycle(userMessage string) {
+	if a.session == nil {
+		return
+	}
+	th := a.lifecycleThresholds()
+	currentTurn := userTurnCount(a.session.Records)
+	// Apply thresholds so the stores' DecayAll uses the live
+	// config knobs (not the zero value baked into the store).
+	if a.globalMemory != nil {
+		a.globalMemory.Thresholds = th
+	}
+	if a.sessionMemory != nil {
+		a.sessionMemory.Thresholds = th
+	}
+
+	decayedG := 0
+	decayedS := 0
+	if a.globalMemory != nil {
+		decayedG = a.globalMemory.DecayAll(currentTurn)
+	}
+	if a.sessionMemory != nil {
+		decayedS = a.sessionMemory.DecayAll(currentTurn)
+	}
+
+	pred := memory.LexicalTouchPredicate(userMessage, th.TouchJaccardThreshold)
+	touchedG := 0
+	touchedS := 0
+	if a.globalMemory != nil {
+		touchedG = a.globalMemory.Touch(pred, currentTurn, "lexical_user_turn")
+	}
+	if a.sessionMemory != nil {
+		touchedS = a.sessionMemory.Touch(pred, currentTurn, "lexical_user_turn")
+	}
+
+	if decayedG+touchedG > 0 {
+		a.notifyGlobalMemoryUpdated()
+	}
+	if decayedS+touchedS > 0 {
+		a.notifySessionMemoryUpdated()
+	}
+}
+
 // ActivityEventStatus is a coarse outcome label attached to
 // tool_end events so the chat UI can render success / failure
 // distinctly. running events leave this empty; tool_start uses
@@ -1823,6 +1915,7 @@ func (a *Agent) PromoteSessionMemoryToGlobal(fact, category string) error {
 		Category:       category,
 		Source:         memory.GlobalSourcePromotedFromSession,
 		ToolOriginated: entry.ToolOriginated,
+		CreatedTurn:    userTurnCount(a.session.Records),
 	})
 	if !added {
 		return nil
@@ -1863,6 +1956,7 @@ func (a *Agent) PromoteFindingToGlobal(id, category string) error {
 		Category:       category,
 		Source:         memory.GlobalSourcePromotedFromFinding,
 		ToolOriginated: f.ToolOriginated,
+		CreatedTurn:    userTurnCount(a.session.Records),
 	})
 	if !added {
 		return nil
@@ -1962,6 +2056,12 @@ func (a *Agent) agentLoop(ctx context.Context, userMessage string, objectIDs, da
 		last.DocumentIDs = documentObjectIDs
 	}
 	_ = a.session.Save() // auto-save after user message
+
+	// ADR-0031: decay every memory entry by one turn and lexically
+	// touch entries the just-arrived user message references.
+	// Runs before buildMessagesV2 so FormatForPrompt sees freshly
+	// computed lifecycle state when assembling the system prompt.
+	a.runMemoryLifecycle(userMessage)
 
 	allTools := a.buildToolDefs()
 	logger.Debug("agentLoop: %d tools available", len(allTools))

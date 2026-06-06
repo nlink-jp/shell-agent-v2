@@ -281,9 +281,10 @@ func (a *Agent) toolRememberFact(argsJSON string) (string, error) {
 	}
 	if isGlobal {
 		added := a.globalMemory.Add(memory.GlobalMemoryEntry{
-			Fact:     fact,
-			Category: args.Category,
-			Source:   memory.GlobalSourceToolCall,
+			Fact:        fact,
+			Category:    args.Category,
+			Source:      memory.GlobalSourceToolCall,
+			CreatedTurn: userTurnCount(a.session.Records),
 		})
 		if !added {
 			return fmt.Sprintf("Fact already recorded (deduplicated): %q. No new entry created.", fact), nil
@@ -301,9 +302,10 @@ func (a *Agent) toolRememberFact(argsJSON string) (string, error) {
 		return "", fmt.Errorf("session memory store unavailable")
 	}
 	added := a.sessionMemory.Add(memory.SessionMemoryEntry{
-		Fact:     fact,
-		Category: args.Category,
-		Source:   memory.SessionSourceToolCall,
+		Fact:        fact,
+		Category:    args.Category,
+		Source:      memory.SessionSourceToolCall,
+		CreatedTurn: userTurnCount(a.session.Records),
 	})
 	if !added {
 		return fmt.Sprintf("Fact already recorded (deduplicated): %q. No new entry created.", fact), nil
