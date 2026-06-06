@@ -112,6 +112,14 @@ export interface GlobalMemory {
     tool_originated?: boolean;
     /** RFC3339 timestamp when learned, or empty for legacy entries. */
     created_at?: string;
+    /** ADR-0031 lifecycle: "fresh" | "active" | "dormant" | "archived".
+     *  Empty on legacy entries until the next DecayAll refresh. */
+    state?: string;
+    /** ADR-0031 lifecycle: relevance score in [0, 1]. */
+    relevance?: number;
+    last_touched_at?: string;
+    last_touched_turn?: number;
+    touch_count?: number;
 }
 
 /** Outcome of a Global Memory import (ADR-0027): how many entries
@@ -132,6 +140,12 @@ export interface SessionMemory {
     source?: string;
     tool_originated?: boolean;
     created_at?: string;
+    /** ADR-0031 lifecycle: mirrors GlobalMemory. */
+    state?: string;
+    relevance?: number;
+    last_touched_at?: string;
+    last_touched_turn?: number;
+    touch_count?: number;
 }
 
 export interface LLMStatus {

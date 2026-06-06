@@ -45,6 +45,41 @@ function sessionMemoryTrust(source?: string): {label: string; cls: string} {
     return {label: 'derived', cls: 'trust-derived'}
 }
 
+// ADR-0031 lifecycle badges. The state string comes verbatim from
+// the backend's DeriveState; an empty value (e.g. legacy entry
+// loaded before the first DecayAll) falls through to no badge, so
+// nothing visually changes on a brand-new install.
+function stateBadge(state?: string): {label: string; cls: string; tip: string} | null {
+    switch (state) {
+        case 'fresh':
+            return {
+                label: 'fresh',
+                cls: 'state-fresh',
+                tip: 'fresh: 直近に作成 / 更新された fact。常に system prompt に注入。',
+            }
+        case 'active':
+            return {
+                label: 'active',
+                cls: 'state-active',
+                tip: 'active: relevance が active 閾値以上。system prompt に注入。',
+            }
+        case 'dormant':
+            return {
+                label: 'dormant',
+                cls: 'state-dormant',
+                tip: 'dormant: relevance が低下。system prompt には出さない。touch されれば active に戻る。',
+            }
+        case 'archived':
+            return {
+                label: 'archived',
+                cls: 'state-archived',
+                tip: 'archived: relevance が下限を下回った。system prompt から完全に除外。cap 圧迫時に最優先で eviction。',
+            }
+        default:
+            return null
+    }
+}
+
 interface Props {
     // Layout / collapse
     sidebarPanel: SidebarPanel;
@@ -159,6 +194,12 @@ export default function Sidebar({
     // Sidebar-local: bulk-select sets per list
     const [selectedGlobalFacts, setSelectedGlobalFacts] = useState<Set<string>>(new Set())
     const [selectedSessionFacts, setSelectedSessionFacts] = useState<Set<string>>(new Set())
+
+    // ADR-0031: archived entries are hidden by default; user can
+    // expand to inspect / delete them. State per list (the two
+    // memory pools are independent).
+    const [showArchivedGlobal, setShowArchivedGlobal] = useState(false)
+    const [showArchivedSession, setShowArchivedSession] = useState(false)
 
     const handleDeleteClick = async (id: string) => {
         if (deletingSession !== null) return // already deleting something
@@ -327,42 +368,76 @@ export default function Sidebar({
                                 </div>
                                 {globalMemories.length === 0 ? (
                                     <p className="sidebar-hint">No global memories</p>
-                                ) : globalMemories.map((p, i) => (
-                                    <div key={i} className={`pinned-item ${selectedGlobalFacts.has(p.fact) ? 'selected' : ''}`}>
-                                        <input
-                                            type="checkbox"
-                                            className="bulk-check"
-                                            checked={selectedGlobalFacts.has(p.fact)}
-                                            onChange={e => {
-                                                const next = new Set(selectedGlobalFacts)
-                                                if (e.target.checked) next.add(p.fact); else next.delete(p.fact)
-                                                setSelectedGlobalFacts(next)
-                                            }}
-                                        />
-                                        <span className={`pinned-category ${p.category}`}>{p.category}</span>
-                                        {(() => {
-                                            const t = globalMemoryTrust(p.source)
-                                            const tip = t.cls === 'trust-user'
-                                                ? 'user-stated: ユーザー発話または手動 pin / promotion 由来の fact。高信頼。'
-                                                : 'derived: アシスタント発話から抽出された fact、または source 未設定の legacy entry。内容は LLM 経由でツール出力 (CSV セル / MCP 応答 / 画像 OCR / Web 取得) を含みうる。'
-                                            return (
-                                                <span className={`trust-badge ${t.cls}`} data-tooltip={tip}>
-                                                    {t.label}
-                                                </span>
-                                            )
-                                        })()}
-                                        <div className="pinned-content">
-                                            <span className="pinned-fact">{p.native_fact || p.fact}</span>
-                                            {p.native_fact && p.native_fact !== p.fact && (
-                                                <span className="pinned-fact-en">{p.fact}</span>
+                                ) : (() => {
+                                    const archivedCount = globalMemories.filter(p => p.state === 'archived').length
+                                    const visible = globalMemories.filter(p => showArchivedGlobal || p.state !== 'archived')
+                                    return (
+                                        <>
+                                            {visible.map((p, i) => (
+                                                <div key={i} className={`pinned-item ${selectedGlobalFacts.has(p.fact) ? 'selected' : ''}`}>
+                                                    <input
+                                                        type="checkbox"
+                                                        className="bulk-check"
+                                                        checked={selectedGlobalFacts.has(p.fact)}
+                                                        onChange={e => {
+                                                            const next = new Set(selectedGlobalFacts)
+                                                            if (e.target.checked) next.add(p.fact); else next.delete(p.fact)
+                                                            setSelectedGlobalFacts(next)
+                                                        }}
+                                                    />
+                                                    <span className={`pinned-category ${p.category}`}>{p.category}</span>
+                                                    {(() => {
+                                                        const t = globalMemoryTrust(p.source)
+                                                        const tip = t.cls === 'trust-user'
+                                                            ? 'user-stated: ユーザー発話または手動 pin / promotion 由来の fact。高信頼。'
+                                                            : 'derived: アシスタント発話から抽出された fact、または source 未設定の legacy entry。内容は LLM 経由でツール出力 (CSV セル / MCP 応答 / 画像 OCR / Web 取得) を含みうる。'
+                                                        return (
+                                                            <span className={`trust-badge ${t.cls}`} data-tooltip={tip}>
+                                                                {t.label}
+                                                            </span>
+                                                        )
+                                                    })()}
+                                                    {(() => {
+                                                        const b = stateBadge(p.state)
+                                                        if (!b) return null
+                                                        return (
+                                                            <span className={`state-badge ${b.cls}`} data-tooltip={b.tip}>
+                                                                {b.label}
+                                                            </span>
+                                                        )
+                                                    })()}
+                                                    <div className="pinned-content">
+                                                        <span className="pinned-fact">{p.native_fact || p.fact}</span>
+                                                        {p.native_fact && p.native_fact !== p.fact && (
+                                                            <span className="pinned-fact-en">{p.fact}</span>
+                                                        )}
+                                                        {p.created_at && (
+                                                            <span className="pinned-date">learned {p.created_at.slice(0, 10)}</span>
+                                                        )}
+                                                    </div>
+                                                    {typeof p.relevance === 'number' && (
+                                                        <div
+                                                            className="relevance-bar"
+                                                            style={{width: `${Math.max(0, Math.min(1, p.relevance)) * 100}%`}}
+                                                            data-tooltip={`relevance ${p.relevance.toFixed(2)}`}
+                                                        />
+                                                    )}
+                                                    <button className="pinned-delete" onClick={() => onGlobalMemoryDeleteOne(p.fact)}>&#x2715;</button>
+                                                </div>
+                                            ))}
+                                            {archivedCount > 0 && (
+                                                <button
+                                                    className="sidebar-archived-toggle"
+                                                    onClick={() => setShowArchivedGlobal(v => !v)}
+                                                >
+                                                    {showArchivedGlobal
+                                                        ? `Hide archived (${archivedCount})`
+                                                        : `Show archived (${archivedCount})`}
+                                                </button>
                                             )}
-                                            {p.created_at && (
-                                                <span className="pinned-date">learned {p.created_at.slice(0, 10)}</span>
-                                            )}
-                                        </div>
-                                        <button className="pinned-delete" onClick={() => onGlobalMemoryDeleteOne(p.fact)}>&#x2715;</button>
-                                    </div>
-                                ))}
+                                        </>
+                                    )
+                                })()}
                             </div>
                             <div className={`status-section ${selectedSessionFacts.size > 0 ? 'bulk-active' : ''}`}>
                                 <div className="bulk-section-header">
@@ -384,50 +459,84 @@ export default function Sidebar({
                                 </div>
                                 {sessionMemories.length === 0 ? (
                                     <p className="sidebar-hint">No session memory yet</p>
-                                ) : sessionMemories.map((p, i) => (
-                                    <div key={i} className={`pinned-item ${selectedSessionFacts.has(p.fact) ? 'selected' : ''}`}>
-                                        <input
-                                            type="checkbox"
-                                            className="bulk-check"
-                                            checked={selectedSessionFacts.has(p.fact)}
-                                            onChange={e => {
-                                                const next = new Set(selectedSessionFacts)
-                                                if (e.target.checked) next.add(p.fact); else next.delete(p.fact)
-                                                setSelectedSessionFacts(next)
-                                            }}
-                                        />
-                                        <span className={`pinned-category ${p.category}`}>{p.category}</span>
-                                        {(() => {
-                                            const t = sessionMemoryTrust(p.source)
-                                            const tip = t.cls === 'trust-user'
-                                                ? 'user-stated: ユーザー発話由来の fact。高信頼。'
-                                                : 'derived: アシスタント発話から抽出された fact。LLM 経由でツール出力を含みうる。'
-                                            return (
-                                                <span className={`trust-badge ${t.cls}`} data-tooltip={tip}>
-                                                    {t.label}
-                                                </span>
-                                            )
-                                        })()}
-                                        <div className="pinned-content">
-                                            <span className="pinned-fact">{p.native_fact || p.fact}</span>
-                                            {p.native_fact && p.native_fact !== p.fact && (
-                                                <span className="pinned-fact-en">{p.fact}</span>
+                                ) : (() => {
+                                    const archivedCount = sessionMemories.filter(p => p.state === 'archived').length
+                                    const visible = sessionMemories.filter(p => showArchivedSession || p.state !== 'archived')
+                                    return (
+                                        <>
+                                            {visible.map((p, i) => (
+                                                <div key={i} className={`pinned-item ${selectedSessionFacts.has(p.fact) ? 'selected' : ''}`}>
+                                                    <input
+                                                        type="checkbox"
+                                                        className="bulk-check"
+                                                        checked={selectedSessionFacts.has(p.fact)}
+                                                        onChange={e => {
+                                                            const next = new Set(selectedSessionFacts)
+                                                            if (e.target.checked) next.add(p.fact); else next.delete(p.fact)
+                                                            setSelectedSessionFacts(next)
+                                                        }}
+                                                    />
+                                                    <span className={`pinned-category ${p.category}`}>{p.category}</span>
+                                                    {(() => {
+                                                        const t = sessionMemoryTrust(p.source)
+                                                        const tip = t.cls === 'trust-user'
+                                                            ? 'user-stated: ユーザー発話由来の fact。高信頼。'
+                                                            : 'derived: アシスタント発話から抽出された fact。LLM 経由でツール出力を含みうる。'
+                                                        return (
+                                                            <span className={`trust-badge ${t.cls}`} data-tooltip={tip}>
+                                                                {t.label}
+                                                            </span>
+                                                        )
+                                                    })()}
+                                                    {(() => {
+                                                        const b = stateBadge(p.state)
+                                                        if (!b) return null
+                                                        return (
+                                                            <span className={`state-badge ${b.cls}`} data-tooltip={b.tip}>
+                                                                {b.label}
+                                                            </span>
+                                                        )
+                                                    })()}
+                                                    <div className="pinned-content">
+                                                        <span className="pinned-fact">{p.native_fact || p.fact}</span>
+                                                        {p.native_fact && p.native_fact !== p.fact && (
+                                                            <span className="pinned-fact-en">{p.fact}</span>
+                                                        )}
+                                                        {p.created_at && (
+                                                            <span className="pinned-date">learned {p.created_at.slice(0, 10)}</span>
+                                                        )}
+                                                    </div>
+                                                    {typeof p.relevance === 'number' && (
+                                                        <div
+                                                            className="relevance-bar"
+                                                            style={{width: `${Math.max(0, Math.min(1, p.relevance)) * 100}%`}}
+                                                            data-tooltip={`relevance ${p.relevance.toFixed(2)}`}
+                                                        />
+                                                    )}
+                                                    {!currentSessionPrivate && (
+                                                        <button
+                                                            className="pinned-pin"
+                                                            title="Pin to Global Memory"
+                                                            onClick={() => onPinSessionMemory(p.fact)}
+                                                        >
+                                                            &#x2605;
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            ))}
+                                            {archivedCount > 0 && (
+                                                <button
+                                                    className="sidebar-archived-toggle"
+                                                    onClick={() => setShowArchivedSession(v => !v)}
+                                                >
+                                                    {showArchivedSession
+                                                        ? `Hide archived (${archivedCount})`
+                                                        : `Show archived (${archivedCount})`}
+                                                </button>
                                             )}
-                                            {p.created_at && (
-                                                <span className="pinned-date">learned {p.created_at.slice(0, 10)}</span>
-                                            )}
-                                        </div>
-                                        {!currentSessionPrivate && (
-                                            <button
-                                                className="pinned-pin"
-                                                title="Pin to Global Memory"
-                                                onClick={() => onPinSessionMemory(p.fact)}
-                                            >
-                                                &#x2605;
-                                            </button>
-                                        )}
-                                    </div>
-                                ))}
+                                        </>
+                                    )
+                                })()}
                             </div>
                             {/* Tokens section moved to chat-pane footer in
                                info-display redesign Phase 4 — telemetry isn't

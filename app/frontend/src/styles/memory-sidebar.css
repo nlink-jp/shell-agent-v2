@@ -79,6 +79,119 @@
     pointer-events: none;
 }
 
+/* ADR-0031 lifecycle state badge. Reuses the trust-badge
+   pseudo-element tooltip pattern so the wkwebview tooltip
+   weirdness is avoided. Colour palette mirrors the existing
+   category-badge style: dark background + bright text. */
+.state-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+    margin-left: 4px;
+    margin-bottom: 4px;
+    cursor: help;
+    position: relative;
+}
+.state-badge.state-fresh {
+    background: #1a3a2a;
+    color: #66cc88;
+}
+.state-badge.state-active {
+    background: #1a2a3a;
+    color: #66aaee;
+}
+.state-badge.state-dormant {
+    background: #3a2a1a;
+    color: #ccaa66;
+}
+.state-badge.state-archived {
+    background: #2a2a2a;
+    color: #888888;
+}
+.state-badge[data-tooltip]:hover::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 0;
+    z-index: 1000;
+    white-space: normal;
+    width: max-content;
+    max-width: 320px;
+    padding: 8px 10px;
+    background: #1a1a1a;
+    color: #ddd;
+    border: 1px solid #444;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 400;
+    text-transform: none;
+    line-height: 1.4;
+    box-shadow: 0 2px 8px rgba(0,0,0,.4);
+    pointer-events: none;
+}
+.state-badge[data-tooltip]:hover::before {
+    content: '';
+    position: absolute;
+    bottom: 100%;
+    left: 8px;
+    border: 5px solid transparent;
+    border-top-color: #1a1a1a;
+    z-index: 1001;
+    pointer-events: none;
+}
+
+/* Thin per-row relevance bar — anchored to the bottom of the row
+   so it doesn't shove the existing badges around. Width is set
+   inline from the entry's Relevance value. */
+.pinned-item {
+    position: relative;
+}
+.pinned-item .relevance-bar {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    height: 2px;
+    background: linear-gradient(90deg, #2a4a6a, #66aaee);
+    pointer-events: none;
+}
+.pinned-item .relevance-bar[data-tooltip]:hover::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: 100%;
+    left: 0;
+    background: #1a1a1a;
+    color: #ddd;
+    border: 1px solid #444;
+    border-radius: 4px;
+    padding: 4px 6px;
+    font-size: 10px;
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+/* Show/Hide archived disclosure — small clickable footer at the
+   bottom of each memory section. */
+.sidebar-archived-toggle {
+    display: block;
+    width: 100%;
+    background: transparent;
+    border: 1px dashed #444;
+    border-radius: 4px;
+    color: #888;
+    font-size: 11px;
+    padding: 4px 8px;
+    margin-top: 6px;
+    cursor: pointer;
+    text-align: center;
+}
+.sidebar-archived-toggle:hover {
+    color: #ccc;
+    border-color: #666;
+}
+
 .pinned-content {
     font-size: 12px;
     color: var(--text-secondary, #aabbcc);

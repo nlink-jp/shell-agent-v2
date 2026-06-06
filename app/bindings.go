@@ -1946,6 +1946,14 @@ type GlobalMemoryData struct {
 	Source         string `json:"source"`
 	ToolOriginated bool   `json:"tool_originated"`
 	CreatedAt      string `json:"created_at"` // RFC3339 if present, empty otherwise
+
+	// Lifecycle (ADR-0031). State drives the sidebar badge;
+	// Relevance drives the thin progress bar at the row edge.
+	State           string  `json:"state,omitempty"`
+	Relevance       float64 `json:"relevance,omitempty"`
+	LastTouchedAt   string  `json:"last_touched_at,omitempty"`
+	LastTouchedTurn int     `json:"last_touched_turn,omitempty"`
+	TouchCount      int     `json:"touch_count,omitempty"`
 }
 
 // SessionMemoryData is a per-session memory entry for the frontend.
@@ -1958,6 +1966,13 @@ type SessionMemoryData struct {
 	Source         string `json:"source"`
 	ToolOriginated bool   `json:"tool_originated"`
 	CreatedAt      string `json:"created_at"`
+
+	// Lifecycle (ADR-0031). Mirrors GlobalMemoryData.
+	State           string  `json:"state,omitempty"`
+	Relevance       float64 `json:"relevance,omitempty"`
+	LastTouchedAt   string  `json:"last_touched_at,omitempty"`
+	LastTouchedTurn int     `json:"last_touched_turn,omitempty"`
+	TouchCount      int     `json:"touch_count,omitempty"`
 }
 
 // GetGlobalMemories returns all Global Memory entries.
@@ -1969,13 +1984,22 @@ func (b *Bindings) GetGlobalMemories() []GlobalMemoryData {
 		if !f.CreatedAt.IsZero() {
 			createdAt = f.CreatedAt.Format(time.RFC3339)
 		}
+		lastTouched := ""
+		if !f.LastTouchedAt.IsZero() {
+			lastTouched = f.LastTouchedAt.Format(time.RFC3339)
+		}
 		result[i] = GlobalMemoryData{
-			Fact:           f.Fact,
-			NativeFact:     f.NativeFact,
-			Category:       f.Category,
-			Source:         f.Source,
-			ToolOriginated: f.ToolOriginated,
-			CreatedAt:      createdAt,
+			Fact:            f.Fact,
+			NativeFact:      f.NativeFact,
+			Category:        f.Category,
+			Source:          f.Source,
+			ToolOriginated:  f.ToolOriginated,
+			CreatedAt:       createdAt,
+			State:           f.State,
+			Relevance:       f.Relevance,
+			LastTouchedAt:   lastTouched,
+			LastTouchedTurn: f.LastTouchedTurn,
+			TouchCount:      f.TouchCount,
 		}
 	}
 	return result
@@ -2107,13 +2131,22 @@ func (b *Bindings) GetSessionMemories() []SessionMemoryData {
 		if !f.CreatedAt.IsZero() {
 			createdAt = f.CreatedAt.Format(time.RFC3339)
 		}
+		lastTouched := ""
+		if !f.LastTouchedAt.IsZero() {
+			lastTouched = f.LastTouchedAt.Format(time.RFC3339)
+		}
 		result[i] = SessionMemoryData{
-			Fact:           f.Fact,
-			NativeFact:     f.NativeFact,
-			Category:       f.Category,
-			Source:         f.Source,
-			ToolOriginated: f.ToolOriginated,
-			CreatedAt:      createdAt,
+			Fact:            f.Fact,
+			NativeFact:      f.NativeFact,
+			Category:        f.Category,
+			Source:          f.Source,
+			ToolOriginated:  f.ToolOriginated,
+			CreatedAt:       createdAt,
+			State:           f.State,
+			Relevance:       f.Relevance,
+			LastTouchedAt:   lastTouched,
+			LastTouchedTurn: f.LastTouchedTurn,
+			TouchCount:      f.TouchCount,
 		}
 	}
 	return result
