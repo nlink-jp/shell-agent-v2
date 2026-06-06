@@ -133,6 +133,16 @@ type SessionMemoryEntry struct {
     SourceTurnIndex int
     Source          string    // user_turn | assistant_turn
     ToolOriginated  bool
+
+    // Lifecycle (ADR-0031). State is derived from Relevance and
+    // CreatedTurn at every mutation; persisted so the sidebar
+    // badge can render without recomputing thresholds.
+    Relevance       float64
+    CreatedTurn     int
+    LastTouchedAt   time.Time
+    LastTouchedTurn int
+    TouchCount      int
+    State           string    // fresh | active | dormant | archived
 }
 ```
 
@@ -254,6 +264,15 @@ type GlobalMemoryEntry struct {
     // ADR-0028 — never read, and unsafe across machines.
     Source          string    // user_turn | assistant_turn | manual | promoted_from_session_memory | promoted_from_finding
     ToolOriginated  bool
+
+    // Lifecycle (ADR-0031). Mirrors SessionMemoryEntry; Global
+    // and Session Memory share the same state machine.
+    Relevance       float64
+    CreatedTurn     int
+    LastTouchedAt   time.Time
+    LastTouchedTurn int
+    TouchCount      int
+    State           string    // fresh | active | dormant | archived
 }
 ```
 
@@ -377,10 +396,18 @@ user/assistant/tool messages from `BuildMessages`
 **Empty sections are omitted entirely** (no header without
 content).
 
+**Lifecycle filtering (ADR-0031)**: `FormatForPrompt` skips
+Global Memory and Session Memory entries in state `dormant` or
+`archived`. Such entries stay on disk and remain visible in
+the sidebar UI — they just don't flow into the LLM's prompt
+until a touch refreshes them. Findings retains its prior
+behaviour (no lifecycle filtering).
+
 **Token budget**: each `FormatForPrompt` is internally bounded
 to **16 KiB** with newest-first inclusion plus an elision
 marker. Combined max system prompt addition: ~48 KiB worst
-case.
+case. With lifecycle filtering in place this budget is rarely
+the binding constraint in practice.
 
 ---
 
@@ -444,7 +471,7 @@ extraction time.
 
 ## 10. Capacity & Retention
 
-**Per-store FIFO caps:**
+**Per-store soft caps:**
 
 | Store | Default cap | Config key |
 |---|---|---|
@@ -455,9 +482,24 @@ extraction time.
 **Render-time budget**: each `FormatForPrompt` clips at 16 KiB,
 newest-first.
 
-**Time-based decay**: still not implemented. (Future
-consideration if Global Memory grows messy in practice; for
-now FIFO is enough.)
+**Lifecycle decay (ADR-0031)**: Global Memory and Session
+Memory entries carry a `Relevance` score in [0, 1] that is
+multiplied by `Memory.Lifecycle.DecayRate` (default 0.93) on
+every completed user turn. When relevance crosses
+`ActiveThreshold` the entry becomes `dormant` (no longer
+injected). When it crosses `ArchiveThreshold` it becomes
+`archived` (eligible for eviction). A touch — either lexical
+match against the user turn or an LLM-emitted `touched|`
+line in the extractor — resets relevance to 1.0. Eviction
+under cap pressure picks the lowest-relevance entry, with
+`archived` always preferred. Findings retains its FIFO
+behaviour and is not subject to lifecycle decay.
+
+**Per-turn decay vs wall-clock decay**: lifecycle decay is
+measured in user turns, not real time. A session paused
+overnight does not lose memory; a session burning through
+80 turns ages memory aggressively. See ADR-0031 §5 for the
+rationale.
 
 ---
 

@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Memory entries gain a lifecycle (ADR-0031).** Global Memory and
+  Session Memory entries now carry a four-state machine —
+  `fresh`/`active`/`dormant`/`archived` — driven by a per-user-turn
+  relevance decay. Decay multiplier, fresh window, state thresholds,
+  and touch / consolidation Jaccard thresholds are tunable under
+  `Memory.Lifecycle.*` in the JSON config. Entries lexically
+  referenced by the user turn (or named in the extractor's new
+  `touched|` lines) reset to relevance 1.0; near-duplicate Add calls
+  consolidate into the existing entry instead of appending. Eviction
+  under cap pressure prefers archived → dormant → active → fresh,
+  ties broken by lowest relevance then oldest touch time. The
+  sidebar Memory tab gains per-row state badges, a thin relevance
+  bar, and a `Show archived (N)` disclosure. All state transitions
+  log to `app.log`. Mitigates the "long sessions re-anchor to early
+  topics" symptom by dropping `dormant`/`archived` entries from the
+  system-prompt injection path. Findings retains its prior
+  behaviour. Backward compatible: legacy `global_memory.json` /
+  `session_memory.json` files load as `active` with relevance 1.0 and
+  re-save with the new fields populated.
+
 ## [0.16.2] - 2026-05-29
 
 ### Fixed

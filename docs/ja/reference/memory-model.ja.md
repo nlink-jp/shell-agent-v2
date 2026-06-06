@@ -130,6 +130,16 @@ type SessionMemoryEntry struct {
     SourceTurnIndex int
     Source          string    // user_turn | assistant_turn
     ToolOriginated  bool
+
+    // Lifecycle (ADR-0031)。State は Relevance と CreatedTurn
+    // から各 mutation で導出される; サイドバーバッジが閾値を
+    // 再計算せずに描画できるよう永続化される。
+    Relevance       float64
+    CreatedTurn     int
+    LastTouchedAt   time.Time
+    LastTouchedTurn int
+    TouchCount      int
+    State           string    // fresh | active | dormant | archived
 }
 ```
 
@@ -246,6 +256,15 @@ type GlobalMemoryEntry struct {
     // — read されず、マシンをまたぐと安全でないため。
     Source          string    // user_turn | assistant_turn | manual | promoted_from_session_memory | promoted_from_finding
     ToolOriginated  bool
+
+    // Lifecycle (ADR-0031)。SessionMemoryEntry と対称。Global
+    // Memory と Session Memory は同じ state machine を共有する。
+    Relevance       float64
+    CreatedTurn     int
+    LastTouchedAt   time.Time
+    LastTouchedTurn int
+    TouchCount      int
+    State           string    // fresh | active | dormant | archived
 }
 ```
 
@@ -365,9 +384,17 @@ Analysis findings in this session:
 
 **空のセクションは丸ごと省略** (content なしのヘッダは出さない)。
 
+**ライフサイクルフィルタ (ADR-0031)**: `FormatForPrompt` は
+Global Memory と Session Memory の `dormant` / `archived`
+状態の entry をスキップする。該当 entry はディスクに残り
+サイドバー UI からは見えるが、 touch でリフレッシュされる
+までは LLM のプロンプトに乗らない。Findings は従来通り
+(ライフサイクルフィルタなし)。
+
 **トークン予算**: 各 `FormatForPrompt` は内部で **16 KiB** に
 bounded、最新優先で含めて省略マーカ付き。最悪 system prompt
-追加分の合計 ~48 KiB。
+追加分の合計 ~48 KiB。ライフサイクルフィルタ導入後は実質的な
+制約として機能することはほぼない。
 
 ---
 
@@ -430,7 +457,7 @@ filter, category allowlist, `nlk/guard` wrap) は抽出時に適用。
 
 ## 10. キャパシティ & リテンション
 
-**Per-store FIFO cap:**
+**Per-store soft cap:**
 
 | Store | デフォルト | Config key |
 |---|---|---|
@@ -441,8 +468,21 @@ filter, category allowlist, `nlk/guard` wrap) は抽出時に適用。
 **Render 時予算**: 各 `FormatForPrompt` は 16 KiB で clip、
 最新優先。
 
-**時間ベース decay**: 未実装。(将来 Global Memory が運用上
-散らかったら検討; 現状は FIFO で十分。)
+**ライフサイクル減衰 (ADR-0031)**: Global Memory と Session
+Memory の entry は `Relevance` ([0, 1]) を持ち、各 user
+ターン完了時に `Memory.Lifecycle.DecayRate` (デフォルト
+0.93) で乗算される。`ActiveThreshold` を割ると `dormant`
+(注入されない)、`ArchiveThreshold` を割ると `archived`
+(eviction 候補) になる。touch (user 発話との lexical match
+または extractor 出力の `touched|` 行) で relevance は
+1.0 に戻る。cap 圧迫時の eviction は最低 relevance を選び、
+`archived` は recently-touched でも優先的に削られる。
+Findings は従来通り FIFO で、ライフサイクル減衰の対象外。
+
+**ターン単位減衰 vs 壁時計減衰**: ライフサイクル減衰は user
+ターン単位で測られ、実時間ではない。一晩 paused された
+セッションが記憶を失うことはなく、80 turn を駆け抜ける
+セッションは速く aging する。詳細は ADR-0031 §5。
 
 ---
 
