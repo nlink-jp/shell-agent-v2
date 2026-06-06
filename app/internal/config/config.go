@@ -202,6 +202,42 @@ type MemoryConfig struct {
 	// Zero falls back to package defaults.
 	MaxPinnedFacts int `json:"max_pinned_facts,omitempty"` // default 100 (Global Memory in v0.2.0)
 	MaxFindings    int `json:"max_findings,omitempty"`     // default 100 per session (was global 200 in v0.1.x)
+
+	// Lifecycle controls the per-entry state machine + relevance
+	// decay for Global Memory and Session Memory (ADR-0031).
+	Lifecycle LifecycleConfig `json:"lifecycle,omitzero"`
+}
+
+// LifecycleConfig tunes the memory entry lifecycle. Zero values
+// fall back to safe defaults at the consumption site (the memory
+// package owns its own LifecycleThresholds type with resolved()
+// to keep the config → memory direction acyclic); in practice
+// Default() populates these and most users never touch them.
+//
+// See ADR-0031 §3.5 for the rationale behind each default.
+type LifecycleConfig struct {
+	// DecayRate is the per-user-turn multiplier applied to every
+	// non-fresh entry's relevance. Default 0.93.
+	DecayRate float64 `json:"decay_rate,omitempty"`
+	// FreshTurns is how many user turns an entry stays in the
+	// fresh window after creation. Default 3.
+	FreshTurns int `json:"fresh_turns,omitempty"`
+	// ActiveThreshold is the lower bound (inclusive) of the
+	// active state. Below this an entry becomes dormant.
+	// Default 0.4.
+	ActiveThreshold float64 `json:"active_threshold,omitempty"`
+	// ArchiveThreshold is the upper bound (exclusive) of the
+	// archived state. At or below this an entry becomes
+	// archived. Default 0.1.
+	ArchiveThreshold float64 `json:"archive_threshold,omitempty"`
+	// TouchJaccardThreshold is the Jaccard score above which a
+	// user turn is considered to reference an entry's fact, in
+	// the lexical touch fallback path. Default 0.3.
+	TouchJaccardThreshold float64 `json:"touch_jaccard_threshold,omitempty"`
+	// ConsolidationJaccardThreshold is the Jaccard score above
+	// which a new fact is merged into an existing one as a
+	// touch rather than appended as a new entry. Default 0.5.
+	ConsolidationJaccardThreshold float64 `json:"consolidation_jaccard_threshold,omitempty"`
 }
 
 // MCPProfileConfig holds a single mcp-guardian profile configuration.
@@ -443,6 +479,14 @@ func Default() *Config {
 		Memory: MemoryConfig{
 			MaxPinnedFacts: 100,
 			MaxFindings:    100,
+			Lifecycle: LifecycleConfig{
+				DecayRate:                     0.93,
+				FreshTurns:                    3,
+				ActiveThreshold:               0.4,
+				ArchiveThreshold:              0.1,
+				TouchJaccardThreshold:         0.3,
+				ConsolidationJaccardThreshold: 0.5,
+			},
 		},
 		ContextBudget: ContextBudgetConfig{ // legacy fallback
 			MaxContextTokens:    0,
