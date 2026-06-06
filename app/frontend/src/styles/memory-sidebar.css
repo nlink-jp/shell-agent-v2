@@ -144,8 +144,11 @@
 }
 
 /* Thin per-row relevance bar — anchored to the bottom of the row
-   so it doesn't shove the existing badges around. Width is set
-   inline from the entry's Relevance value. */
+   so it doesn't shove the existing badges around. The visible bar
+   is 2px, but the element itself is 6px tall so the mouse can
+   actually hit it — without this the hover tooltip is effectively
+   un-triggerable on a 2px target. The visible portion is the
+   bottom 2px via a linear-gradient with a transparent top band. */
 .pinned-item {
     position: relative;
 }
@@ -153,15 +156,22 @@
     position: absolute;
     left: 0;
     bottom: 0;
-    height: 2px;
-    background: linear-gradient(90deg, #2a4a6a, #66aaee);
-    pointer-events: none;
+    height: 6px;
+    background: linear-gradient(
+        to bottom,
+        transparent 0,
+        transparent 4px,
+        #2a4a6a 4px,
+        #66aaee 100%
+    );
+    cursor: help;
 }
 .pinned-item .relevance-bar[data-tooltip]:hover::after {
     content: attr(data-tooltip);
     position: absolute;
     bottom: 100%;
     left: 0;
+    z-index: 1000;
     background: #1a1a1a;
     color: #ddd;
     border: 1px solid #444;
