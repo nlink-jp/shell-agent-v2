@@ -1,6 +1,7 @@
 package contextbuild
 
 import (
+	"os"
 	"testing"
 	"time"
 
@@ -116,3 +117,123 @@ func TestLoadCache_MissingFileIsEmpty(t *testing.T) {
 
 // Verify memory.SessionDir respects $HOME.
 var _ = memory.SessionDir
+
+// --- ADR-0032 content-hash key tests -----------------------------
+
+func TestComputeContentKey_StableAcrossCalls(t *testing.T) {
+	now := time.Date(2026, 5, 1, 9, 0, 0, 0, utc)
+	records := []memory.Record{
+		mkRec(now, "user", "hello"),
+		mkRec(now.Add(time.Minute), "assistant", "hi"),
+	}
+	a := ComputeContentKey(records, "vertex/gemini", []string{"old fact"}, []int{2, 5}, "near")
+	b := ComputeContentKey(records, "vertex/gemini", []string{"old fact"}, []int{2, 5}, "near")
+	if a != b {
+		t.Errorf("same input produced different keys: %s vs %s", a, b)
+	}
+}
+
+func TestComputeContentKey_StableAcrossTimestampShift(t *testing.T) {
+	// Timestamps are NOT part of the v2 key (turn additions shift
+	// the surrounding timestamps but don't change what was said).
+	t1 := time.Date(2026, 5, 1, 9, 0, 0, 0, utc)
+	t2 := time.Date(2026, 5, 1, 9, 5, 0, 0, utc) // 5 min later
+	records1 := []memory.Record{mkRec(t1, "user", "same content")}
+	records2 := []memory.Record{mkRec(t2, "user", "same content")}
+	a := ComputeContentKey(records1, "vertex/gemini", nil, nil, "near")
+	b := ComputeContentKey(records2, "vertex/gemini", nil, nil, "near")
+	if a != b {
+		t.Errorf("timestamp-only shift should not change v2 key: %s vs %s", a, b)
+	}
+}
+
+func TestComputeContentKey_ChangesOnDeadShift(t *testing.T) {
+	now := time.Date(2026, 5, 1, 9, 0, 0, 0, utc)
+	records := []memory.Record{mkRec(now, "user", "hi")}
+	a := ComputeContentKey(records, "vertex/gemini", []string{"topic A dead"}, nil, "near")
+	b := ComputeContentKey(records, "vertex/gemini", []string{"topic A dead", "topic B dead"}, nil, "near")
+	if a == b {
+		t.Error("adding a dead fingerprint should change the key (drop set differs)")
+	}
+}
+
+func TestComputeContentKey_ChangesOnAnchorShift(t *testing.T) {
+	now := time.Date(2026, 5, 1, 9, 0, 0, 0, utc)
+	records := []memory.Record{mkRec(now, "user", "hi")}
+	a := ComputeContentKey(records, "vertex/gemini", nil, []int{2}, "near")
+	b := ComputeContentKey(records, "vertex/gemini", nil, []int{2, 5}, "near")
+	if a == b {
+		t.Error("adding an anchor index should change the key")
+	}
+}
+
+func TestComputeContentKey_DifferentTiers(t *testing.T) {
+	now := time.Date(2026, 5, 1, 9, 0, 0, 0, utc)
+	records := []memory.Record{mkRec(now, "user", "hi")}
+	near := ComputeContentKey(records, "vertex/gemini", nil, nil, "near")
+	far := ComputeContentKey(records, "vertex/gemini", nil, nil, "far")
+	if near == far {
+		t.Error("near and far tiers must produce distinct keys for the same content")
+	}
+}
+
+func TestComputeContentKey_SortedInputsDeterministic(t *testing.T) {
+	now := time.Date(2026, 5, 1, 9, 0, 0, 0, utc)
+	records := []memory.Record{mkRec(now, "user", "hi")}
+	a := ComputeContentKey(records, "id", []string{"b", "a", "c"}, []int{5, 1, 3}, "near")
+	b := ComputeContentKey(records, "id", []string{"c", "a", "b"}, []int{3, 5, 1}, "near")
+	if a != b {
+		t.Errorf("input ordering must not affect the key: %s vs %s", a, b)
+	}
+}
+
+func TestSummaryCache_Put_StampsKindContentV2(t *testing.T) {
+	c := &SummaryCache{}
+	c.Put(SummaryEntry{RangeKey: "k1", Summary: "x"})
+	if c.Entries[0].Kind != SummaryEntryKindContentV2 {
+		t.Errorf("Put should stamp Kind=content_v2, got %q", c.Entries[0].Kind)
+	}
+}
+
+func TestSummaryCache_Get_IgnoresLegacy(t *testing.T) {
+	c := &SummaryCache{
+		// Hand-construct a legacy entry (Kind=="") in-memory.
+		Entries: []SummaryEntry{
+			{RangeKey: "legacy-key", Summary: "legacy", CreatedAt: time.Now()},
+		},
+	}
+	if got := c.Get("legacy-key"); got != nil {
+		t.Errorf("legacy entry must not match in v2 flow, got %+v", got)
+	}
+}
+
+func TestSummaryCache_Load_AcceptsLegacy(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	sessionID := "legacy-session"
+
+	// Pre-write a summaries.json with a legacy entry (no Kind field).
+	dir := memory.SessionDir(sessionID)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	path := dir + "/summaries.json"
+	legacy := `{"entries":[{"range_key":"old-key","summarizer_id":"v1","record_count":3,"summary":"legacy","created_at":"2025-12-01T00:00:00Z"}]}`
+	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	c, err := LoadCache(sessionID)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(c.Entries) != 1 {
+		t.Fatalf("legacy entry should load, got %d entries", len(c.Entries))
+	}
+	if c.Entries[0].Kind != "" {
+		t.Errorf("legacy entry Kind should remain empty after load, got %q", c.Entries[0].Kind)
+	}
+	if got := c.Get("old-key"); got != nil {
+		t.Error("legacy entry must not match Get in v2 flow")
+	}
+}
