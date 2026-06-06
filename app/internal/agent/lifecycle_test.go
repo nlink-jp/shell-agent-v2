@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/nlink-jp/shell-agent-v2/internal/config"
@@ -138,4 +139,20 @@ func TestRunMemoryLifecycle_NilSession(t *testing.T) {
 	a.session = nil
 	// Must not panic, must not touch nil stores.
 	a.runMemoryLifecycle("anything")
+}
+
+// TestCompactionSummarizerPrompt_NoPreserveKeyFacts verifies the
+// ADR-0032 §2.5 prompt replaces the load-bearing "Preserve key
+// facts" instruction that drove early-anchor reinforcement and
+// asks for topic bullets instead.
+func TestCompactionSummarizerPrompt_NoPreserveKeyFacts(t *testing.T) {
+	if strings.Contains(compactionSummarizerPrompt, "Preserve key facts") {
+		t.Error("ADR-0032 prompt must NOT contain the old 'Preserve key facts' instruction")
+	}
+	if !strings.Contains(compactionSummarizerPrompt, "topic bullets") {
+		t.Error("ADR-0032 prompt must ask for topic bullets")
+	}
+	if !strings.Contains(compactionSummarizerPrompt, "preserved verbatim in a separate block") {
+		t.Error("ADR-0032 prompt must tell the LLM anchor preservation lives elsewhere")
+	}
 }

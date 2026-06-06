@@ -978,7 +978,7 @@ func (a *Agent) buildMessagesV2(ctx context.Context, budget config.ContextBudget
 			sb.WriteString(fmt.Sprintf("[%s] %s: %s\n", r.Timestamp.Format("15:04"), r.Role, r.Content))
 		}
 		msgs := []llm.Message{
-			{Role: llm.RoleSystem, Content: "Summarize the following conversation segment concisely. Preserve key facts, decisions, and context. Use the same language as the conversation."},
+			{Role: llm.RoleSystem, Content: compactionSummarizerPrompt},
 			{Role: llm.RoleUser, Content: sb.String()},
 		}
 		resp, err := a.backend.Chat(c, msgs, nil)
@@ -986,6 +986,28 @@ func (a *Agent) buildMessagesV2(ctx context.Context, budget config.ContextBudget
 			return "", err
 		}
 		return resp.Content, nil
+	}
+
+	// ADR-0032: gather anchor / dead / live signals from the live
+	// memory stores. Build does not reach into stores itself; the
+	// agent layer does the conversion to flat Fact-string lists.
+	var anchorSources, deadSources, liveSources []string
+	if a.globalMemory != nil {
+		for _, e := range a.globalMemory.All() {
+			if e.Category == "preference" || e.Category == "decision" {
+				anchorSources = append(anchorSources, e.Fact)
+			}
+		}
+	}
+	if a.sessionMemory != nil {
+		for _, e := range a.sessionMemory.All() {
+			switch e.State {
+			case memory.StateDormant, memory.StateArchived:
+				deadSources = append(deadSources, e.Fact)
+			case memory.StateFresh, memory.StateActive:
+				liveSources = append(liveSources, e.Fact)
+			}
+		}
 	}
 
 	res, err := contextbuild.Build(ctx, a.session, cache, contextbuild.BuildOptions{
@@ -1003,6 +1025,14 @@ func (a *Agent) buildMessagesV2(ctx context.Context, budget config.ContextBudget
 		UserRecordTemporalPrefix: func(ts time.Time) string {
 			return chat.RenderTemporalPrefix(ts, time.Local)
 		},
+		// ADR-0032 inputs.
+		AnchorSources:             anchorSources,
+		DeadTopicSources:          deadSources,
+		LiveTopicSources:          liveSources,
+		FarSummaryShare:           budget.FarSummaryShare,
+		NearSummaryShare:          budget.NearSummaryShare,
+		AnchorJaccardThreshold:    budget.AnchorJaccardThreshold,
+		DeadTopicJaccardThreshold: budget.DeadTopicJaccardThreshold,
 	})
 	if err != nil {
 		return nil, err
@@ -1013,10 +1043,28 @@ func (a *Agent) buildMessagesV2(ctx context.Context, budget config.ContextBudget
 			logger.Error("buildMessagesV2: save cache: %v", cerr)
 		}
 	}
-	logger.Info("buildMessagesV2: raw=%d summarized=%d cache_hit=%v total_tokens=%d budget=%d",
-		res.IncludedRaw, res.SummarizedSpan, res.UsedCache, res.TotalTokens, budget.MaxContextTokens)
+	logger.Info("buildMessagesV2: raw=%d near_span=%d far_span=%d anchored=%d dropped_dead=%d near_hit=%v far_hit=%v total_tokens=%d budget=%d",
+		res.IncludedRaw, res.NearSummarizedSpan, res.FarSummarizedSpan,
+		res.AnchoredRecords, res.DroppedDeadTopics,
+		res.NearCacheHit, res.FarCacheHit,
+		res.TotalTokens, budget.MaxContextTokens)
 	return res.Messages, nil
 }
+
+// compactionSummarizerPrompt is the ADR-0032 §2.5 summarizer
+// instruction. Replaces the pre-ADR-0032 "Preserve key facts" prompt
+// — the load-bearing source of early-anchor reinforcement. Anchor
+// preservation is now contextbuild's responsibility (verbatim block);
+// this prompt only asks for topic-bullet condensation.
+const compactionSummarizerPrompt = `Summarize the following conversation segment as a list of topic bullets, one line per distinct topic discussed. Format:
+  - <topic>: <one-line summary of what was said about it>
+
+Important rules:
+- The user's preferences, decisions, and key facts are already preserved verbatim in a separate block. Do NOT repeat them; just list the topic they belong to.
+- Discussions that did not lead anywhere should still be listed but marked: "- <topic>: discussed but not concluded".
+- Dead-end / dropped topics have already been removed from this segment; do not invent topic bullets for content that is not here.
+- Be terse. Aim for 1-3 sentences per bullet at most.
+- Use the same language as the conversation.`
 
 // currentProfile returns the LLM profile the current session is
 // bound to. When no session is loaded or the session has no

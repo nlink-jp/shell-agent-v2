@@ -293,6 +293,13 @@ type ContextBudgetConfig struct {
 	MaxWarmTokens       int `json:"max_warm_tokens"`        // budget for warm summaries
 	MaxToolResultTokens int `json:"max_tool_result_tokens"` // per-tool-result truncation
 	OutputReserve       int `json:"output_reserve"`         // tokens reserved for the model's reply (subtracted from MaxContextTokens before packing context). 0 = use default
+
+	// ADR-0032 two-tier compaction knobs. Zero falls back to the
+	// contextbuild package's defaults (0.05 / 0.15 / 0.4 / 0.4).
+	FarSummaryShare           float64 `json:"far_summary_share,omitempty"`
+	NearSummaryShare          float64 `json:"near_summary_share,omitempty"`
+	AnchorJaccardThreshold    float64 `json:"anchor_jaccard_threshold,omitempty"`
+	DeadTopicJaccardThreshold float64 `json:"dead_topic_jaccard_threshold,omitempty"`
 }
 
 // DefaultOutputReserve is used when ContextBudgetConfig.OutputReserve
@@ -448,10 +455,14 @@ func Default() *Config {
 			APIKeyEnv:             "SHELL_AGENT_API_KEY",
 			RequestTimeoutSeconds: LocalRequestTimeoutDefault,
 			ContextBudget: ContextBudgetConfig{
-				MaxContextTokens:    16384,
-				MaxWarmTokens:       1024,
-				MaxToolResultTokens: 2048,
-				OutputReserve:       DefaultOutputReserve,
+				MaxContextTokens:          16384,
+				MaxWarmTokens:             1024,
+				MaxToolResultTokens:       2048,
+				OutputReserve:             DefaultOutputReserve,
+				FarSummaryShare:           0.05,
+				NearSummaryShare:          0.15,
+				AnchorJaccardThreshold:    0.4,
+				DeadTopicJaccardThreshold: 0.4,
 			},
 			AutoExtractEnabled: &localExtract,
 			AutoTitleEnabled:   &localTitle,
@@ -462,10 +473,14 @@ func Default() *Config {
 			Model:                 "gemini-2.5-flash",
 			RequestTimeoutSeconds: VertexRequestTimeoutDefault,
 			ContextBudget: ContextBudgetConfig{
-				MaxContextTokens:    524288,
-				MaxWarmTokens:       16384,
-				MaxToolResultTokens: 32768,
-				OutputReserve:       DefaultOutputReserve,
+				MaxContextTokens:          524288,
+				MaxWarmTokens:             16384,
+				MaxToolResultTokens:       32768,
+				OutputReserve:             DefaultOutputReserve,
+				FarSummaryShare:           0.05,
+				NearSummaryShare:          0.15,
+				AnchorJaccardThreshold:    0.4,
+				DeadTopicJaccardThreshold: 0.4,
 			},
 			AutoExtractEnabled: &vertexExtract,
 			AutoTitleEnabled:   &vertexTitle,
