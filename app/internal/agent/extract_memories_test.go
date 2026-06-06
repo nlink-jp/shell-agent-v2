@@ -604,3 +604,67 @@ func TestPromoteFinding_DefaultsToMITLRequired(t *testing.T) {
 		t.Error("promote-finding should require MITL by default")
 	}
 }
+
+// TestExtractMemories_TouchedLine_RefreshesExisting verifies the
+// ADR-0031 §E extension: when the extractor LLM emits a
+// `touched|<fact>` line for an entry already in a store, that
+// entry's relevance resets to 1.0 and TouchCount increments.
+func TestExtractMemories_TouchedLine_RefreshesExisting(t *testing.T) {
+	mock := llm.NewMockBackend(llm.MockResponse{
+		Content: "touched|User prefers Go programming language",
+	})
+	a := newExtractAgent(t, mock,
+		memory.Record{Role: "user", Content: "show me more Go patterns"},
+		memory.Record{Role: "assistant", Content: "here are some Go patterns…"},
+	)
+	a.globalMemory.Thresholds = memory.DefaultThresholds()
+	a.globalMemory.Entries = []memory.GlobalMemoryEntry{
+		{
+			Fact: "User prefers Go programming language", Category: "preference",
+			Source:    memory.GlobalSourceUserTurn,
+			Relevance: 0.5, State: memory.StateActive,
+		},
+	}
+
+	if err := a.extractMemories(context.Background()); err != nil {
+		t.Fatalf("extractMemories: %v", err)
+	}
+	got := a.globalMemory.Entries[0]
+	if got.Relevance != 1.0 {
+		t.Errorf("touched entry Relevance = %v, want 1.0", got.Relevance)
+	}
+	if got.TouchCount != 1 {
+		t.Errorf("touched entry TouchCount = %d, want 1", got.TouchCount)
+	}
+}
+
+// TestExtractMemories_TouchedLine_UnknownFact_NoEffect verifies an
+// LLM-emitted `touched|` line for a fact NOT in the stores is a
+// no-op (we don't penalise the LLM, we just drop the touch).
+func TestExtractMemories_TouchedLine_UnknownFact_NoEffect(t *testing.T) {
+	mock := llm.NewMockBackend(llm.MockResponse{
+		Content: "touched|Some fact the user never stated",
+	})
+	a := newExtractAgent(t, mock,
+		memory.Record{Role: "user", Content: "hi"},
+		memory.Record{Role: "assistant", Content: "hello"},
+	)
+	a.globalMemory.Entries = []memory.GlobalMemoryEntry{
+		{
+			Fact: "User prefers Go programming language", Category: "preference",
+			Source:    memory.GlobalSourceUserTurn,
+			Relevance: 0.5, State: memory.StateActive, TouchCount: 0,
+		},
+	}
+
+	if err := a.extractMemories(context.Background()); err != nil {
+		t.Fatalf("extractMemories: %v", err)
+	}
+	got := a.globalMemory.Entries[0]
+	if got.Relevance != 0.5 {
+		t.Errorf("unrelated entry should not change; relevance = %v", got.Relevance)
+	}
+	if got.TouchCount != 0 {
+		t.Errorf("unrelated entry should not be touched; TouchCount = %d", got.TouchCount)
+	}
+}
