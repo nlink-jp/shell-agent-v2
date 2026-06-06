@@ -409,6 +409,21 @@ marker. Combined max system prompt addition: ~48 KiB worst
 case. With lifecycle filtering in place this budget is rarely
 the binding constraint in practice.
 
+**Conversation-tail compaction (ADR-0032)**: Records that fall
+outside the raw-records budget no longer flow into a single
+summary block. Instead `contextbuild.Build` splits them across
+two tiers — `far` (~5% of the available budget, oldest
+content) and `near` (~15%, the middle span) — and lifts records
+whose content lexically matches a `decision` / `preference`
+Global Memory fact into a **verbatim anchor block** rendered
+between the summaries and the raw records. Records that match
+a `dormant` / `archived` Session Memory fact (without also
+matching a live one) are **dropped from the summary input
+entirely** and counted in an elision marker. The summary cache
+key is content-hashed, so it stays stable across turn additions
+that don't change tier input and invalidates when the
+lifecycle-derived drop set changes. See ADR-0032 for details.
+
 ---
 
 ## 8. Auto-Extraction (`extractMemories`)

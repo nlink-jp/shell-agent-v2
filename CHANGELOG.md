@@ -29,6 +29,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `session_memory.json` files load as `active` with relevance 1.0 and
   re-save with the new fields populated.
 
+- **Context compaction v2 (ADR-0032).** The conversation-tail
+  summary is no longer a single block. `contextbuild.Build` now
+  produces a two-tier summary (`far` ~5% of budget, `near` ~15%)
+  plus a verbatim **anchor block** rendered between the summaries
+  and the raw records. Anchors are detected by lexical Jaccard
+  against `decision` / `preference` Global Memory facts —
+  preservation is no longer the summarizer LLM's responsibility.
+  Records lexically matching a `dormant` / `archived` Session
+  Memory fact (with a live-clause safety net) are dropped from the
+  summary input entirely and surfaced as a `[N dead-topic turns
+  suppressed]` elision marker. The summary cache key is content-
+  hashed (replaces the range-keyed one): stable across turn
+  additions that don't change a tier's input, invalidates when the
+  ADR-0031 lifecycle changes the drop set. The summarizer prompt
+  drops the "Preserve key facts, decisions, and context"
+  instruction — the load-bearing source of early-anchor
+  reinforcement — in favour of a topic-bullet condensation
+  format. Together with ADR-0031 this closes the "long sessions
+  re-anchor to early topics" symptom end-to-end. Tunable under
+  `ContextBudget.{FarSummaryShare, NearSummaryShare,
+  AnchorJaccardThreshold, DeadTopicJaccardThreshold}`. Backward
+  compatible: legacy `summaries.json` cache files load without
+  error; their range-keyed entries are skipped by the v2 cache
+  lookup and cleaned up by FIFO eviction over time.
+
 ## [0.16.2] - 2026-05-29
 
 ### Fixed

@@ -396,6 +396,20 @@ bounded、最新優先で含めて省略マーカ付き。最悪 system prompt
 追加分の合計 ~48 KiB。ライフサイクルフィルタ導入後は実質的な
 制約として機能することはほぼない。
 
+**会話末尾コンパクション (ADR-0032)**: raw records 予算の
+外側に落ちる records はもう単一サマリブロックに集約されな
+い。 `contextbuild.Build` が 2 層 — `far` (利用可能予算の
+~5%、最も古い content) と `near` (~15%、中盤の span) — に
+分割し、 さらに `decision` / `preference` Global Memory fact
+と lexical に一致する record は**逐語アンカーブロック**として
+サマリと raw records の間に配置する。 `dormant` / `archived`
+Session Memory fact とマッチする records (live マッチ無し) は
+**サマリ入力から完全に drop** され、 elision marker でカウン
+トされる。 サマリキャッシュキーは内容ハッシュなので tier
+入力を変えない turn 追加では安定し、 ライフサイクル由来の
+drop セットが変わった時のみ invalidate する。 詳細は
+ADR-0032 を参照。
+
 ---
 
 ## 8. 自動抽出 (`extractMemories`)
