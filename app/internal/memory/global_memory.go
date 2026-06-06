@@ -6,10 +6,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nlink-jp/shell-agent-v2/internal/atomicio"
 	"github.com/nlink-jp/shell-agent-v2/internal/config"
+	"github.com/nlink-jp/shell-agent-v2/internal/logger"
 )
 
 // ValidGlobalMemoryCategories is the allowlist for Global Memory.
@@ -60,6 +62,18 @@ type GlobalMemoryEntry struct {
 	// across machines).
 	Source         string `json:"source,omitempty"`
 	ToolOriginated bool   `json:"tool_originated,omitempty"`
+
+	// Lifecycle fields (ADR-0031). Relevance decays per turn and
+	// resets on Touch. State is derived from Relevance + CreatedTurn
+	// at every mutation; persisted for UI consumers that don't know
+	// the thresholds. Legacy entries (Relevance == 0 on load) get
+	// filled with Relevance=1.0, State="active" — see legacyFill.
+	Relevance       float64   `json:"relevance,omitempty"`
+	CreatedTurn     int       `json:"created_turn,omitempty"`
+	LastTouchedAt   time.Time `json:"last_touched_at,omitzero"`
+	LastTouchedTurn int       `json:"last_touched_turn,omitempty"`
+	TouchCount      int       `json:"touch_count,omitempty"`
+	State           string    `json:"state,omitempty"`
 }
 
 // DefaultMaxGlobalMemory is the soft cap on GlobalMemoryStore
@@ -71,13 +85,22 @@ const DefaultMaxGlobalMemory = 100
 const GlobalMemoryFormatBudget = 16 * 1024 // 16 KiB
 
 // GlobalMemoryStore manages cross-session global memory entries.
+//
+// Concurrency: Add / Delete / All / Load / Save / FormatForPrompt /
+// Touch / DecayAll all take s.mu so the agent-loop touch path and
+// the background extractMemories goroutine never race.
 type GlobalMemoryStore struct {
+	mu      sync.Mutex
 	path    string
 	Entries []GlobalMemoryEntry
 
 	// MaxEntries is the soft cap. Zero falls back to
 	// DefaultMaxGlobalMemory.
 	MaxEntries int
+
+	// Thresholds tunes the lifecycle (ADR-0031). Zero value is
+	// resolved to DefaultThresholds() at use sites.
+	Thresholds LifecycleThresholds
 }
 
 // NewGlobalMemoryStore creates a store backed by
@@ -92,7 +115,12 @@ func NewGlobalMemoryStore() *GlobalMemoryStore {
 // Load reads entries from disk. A missing file is treated as
 // an empty store (no error). v0.1.x `pinned.json` is NOT read
 // — v0.2.0 starts global memory empty (see memory-model.md §11).
+//
+// Legacy entries (written before ADR-0031) have no lifecycle
+// fields; legacyFill populates them as active with Relevance=1.0.
 func (s *GlobalMemoryStore) Load() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	data, err := os.ReadFile(s.path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -101,12 +129,43 @@ func (s *GlobalMemoryStore) Load() error {
 		}
 		return err
 	}
-	return json.Unmarshal(data, &s.Entries)
+	if err := json.Unmarshal(data, &s.Entries); err != nil {
+		return err
+	}
+	for i := range s.Entries {
+		s.legacyFill(&s.Entries[i])
+	}
+	return nil
+}
+
+// legacyFill populates the lifecycle fields on an entry loaded
+// from disk that predates ADR-0031. Detection: Relevance == 0
+// (zero value). For such entries we synthesise a sane default
+// so the first DecayAll has well-formed input. Already-populated
+// entries are left untouched.
+//
+// Transitional note: legacy entries enter with CreatedTurn=0 and
+// will appear "fresh" for the first FreshTurns user turns of any
+// new session after upgrade. This is a one-time effect — once
+// fresh expires, normal decay applies.
+func (s *GlobalMemoryStore) legacyFill(e *GlobalMemoryEntry) {
+	if e.Relevance > 0 {
+		return
+	}
+	e.Relevance = 1.0
+	if e.LastTouchedAt.IsZero() {
+		e.LastTouchedAt = e.CreatedAt
+	}
+	if e.State == "" {
+		e.State = StateActive
+	}
 }
 
 // Save writes entries to disk atomically (tmp + rename) so a
 // crash mid-write leaves the previous file intact.
 func (s *GlobalMemoryStore) Save() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if err := os.MkdirAll(filepath.Dir(s.path), 0700); err != nil {
 		return err
 	}
@@ -117,21 +176,56 @@ func (s *GlobalMemoryStore) Save() error {
 	return atomicio.WriteFileAtomic(s.path, data, 0600)
 }
 
-// Add appends a new entry, deduplicating by Fact text. FIFO
-// eviction kicks in past MaxEntries. Returns true if added,
-// false if dedup'd.
+// Add appends a new entry. If an existing entry's Fact is a
+// near-duplicate (Jaccard ≥ ConsolidationJaccardThreshold) the
+// new entry is treated as a touch on the existing one and not
+// appended — TouchCount increments, Relevance resets to 1.0.
+// Returns true if a new row was appended, false on consolidation.
+//
+// Eviction past MaxEntries selects the lowest-relevance entry
+// first (archived → dormant → active → fresh, ties broken by
+// oldest LastTouchedAt).
+//
+// Callers set e.CreatedTurn from the agent loop's currentTurn so
+// the fresh-window calculation has meaningful input. Test paths
+// that omit CreatedTurn get CreatedTurn=0, treated as "always
+// past fresh" for any currentTurn ≥ FreshTurns.
 func (s *GlobalMemoryStore) Add(e GlobalMemoryEntry) bool {
-	for _, existing := range s.Entries {
-		if existing.Fact == e.Fact {
-			return false
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	th := s.Thresholds.resolved()
+	if idx, ok := ConsolidationMatch(s.factsLocked(), e.Fact, th.ConsolidationJaccardThreshold); ok {
+		existing := &s.Entries[idx]
+		score := JaccardScore(TokenSet(existing.Fact), TokenSet(e.Fact))
+		existing.TouchCount++
+		existing.Relevance = 1.0
+		existing.LastTouchedAt = time.Now()
+		if e.CreatedTurn > existing.LastTouchedTurn {
+			existing.LastTouchedTurn = e.CreatedTurn
 		}
+		existing.State = DeriveState(existing.Relevance, existing.CreatedTurn, e.CreatedTurn, th)
+		logger.Info("memory: global-memory consolidated new entry into existing %q (jaccard %.2f, source: %s)",
+			existing.Fact, score, e.Source)
+		return false
 	}
+
 	if e.CreatedAt.IsZero() {
 		e.CreatedAt = time.Now()
 	}
 	if e.SourceTime.IsZero() {
 		e.SourceTime = time.Now()
 	}
+	if e.Relevance == 0 {
+		e.Relevance = 1.0
+	}
+	if e.LastTouchedAt.IsZero() {
+		e.LastTouchedAt = e.CreatedAt
+	}
+	if e.LastTouchedTurn == 0 {
+		e.LastTouchedTurn = e.CreatedTurn
+	}
+	e.State = DeriveState(e.Relevance, e.CreatedTurn, e.CreatedTurn, th)
 	s.Entries = append(s.Entries, e)
 
 	cap := s.MaxEntries
@@ -139,14 +233,136 @@ func (s *GlobalMemoryStore) Add(e GlobalMemoryEntry) bool {
 		cap = DefaultMaxGlobalMemory
 	}
 	if len(s.Entries) > cap {
-		s.Entries = s.Entries[1:]
+		s.evictLowestRelevanceLocked()
 	}
 	return true
 }
 
+// factsLocked returns the slice of Fact strings for consolidation
+// scanning. Caller must hold s.mu.
+func (s *GlobalMemoryStore) factsLocked() []string {
+	out := make([]string, len(s.Entries))
+	for i, e := range s.Entries {
+		out[i] = e.Fact
+	}
+	return out
+}
+
+// evictLowestRelevanceLocked removes one entry: the one with the
+// lowest Relevance, with archived/dormant preferred over active
+// even if they were touched more recently. Ties on relevance are
+// broken by oldest LastTouchedAt. Caller must hold s.mu.
+func (s *GlobalMemoryStore) evictLowestRelevanceLocked() {
+	if len(s.Entries) == 0 {
+		return
+	}
+	statePriority := func(state string) int {
+		switch state {
+		case StateArchived:
+			return 0
+		case StateDormant:
+			return 1
+		case StateActive:
+			return 2
+		case StateFresh:
+			return 3
+		default:
+			return 2
+		}
+	}
+	worst := 0
+	for i := 1; i < len(s.Entries); i++ {
+		a, b := s.Entries[worst], s.Entries[i]
+		pa, pb := statePriority(a.State), statePriority(b.State)
+		switch {
+		case pb < pa:
+			worst = i
+		case pb == pa && b.Relevance < a.Relevance:
+			worst = i
+		case pb == pa && b.Relevance == a.Relevance && b.LastTouchedAt.Before(a.LastTouchedAt):
+			worst = i
+		}
+	}
+	victim := s.Entries[worst]
+	logger.Info("memory: global-memory evicted %q (relevance %.2f, state %s, last touched turn %d)",
+		victim.Fact, victim.Relevance, victim.State, victim.LastTouchedTurn)
+	s.Entries = append(s.Entries[:worst], s.Entries[worst+1:]...)
+}
+
+// Touch refreshes every entry whose Fact matches the predicate:
+// Relevance ← 1.0, LastTouchedAt ← now, LastTouchedTurn ←
+// currentTurn, TouchCount++, State recomputed. Returns the number
+// of entries touched. source is logged for audit.
+func (s *GlobalMemoryStore) Touch(matchFn func(fact string) bool, currentTurn int, source string) int {
+	if matchFn == nil {
+		return 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	th := s.Thresholds
+	touched := 0
+	for i := range s.Entries {
+		e := &s.Entries[i]
+		if !matchFn(e.Fact) {
+			continue
+		}
+		prev := e.Relevance
+		prevState := e.State
+		e.Relevance = 1.0
+		e.LastTouchedAt = time.Now()
+		e.LastTouchedTurn = currentTurn
+		e.TouchCount++
+		e.State = DeriveState(e.Relevance, e.CreatedTurn, currentTurn, th)
+		logger.Info("memory: global-memory touched %q (relevance %.2f → 1.00, %s→%s, source: %s)",
+			e.Fact, prev, prevState, e.State, source)
+		touched++
+	}
+	return touched
+}
+
+// DecayAll multiplies every non-fresh entry's Relevance by
+// DecayRate and recomputes State. State transitions are logged
+// at Info; routine no-flip decays are aggregated at Debug. Returns
+// the number of entries whose State changed (caller uses this to
+// gate the memory:updated event emission).
+func (s *GlobalMemoryStore) DecayAll(currentTurn int) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	th := s.Thresholds.resolved()
+	flips := 0
+	decayed := 0
+	for i := range s.Entries {
+		e := &s.Entries[i]
+		prevState := DeriveState(e.Relevance, e.CreatedTurn, currentTurn, th)
+		// Fresh entries don't decay — their window is defined by
+		// turn count alone, not relevance.
+		if prevState != StateFresh {
+			e.Relevance = DecayedRelevance(e.Relevance, th.DecayRate)
+			decayed++
+		}
+		nextState := DeriveState(e.Relevance, e.CreatedTurn, currentTurn, th)
+		e.State = nextState
+		if prevState != nextState {
+			logger.Info("memory: global-memory entry %q %s→%s (relevance %.2f, turn %d)",
+				e.Fact, prevState, nextState, e.Relevance, currentTurn)
+			flips++
+		}
+	}
+	if decayed > 0 && flips == 0 {
+		logger.Debug("memory: global-memory decayed %d entries (turn %d, no state flips)", decayed, currentTurn)
+	}
+	return flips
+}
+
 // Set creates or updates an entry by Fact text. Used by the
 // settings UI direct-edit path. Stamped Source = manual.
+//
+// Manual entries enter with Relevance=1.0 and State=active —
+// no fresh window (the user is explicitly authoring, not
+// extracted-then-reinforced).
 func (s *GlobalMemoryStore) Set(fact, native, category string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if !ValidGlobalMemoryCategories[category] {
 		category = "decision"
 	}
@@ -161,12 +377,17 @@ func (s *GlobalMemoryStore) Set(fact, native, category string) {
 	s.Entries = append(s.Entries, GlobalMemoryEntry{
 		Fact: fact, NativeFact: native, Category: category,
 		CreatedAt: now, SourceTime: now,
-		Source: GlobalSourceManual,
+		Source:        GlobalSourceManual,
+		Relevance:     1.0,
+		LastTouchedAt: now,
+		State:         StateActive,
 	})
 }
 
 // Delete removes an entry by Fact text.
 func (s *GlobalMemoryStore) Delete(fact string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	for i, e := range s.Entries {
 		if e.Fact == fact {
 			s.Entries = append(s.Entries[:i], s.Entries[i+1:]...)
@@ -182,6 +403,8 @@ func (s *GlobalMemoryStore) DeleteByFacts(facts []string) int {
 	if len(facts) == 0 {
 		return 0
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	wanted := make(map[string]struct{}, len(facts))
 	for _, f := range facts {
 		wanted[f] = struct{}{}
@@ -199,9 +422,15 @@ func (s *GlobalMemoryStore) DeleteByFacts(facts []string) int {
 	return deleted
 }
 
-// All returns all entries.
+// All returns a copy of all entries. Copying avoids exposing the
+// internal slice to callers that might mutate it concurrently
+// with a Touch / DecayAll on the agent loop.
 func (s *GlobalMemoryStore) All() []GlobalMemoryEntry {
-	return s.Entries
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]GlobalMemoryEntry, len(s.Entries))
+	copy(out, s.Entries)
+	return out
 }
 
 // --- Export / Import (ADR-0027) ---
@@ -286,15 +515,27 @@ func (s *GlobalMemoryStore) Import(entries []GlobalMemoryEntry) (added, skipped 
 // GlobalMemoryFormatBudget with newest-first inclusion and
 // elision marker.
 //
+// Lifecycle filtering (ADR-0031): entries in StateDormant or
+// StateArchived are skipped — they remain on disk for UI display
+// but do not flow into the LLM's system prompt.
+//
 // Trust tag derivation:
 //   - [user-stated]: user_turn / manual / promoted_from_*
 //   - [derived]:     assistant_turn / empty (legacy)
 func (s *GlobalMemoryStore) FormatForPrompt() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if len(s.Entries) == 0 {
 		return ""
 	}
-	lines := make([]string, len(s.Entries))
-	for i, e := range s.Entries {
+	type renderable struct {
+		line string
+	}
+	rendered := make([]renderable, 0, len(s.Entries))
+	for _, e := range s.Entries {
+		if e.State == StateDormant || e.State == StateArchived {
+			continue
+		}
 		fact := sanitizeMemoryText(e.Fact, 300)
 		native := sanitizeMemoryText(e.NativeFact, 300)
 		category := sanitizeMemoryText(e.Category, 30)
@@ -307,19 +548,22 @@ func (s *GlobalMemoryStore) FormatForPrompt() string {
 			lb.WriteString(fmt.Sprintf(" (learned %s)", e.CreatedAt.Format("2006-01-02")))
 		}
 		lb.WriteString("\n")
-		lines[i] = lb.String()
+		rendered = append(rendered, renderable{line: lb.String()})
 	}
 
-	included := make([]string, 0, len(lines))
+	if len(rendered) == 0 {
+		return ""
+	}
+	included := make([]string, 0, len(rendered))
 	used := 0
-	for i := len(lines) - 1; i >= 0; i-- {
-		if used+len(lines[i]) > GlobalMemoryFormatBudget {
+	for i := len(rendered) - 1; i >= 0; i-- {
+		if used+len(rendered[i].line) > GlobalMemoryFormatBudget {
 			break
 		}
-		included = append([]string{lines[i]}, included...)
-		used += len(lines[i])
+		included = append([]string{rendered[i].line}, included...)
+		used += len(rendered[i].line)
 	}
-	elided := len(lines) - len(included)
+	elided := len(rendered) - len(included)
 
 	var sb strings.Builder
 	if elided > 0 {
