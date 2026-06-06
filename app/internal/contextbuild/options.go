@@ -89,6 +89,43 @@ type BuildOptions struct {
 	// a prefix — defensive against very old session bundles where
 	// the field may be missing.
 	UserRecordTemporalPrefix func(ts time.Time) string
+
+	// --- ADR-0032 inputs --------------------------------------
+
+	// AnchorSources lists the Fact strings of every decision /
+	// preference Global Memory entry. Build uses these (via
+	// memory.AnchorRecord) to lift records whose content lexically
+	// matches an anchor out of the summary input and into a
+	// verbatim block between the summaries and the raw records.
+	// Empty / nil disables anchor extraction.
+	AnchorSources []string
+
+	// DeadTopicSources lists the Fact strings of every dormant /
+	// archived Session Memory entry. Build uses these (via
+	// memory.DeadTopicRecord, with LiveTopicSources as the safety
+	// net) to drop records that reference a topic that is no longer
+	// relevant to the current conversation.
+	DeadTopicSources []string
+
+	// LiveTopicSources lists the Fact strings of every fresh /
+	// active Session Memory entry. Used as the live-clause safety
+	// net in dead-topic detection — a record that also references a
+	// live topic stays, even if it overlaps a dead one.
+	LiveTopicSources []string
+
+	// FarSummaryShare / NearSummaryShare are the fractions of the
+	// available budget (MaxContextTokens - SystemPrompt -
+	// OutputReserve) allocated to each summary tier's output. The
+	// remainder is shared between anchored records and raw records.
+	// Zero falls back to ADR-0032 §3.4 defaults (0.05 / 0.15).
+	FarSummaryShare  float64
+	NearSummaryShare float64
+
+	// AnchorJaccardThreshold / DeadTopicJaccardThreshold are the
+	// lexical thresholds for lift / drop decisions. Zero falls back
+	// to ADR-0032 §3.4 defaults (0.4 each).
+	AnchorJaccardThreshold    float64
+	DeadTopicJaccardThreshold float64
 }
 
 func (o *BuildOptions) now() time.Time {
@@ -107,11 +144,25 @@ func (o *BuildOptions) loc() *time.Location {
 
 // BuildResult is what Build returns to the caller.
 type BuildResult struct {
-	Messages       []llm.Message
-	TotalTokens    int
-	IncludedRaw    int  // count of raw records included
-	SummarizedSpan int  // count of records folded into the summary
-	UsedCache      bool // true if the summary was served from cache
+	Messages    []llm.Message
+	TotalTokens int
+	IncludedRaw int // count of raw records included
+
+	// SummarizedSpan and UsedCache are backward-compat aggregates
+	// over the two ADR-0032 tiers: SummarizedSpan ==
+	// NearSummarizedSpan + FarSummarizedSpan, UsedCache ==
+	// NearCacheHit && FarCacheHit.
+	SummarizedSpan int
+	UsedCache      bool
+
+	// --- ADR-0032 per-tier breakdown ---------------------------
+
+	NearSummarizedSpan int
+	FarSummarizedSpan  int
+	NearCacheHit       bool
+	FarCacheHit        bool
+	AnchoredRecords    int // count of records lifted out as anchors
+	DroppedDeadTopics  int // count of records suppressed by dead-topic drop
 }
 
 // EstimateTokens is re-exported from memory so callers can compute budgets.

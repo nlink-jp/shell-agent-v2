@@ -114,17 +114,27 @@ func TestBuild_SummaryHasTimeRangeHeader(t *testing.T) {
 		Summarize:        mockSummarize,
 		Loc:              utc,
 	})
-	sm := summaryMessage(res.Messages)
-	if sm == nil {
-		t.Fatal("expected summary message")
+	// ADR-0032: summary is now split into far + near tiers. The
+	// far tier carries the oldest folded record (08:30); the near
+	// tier carries the rest of the folded span (up to 09:30). The
+	// concatenation of both summary messages must cover both
+	// endpoints.
+	all := ""
+	for _, m := range res.Messages {
+		if m.Role == llm.RoleSummary {
+			all += m.Content
+		}
 	}
-	expectFrom := "2026-04-27 08:30 UTC" // 90min before 10:00
-	expectTo := "2026-04-27 09:30 UTC"   // 30min before 10:00 (the latest folded record)
-	if !strings.Contains(sm.Content, expectFrom) {
-		t.Errorf("expected from-timestamp %q in summary, got %q", expectFrom, sm.Content)
+	if all == "" {
+		t.Fatal("expected at least one summary message")
 	}
-	if !strings.Contains(sm.Content, expectTo) {
-		t.Errorf("expected to-timestamp %q in summary, got %q", expectTo, sm.Content)
+	expectFrom := "2026-04-27 08:30 UTC"
+	expectTo := "2026-04-27 09:30 UTC"
+	if !strings.Contains(all, expectFrom) {
+		t.Errorf("expected from-timestamp %q across summaries, got %q", expectFrom, all)
+	}
+	if !strings.Contains(all, expectTo) {
+		t.Errorf("expected to-timestamp %q across summaries, got %q", expectTo, all)
 	}
 }
 
@@ -171,14 +181,24 @@ func TestBuild_CacheHitSkipsSummarizer(t *testing.T) {
 	recs = append(recs, mkRec(now.Add(-1*time.Minute), "user", "recent"))
 	s := &memory.Session{Records: recs}
 
+	// ADR-0032: cache is keyed by ComputeContentKey per tier.
+	// With 2 older records, partitionForTiers puts 1 in each tier.
+	// Seed both tiers' cache entries so the summarizer can be
+	// fully short-circuited.
+	farInput := older[:1]
+	nearInput := older[1:]
 	cache := &SummaryCache{}
 	cache.Put(SummaryEntry{
-		RangeKey:      ComputeRangeKey(older, "test"),
-		SummarizerID:  "test",
-		FromTimestamp: older[0].Timestamp,
-		ToTimestamp:   older[len(older)-1].Timestamp,
-		RecordCount:   len(older),
-		Summary:       "PRE-CACHED SUMMARY",
+		RangeKey:    ComputeContentKey(farInput, "test", nil, nil, "far"),
+		Tier:        "far",
+		Summary:     "PRE-CACHED FAR",
+		RecordCount: len(farInput),
+	})
+	cache.Put(SummaryEntry{
+		RangeKey:    ComputeContentKey(nearInput, "test", nil, nil, "near"),
+		Tier:        "near",
+		Summary:     "PRE-CACHED NEAR",
+		RecordCount: len(nearInput),
 	})
 
 	calls := 0
@@ -194,9 +214,17 @@ func TestBuild_CacheHitSkipsSummarizer(t *testing.T) {
 	if calls != 0 {
 		t.Errorf("summarizer called %d times despite cache hit", calls)
 	}
-	sm := summaryMessage(res.Messages)
-	if sm == nil || !strings.Contains(sm.Content, "PRE-CACHED SUMMARY") {
-		t.Errorf("cached summary not used; got %v", sm)
+	all := ""
+	for _, m := range res.Messages {
+		if m.Role == llm.RoleSummary {
+			all += m.Content
+		}
+	}
+	if !strings.Contains(all, "PRE-CACHED FAR") {
+		t.Errorf("far tier cache hit missing; got %q", all)
+	}
+	if !strings.Contains(all, "PRE-CACHED NEAR") {
+		t.Errorf("near tier cache hit missing; got %q", all)
 	}
 	if !res.UsedCache {
 		t.Error("UsedCache should be true on cache hit")
@@ -324,5 +352,213 @@ func TestBuild_UserRecordPrefixNotOnAssistantOrTool(t *testing.T) {
 	}
 	if strings.Contains(res.Messages[3].Content, "<<TS:") {
 		t.Errorf("tool message unexpectedly has temporal prefix; got %q", res.Messages[3].Content)
+	}
+}
+
+// --- ADR-0032 two-tier / anchor / dead-topic tests --------------
+
+// TestBuild_TwoTierAssemblyOrder verifies the assembly order is
+// system → far summary → near summary → anchored records → raw.
+func TestBuild_TwoTierAssemblyOrder(t *testing.T) {
+	now := time.Date(2026, 5, 1, 10, 0, 0, 0, utc)
+	recs := []memory.Record{
+		mkRec(now.Add(-180*time.Minute), "user", strings.Repeat("old ", 60)),
+		mkRec(now.Add(-150*time.Minute), "assistant", strings.Repeat("old assistant ", 60)),
+		mkRec(now.Add(-120*time.Minute), "user", strings.Repeat("mid ", 60)),
+		mkRec(now.Add(-90*time.Minute), "assistant", strings.Repeat("mid assistant ", 60)),
+		mkRec(now.Add(-1*time.Minute), "user", "recent"),
+	}
+	res, _ := Build(stdcontext.Background(), &memory.Session{Records: recs}, &SummaryCache{}, BuildOptions{
+		SystemPrompt:     "you are a helpful assistant",
+		MaxContextTokens: 60,
+		SummarizerID:     "test",
+		Summarize:        mockSummarize,
+		Loc:              utc,
+	})
+
+	if len(res.Messages) < 3 {
+		t.Fatalf("expected at least system + 2 summary tiers + raw, got %d msgs", len(res.Messages))
+	}
+	// system first
+	if res.Messages[0].Role != llm.RoleSystem {
+		t.Errorf("msgs[0].Role = %q, want system", res.Messages[0].Role)
+	}
+	// Summary messages come before non-summary in this fixture
+	// (we have no anchors, so anchored block is empty).
+	summariesEnd := 0
+	for i, m := range res.Messages {
+		if m.Role == llm.RoleSummary {
+			summariesEnd = i
+		}
+	}
+	for i, m := range res.Messages {
+		if i > 0 && i <= summariesEnd && m.Role != llm.RoleSystem && m.Role != llm.RoleSummary {
+			t.Errorf("non-summary msg at idx %d before last summary at %d (broke assembly order)", i, summariesEnd)
+		}
+	}
+
+	// Both tiers should have at least one summarized record.
+	if res.NearSummarizedSpan == 0 || res.FarSummarizedSpan == 0 {
+		t.Errorf("expected non-zero span in both tiers, got near=%d far=%d",
+			res.NearSummarizedSpan, res.FarSummarizedSpan)
+	}
+}
+
+// TestBuild_AnchorRecordsRenderedVerbatim verifies that records
+// whose content matches an AnchorSource are pulled into a verbatim
+// position before raw records, not just paraphrased in a summary.
+func TestBuild_AnchorRecordsRenderedVerbatim(t *testing.T) {
+	now := time.Date(2026, 5, 1, 10, 0, 0, 0, utc)
+	const anchorMarker = "DECISION: chose DuckDB over SQLite for sales analysis"
+	recs := []memory.Record{
+		mkRec(now.Add(-120*time.Minute), "user", anchorMarker),
+		mkRec(now.Add(-90*time.Minute), "assistant", "I'll proceed with that choice."),
+		mkRec(now.Add(-60*time.Minute), "user", strings.Repeat("middle chatter ", 30)),
+		mkRec(now.Add(-1*time.Minute), "user", "recent"),
+	}
+	res, _ := Build(stdcontext.Background(), &memory.Session{Records: recs}, &SummaryCache{}, BuildOptions{
+		MaxContextTokens:       40,
+		SummarizerID:           "test",
+		Summarize:              mockSummarize,
+		Loc:                    utc,
+		AnchorSources:          []string{"chose DuckDB over SQLite for sales analysis"},
+		AnchorJaccardThreshold: 0.3,
+	})
+
+	if res.AnchoredRecords == 0 {
+		t.Fatal("expected at least one anchored record")
+	}
+	// The verbatim anchor must appear as a non-summary message
+	// (the rendered content for a user record includes the raw
+	// text).
+	foundVerbatim := false
+	for _, m := range res.Messages {
+		if m.Role == llm.RoleSummary {
+			continue
+		}
+		if strings.Contains(m.Content, "chose DuckDB over SQLite") {
+			foundVerbatim = true
+			break
+		}
+	}
+	if !foundVerbatim {
+		t.Error("anchor record was not rendered verbatim outside summary blocks")
+	}
+}
+
+// TestBuild_DeadTopicDrop_SuppressesAndCounts verifies that records
+// matching a dormant fact (without a live overlap) are dropped from
+// the summary input and surfaced as an elision marker, while the
+// dropped count is propagated.
+func TestBuild_DeadTopicDrop_SuppressesAndCounts(t *testing.T) {
+	now := time.Date(2026, 5, 1, 10, 0, 0, 0, utc)
+	recs := []memory.Record{
+		mkRec(now.Add(-120*time.Minute), "user", "Weather in Tokyo is rainy today rainy today"),
+		mkRec(now.Add(-90*time.Minute), "assistant", "Weather updates noted noted noted"),
+		mkRec(now.Add(-60*time.Minute), "user", strings.Repeat("topic shift ", 30)),
+		mkRec(now.Add(-1*time.Minute), "user", "recent"),
+	}
+	res, _ := Build(stdcontext.Background(), &memory.Session{Records: recs}, &SummaryCache{}, BuildOptions{
+		MaxContextTokens:          40,
+		SummarizerID:              "test",
+		Summarize:                 mockSummarize,
+		Loc:                       utc,
+		DeadTopicSources:          []string{"Weather Tokyo rainy"},
+		LiveTopicSources:          []string{},
+		DeadTopicJaccardThreshold: 0.3,
+	})
+
+	if res.DroppedDeadTopics == 0 {
+		t.Fatal("expected at least one dead-topic drop")
+	}
+	all := ""
+	for _, m := range res.Messages {
+		if m.Role == llm.RoleSummary {
+			all += m.Content
+		}
+	}
+	if !strings.Contains(all, "dead-topic turns suppressed") {
+		t.Errorf("expected elision marker in summary block, got %q", all)
+	}
+}
+
+// TestBuild_CacheStableAcrossTurnAdditions verifies the content-hash
+// key keeps a tier's cache hit alive when an adjacent turn is added
+// to the session without changing the tier's input.
+func TestBuild_CacheStableAcrossTurnAdditions(t *testing.T) {
+	now := time.Date(2026, 5, 1, 10, 0, 0, 0, utc)
+	older := []memory.Record{
+		mkRec(now.Add(-3*time.Hour), "user", strings.Repeat("a ", 80)),
+		mkRec(now.Add(-2*time.Hour+30*time.Minute), "assistant", strings.Repeat("b ", 80)),
+	}
+	turn1 := append([]memory.Record{}, older...)
+	turn1 = append(turn1, mkRec(now.Add(-1*time.Minute), "user", "recent 1"))
+
+	cache := &SummaryCache{}
+	res1, _ := Build(stdcontext.Background(), &memory.Session{Records: turn1}, cache, BuildOptions{
+		MaxContextTokens: 30,
+		SummarizerID:     "test",
+		Summarize:        mockSummarize,
+		Loc:              utc,
+	})
+	if res1.UsedCache {
+		t.Fatal("turn 1 should populate cache, not hit it")
+	}
+
+	// Turn 2: add a new most-recent record. Older window unchanged.
+	turn2 := append([]memory.Record{}, turn1...)
+	turn2 = append(turn2, mkRec(now, "user", "recent 2"))
+
+	res2, _ := Build(stdcontext.Background(), &memory.Session{Records: turn2}, cache, BuildOptions{
+		MaxContextTokens: 30,
+		SummarizerID:     "test",
+		Summarize:        mockSummarize,
+		Loc:              utc,
+	})
+	if !res2.UsedCache {
+		t.Errorf("turn 2 should hit cache: near=%v far=%v", res2.NearCacheHit, res2.FarCacheHit)
+	}
+}
+
+// TestBuild_LifecycleChangeInvalidatesCache verifies that a change
+// in the DeadTopicSources set causes the content-hash key to change
+// and forces regeneration.
+func TestBuild_LifecycleChangeInvalidatesCache(t *testing.T) {
+	now := time.Date(2026, 5, 1, 10, 0, 0, 0, utc)
+	recs := []memory.Record{
+		mkRec(now.Add(-2*time.Hour), "user", strings.Repeat("a ", 80)),
+		mkRec(now.Add(-90*time.Minute), "assistant", strings.Repeat("b ", 80)),
+		mkRec(now.Add(-1*time.Minute), "user", "recent"),
+	}
+
+	cache := &SummaryCache{}
+	_, _ = Build(stdcontext.Background(), &memory.Session{Records: recs}, cache, BuildOptions{
+		MaxContextTokens: 30,
+		SummarizerID:     "test",
+		Summarize:        mockSummarize,
+		Loc:              utc,
+		// No dead set in round 1.
+	})
+
+	// Round 2: introduce a dead-topic source. Even if no record
+	// actually matches (so no drop fires), the cache key still
+	// changes because deadFingerprints contribute to the key when
+	// drops occur — but when no drop fires, fingerprints stay empty
+	// and the key stays the same. Use a dead source that DOES match
+	// to exercise the invalidation path properly.
+	calls := 0
+	_, _ = Build(stdcontext.Background(), &memory.Session{Records: recs}, cache, BuildOptions{
+		MaxContextTokens: 30,
+		SummarizerID:     "test",
+		Summarize: func(ctx stdcontext.Context, _ []memory.Record) (string, error) {
+			calls++
+			return "regenerated", nil
+		},
+		Loc:                       utc,
+		DeadTopicSources:          []string{"a a a a a"}, // matches "a a a a..." record
+		DeadTopicJaccardThreshold: 0.3,
+	})
+	if calls == 0 {
+		t.Error("expected summarizer to regenerate after dead-topic set introduced")
 	}
 }
