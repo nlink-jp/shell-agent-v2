@@ -198,6 +198,109 @@ func TestLexicalTouchPredicate(t *testing.T) {
 	}
 }
 
+// --- ADR-0032 Anchor / DeadTopic tests ---------------------------
+
+func tokenizeAll(facts []string) []map[string]struct{} {
+	out := make([]map[string]struct{}, len(facts))
+	for i, f := range facts {
+		out[i] = TokenSet(f)
+	}
+	return out
+}
+
+func TestAnchorRecord_MatchesAtThreshold(t *testing.T) {
+	anchors := tokenizeAll([]string{
+		"User prefers Go programming language",
+		"Chose DuckDB over SQLite for analysis",
+	})
+
+	// "User prefers Go programming patterns" — 4 shared tokens
+	// (user, prefers, go, programming) of union size 6 → Jaccard
+	// 0.67, well above the 0.3 threshold.
+	if !AnchorRecord("User prefers Go programming patterns", anchors, 0.3) {
+		t.Error("expected anchor match on strong Go overlap")
+	}
+	// "Chose DuckDB SQLite analysis" — 4 shared tokens of union 6
+	// → Jaccard 0.67 against the second anchor.
+	if !AnchorRecord("Chose DuckDB SQLite analysis", anchors, 0.3) {
+		t.Error("expected anchor match on DuckDB overlap")
+	}
+	// Unrelated content → no match.
+	if AnchorRecord("The weather in Tokyo is rainy today", anchors, 0.3) {
+		t.Error("unrelated content should not anchor")
+	}
+}
+
+func TestAnchorRecord_EmptyInputs(t *testing.T) {
+	anchors := tokenizeAll([]string{"User prefers Go"})
+
+	if AnchorRecord("", anchors, 0.3) {
+		t.Error("empty content must never anchor")
+	}
+	if AnchorRecord("anything", nil, 0.3) {
+		t.Error("nil anchor list must never anchor")
+	}
+	if AnchorRecord("anything", []map[string]struct{}{}, 0.3) {
+		t.Error("empty anchor list must never anchor")
+	}
+	// Zero threshold disables anchoring (matches LexicalTouchPredicate convention).
+	if AnchorRecord("identical sentence", tokenizeAll([]string{"identical sentence"}), 0) {
+		t.Error("zero threshold must disable anchoring")
+	}
+}
+
+func TestDeadTopicRecord_DeadOnly(t *testing.T) {
+	dead := tokenizeAll([]string{
+		"Q1 sales dataset",
+	})
+	live := tokenizeAll([]string{
+		"system architecture review",
+	})
+
+	// "Q1 sales dataset numbers" — 3 shared with dead of union 4
+	// → Jaccard 0.75 against dead. No overlap with live (tokens
+	// disjoint). Expect dead verdict.
+	if !DeadTopicRecord("Q1 sales dataset numbers", dead, live, 0.3) {
+		t.Error("expected dead verdict on Q1-overlap-only content")
+	}
+}
+
+func TestDeadTopicRecord_LiveWins(t *testing.T) {
+	dead := tokenizeAll([]string{"Q1 sales report"})
+	live := tokenizeAll([]string{"Q1 sales dashboard"})
+
+	// Content "Q1 sales review needed" — Jaccard 0.4 against both
+	// dead and live fact (each shares q1, sales, of union 5). Dead
+	// fires first, but the live safety net retracts the verdict.
+	if DeadTopicRecord("Q1 sales review needed", dead, live, 0.3) {
+		t.Error("live-clause safety net failed: content also matching a live topic must not be dropped")
+	}
+}
+
+func TestDeadTopicRecord_NoMatch(t *testing.T) {
+	dead := tokenizeAll([]string{"User loaded Q1 sales dataset"})
+	live := tokenizeAll([]string{"User wants system review"})
+
+	if DeadTopicRecord("Unrelated weather discussion in Tokyo", dead, live, 0.3) {
+		t.Error("unrelated content must not be marked dead")
+	}
+}
+
+func TestDeadTopicRecord_EmptyAndDisable(t *testing.T) {
+	dead := tokenizeAll([]string{"some old topic content"})
+	live := tokenizeAll([]string{"current live topic content"})
+
+	if DeadTopicRecord("", dead, live, 0.3) {
+		t.Error("empty content must not be marked dead")
+	}
+	if DeadTopicRecord("any content", nil, live, 0.3) {
+		t.Error("nil dead list must not produce dead verdict")
+	}
+	if DeadTopicRecord("any content", dead, live, 0) {
+		t.Error("zero threshold must disable dead-topic detection")
+	}
+}
+
 // --- test helpers ------------------------------------------------
 
 func set(items ...string) map[string]struct{} {

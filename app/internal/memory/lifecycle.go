@@ -219,3 +219,79 @@ func LexicalTouchPredicate(turnContent string, threshold float64) func(fact stri
 		return JaccardScore(turnSet, TokenSet(fact)) >= threshold
 	}
 }
+
+// AnchorRecord reports whether content's token-set Jaccard against
+// any precomputed anchor token set is ≥ threshold (ADR-0032).
+// Used by contextbuild to lift records that reference a
+// decision / preference Global Memory fact out of the summary
+// input and render them verbatim.
+//
+// anchorTokenSets is precomputed once per Build call to avoid
+// re-tokenising every Global Memory entry per record. Empty
+// content / empty anchor list / threshold ≤ 0 → false (treated
+// as "no anchor signal", matches the disable convention used by
+// LexicalTouchPredicate).
+func AnchorRecord(content string, anchorTokenSets []map[string]struct{}, threshold float64) bool {
+	if content == "" || len(anchorTokenSets) == 0 || threshold <= 0 {
+		return false
+	}
+	contentSet := TokenSet(content)
+	if len(contentSet) == 0 {
+		return false
+	}
+	for _, a := range anchorTokenSets {
+		if len(a) == 0 {
+			continue
+		}
+		if JaccardScore(contentSet, a) >= threshold {
+			return true
+		}
+	}
+	return false
+}
+
+// DeadTopicRecord reports whether content matches a dormant /
+// archived Session Memory fact at Jaccard ≥ threshold AND does
+// NOT also match any fresh / active Session Memory fact at the
+// same threshold (ADR-0032).
+//
+// The live-clause is the safety net: a record that references
+// both a dead and a live topic is kept (live wins). This avoids
+// false positives where, for example, an old phrase resurfaces
+// in a current discussion and would otherwise be dropped.
+//
+// Both token-set slices are precomputed once per Build call.
+// Empty content / empty dead list / threshold ≤ 0 → false.
+func DeadTopicRecord(content string, deadTokenSets, liveTokenSets []map[string]struct{}, threshold float64) bool {
+	if content == "" || len(deadTokenSets) == 0 || threshold <= 0 {
+		return false
+	}
+	contentSet := TokenSet(content)
+	if len(contentSet) == 0 {
+		return false
+	}
+	deadHit := false
+	for _, d := range deadTokenSets {
+		if len(d) == 0 {
+			continue
+		}
+		if JaccardScore(contentSet, d) >= threshold {
+			deadHit = true
+			break
+		}
+	}
+	if !deadHit {
+		return false
+	}
+	// Live-clause safety net: if the content also matches a live
+	// topic, retract the dead verdict.
+	for _, l := range liveTokenSets {
+		if len(l) == 0 {
+			continue
+		}
+		if JaccardScore(contentSet, l) >= threshold {
+			return false
+		}
+	}
+	return true
+}
