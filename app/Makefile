@@ -19,7 +19,7 @@ NOTARIZE_SCRIPT := ../scripts/notarize-darwin-app.sh
 .PHONY: build build-all package dev test clean
 
 build:
-	wails build -ldflags "$(LDFLAGS)" -tags no_duckdb_arrow
+	wails build -platform darwin/arm64 -ldflags "$(LDFLAGS)" -tags no_duckdb_arrow
 	@$(CODESIGN_SCRIPT) build/bin/$(APP).app "$(CODESIGN_IDENTITY)" "$(ENTITLEMENTS)"
 	mkdir -p dist
 	# macOS preserves extended attributes (incl. code-sign
@@ -35,8 +35,8 @@ build-all: build
 ## the now-stapled bundle for upload to GitHub Releases.
 package: build
 	@$(NOTARIZE_SCRIPT) dist/$(APP).app "$(NOTARY_PROFILE)"
-	cd dist && /usr/bin/ditto -c -k --keepParent $(APP).app $(APP)-$(VERSION)-darwin.zip
-	@ls -la dist/$(APP)-$(VERSION)-darwin.zip
+	cd dist && /usr/bin/ditto -c -k --keepParent $(APP).app $(APP)-$(VERSION)-darwin-arm64.zip
+	@ls -la dist/$(APP)-$(VERSION)-darwin-arm64.zip
 
 dev:
 	wails dev -tags no_duckdb_arrow

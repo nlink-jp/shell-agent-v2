@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.17.1] - 2026-07-12
+
+### Changed
+
+- **Release archive renamed** from `shell-agent-v2-vX.Y.Z-darwin.zip` to
+  `shell-agent-v2-vX.Y.Z-darwin-arm64.zip`, adding the explicit `arm64`
+  architecture token per the org-wide Release Archive Standard
+  (`nlink-jp/.github` CONVENTIONS.md). The build now pins
+  `wails build -platform darwin/arm64` so the `.app` is guaranteed
+  arm64-only (Apple Silicon; no universal binary). The archive still
+  contains the notarized, stapled `shell-agent-v2.app`.
+
+No change to the app's behaviour — a packaging / release-naming change.
+
 ## [0.17.0] - 2026-06-06
 
 ### Added
