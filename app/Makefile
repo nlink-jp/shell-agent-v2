@@ -46,3 +46,14 @@ test:
 
 clean:
 	rm -rf build/bin dist
+
+# Homebrew tap generation (see ../scripts/release-brew.mk). After `make package`,
+# `make brew` generates this cask from the built darwin-arm64 zip into the local
+# nlink-jp/homebrew-tap checkout. Makefile lives in app/, scripts at repo root.
+BREW_KIND      := cask
+BREW_DESC      := Local-first chat and agent tool with interactive data analysis
+BREW_NAME      := $(APP)
+BREW_APP       := $(APP).app
+BREW_BUNDLE_ID := com.wails.shell-agent-v2
+GEN_BREW       := ../scripts/gen-brew.sh
+include ../scripts/release-brew.mk
