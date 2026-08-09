@@ -292,7 +292,7 @@ follow-up 規約はツールの `@description` に置く — 毎ラウンド LLM
 ### 6.2 アンチパターン: 絶対パスを tool 出力に乗せる
 
 同初版では LLM が artefact を直接参照できるよう
-`"work_dir_path": "/Users/magi/Library/.../work/sunset.png"`
+`"work_dir_path": "/Users/you/Library/.../work/sunset.png"`
 (絶対 host パス) を出力に含めることも検討した。却下理由:
 
 - 絶対パスを正規受付するエージェント側ツール (代表: `load-data`

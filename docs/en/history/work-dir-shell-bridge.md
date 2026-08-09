@@ -307,7 +307,7 @@ than overriding it.
 ### 6.2 Anti-pattern: absolute paths in tool output
 
 The same first cut also considered emitting
-`"work_dir_path": "/Users/magi/Library/.../work/sunset.png"`
+`"work_dir_path": "/Users/you/Library/.../work/sunset.png"`
 (absolute host path) so the LLM could reference the artefact
 directly. Rejected because:
 
