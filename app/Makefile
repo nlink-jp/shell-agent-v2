@@ -16,7 +16,7 @@ ENTITLEMENTS      ?= ../scripts/entitlements.plist
 CODESIGN_SCRIPT := ../scripts/codesign-darwin-app.sh
 NOTARIZE_SCRIPT := ../scripts/notarize-darwin-app.sh
 
-.PHONY: build build-all package dev test clean
+.PHONY: build build-all package verify-release dev test clean
 
 build:
 	wails build -platform darwin/arm64 -ldflags "$(LDFLAGS)" -tags no_duckdb_arrow
@@ -37,6 +37,17 @@ package: build
 	@$(NOTARIZE_SCRIPT) dist/$(APP).app "$(NOTARY_PROFILE)"
 	cd dist && /usr/bin/ditto -c -k --keepParent $(APP).app $(APP)-$(VERSION)-darwin-arm64.zip
 	@ls -la dist/$(APP)-$(VERSION)-darwin-arm64.zip
+
+## verify-release: refuse to release an un-notarized build (marker + staple gate)
+verify-release:
+	@test -f "dist/$(APP).app.notarized" || { \
+		echo "verify-release: FAIL — dist/$(APP).app has no notarization marker."; \
+		echo "  make package must end with '[notarize-app] ...: Accepted and stapled'. Do not upload."; \
+		exit 1; }
+	@xcrun stapler validate dist/$(APP).app
+	@test -f "dist/$(APP)-$(VERSION)-darwin-arm64.zip" || { \
+		echo "verify-release: FAIL — release zip missing: dist/$(APP)-$(VERSION)-darwin-arm64.zip"; exit 1; }
+	@echo "verify-release: OK ($(VERSION) — marker present, ticket stapled)"
 
 dev:
 	wails dev -tags no_duckdb_arrow

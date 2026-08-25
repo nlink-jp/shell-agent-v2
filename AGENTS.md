@@ -16,6 +16,7 @@ make build      # Build .app bundle → dist/shell-agent-v2.app
 make dev        # Wails dev server with hot reload
 make test       # go test ./... (add -tags no_duckdb_arrow for CGO builds)
 make clean      # Remove build artifacts
+make verify-release  # gate: .notarized marker + stapler validate (run before upload)
 
 # Integration tests (require running services):
 go test ./internal/llm/ -tags lmstudio -v    # LM Studio LLM backend tests
