@@ -5,7 +5,7 @@ shell-agent-v2 は per-session DuckDB エンジンと専用の
 サブシステムを内蔵する。本ドキュメントは各ツールの実機動作、
 sliding-window 分析の内部実装、Findings の流れを説明する。
 
-詳細な英語版: [`docs/en/data-analysis.md`](../en/data-analysis.md)。
+詳細な英語版: [`docs/en/data-analysis.md`](../../en/reference/data-analysis.md)。
 全体俯瞰: [`architecture.ja.md`](architecture.ja.md)。
 Findings のメモリ側 (per-session vs Global Memory): [`memory-model.ja.md`](memory-model.ja.md)。
 
@@ -201,7 +201,7 @@ v0.4.1 以前の挙動 (window ごとに新しい `tool_start`、対応する
 `tool_end` なし) は各 window の pill を永遠に "running" のまま
 残していた — issue #5。
 
-詳細設計: [tool-progress-events.ja.md](tool-progress-events.ja.md)。
+詳細設計: [../adr/0002-tool-progress-events.ja.md](../adr/0002-tool-progress-events.ja.md)。
 
 ### 5.2 設定
 

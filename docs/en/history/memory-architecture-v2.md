@@ -1,6 +1,6 @@
 # Memory Architecture v2 — Design Document
 
-> **Top-level overview**: see [memory-model.md](memory-model.md)
+> **Top-level overview**: see [../reference/memory-model.md](../reference/memory-model.md)
 > for how Records, Pinned Memory, and Findings fit together.
 > This document is the deep dive on the Records side.
 >

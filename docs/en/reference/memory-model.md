@@ -23,9 +23,9 @@ get assembled into the LLM's system prompt.
 
 For deep design rationale see:
 
-- [memory-architecture-v2.md](memory-architecture-v2.md) — Records
+- [../history/memory-architecture-v2.md](../history/memory-architecture-v2.md) — Records
   / contextbuild design (unchanged from v0.1.x)
-- [memory-injection-hardening.md](memory-injection-hardening.md) —
+- [../history/memory-injection-hardening.md](../history/memory-injection-hardening.md) —
   threat model & defenses (v0.1.26 Security Round 3, applied to
   Global Memory in v0.2.0)
 
@@ -105,9 +105,9 @@ owns. Re-imported sessions get fresh sess-ids and fresh object
 IDs (with all in-record references rewritten through the
 `internal/sessionio` rewriter). Privacy flag is preserved
 verbatim. Full design:
-[session-import-export.md](session-import-export.md).
+[../adr/0001-session-import-export.md](../adr/0001-session-import-export.md).
 
-**Deep dive**: [memory-architecture-v2.md](memory-architecture-v2.md).
+**Deep dive**: [../history/memory-architecture-v2.md](../history/memory-architecture-v2.md).
 
 ---
 
@@ -602,7 +602,7 @@ The v0.1.26 self-referential filter, category allowlist, and
 `nlk/guard` wrap are applied to **both** auto-extraction
 streams (Global Memory and Session Memory).
 
-**Deep dive**: [memory-injection-hardening.md](memory-injection-hardening.md).
+**Deep dive**: [../history/memory-injection-hardening.md](../history/memory-injection-hardening.md).
 
 ---
 
@@ -625,9 +625,9 @@ streams (Global Memory and Session Memory).
 
 ## 15. References
 
-- [memory-architecture-v2.md](memory-architecture-v2.md) —
+- [../history/memory-architecture-v2.md](../history/memory-architecture-v2.md) —
   Records / contextbuild (unchanged)
-- [memory-injection-hardening.md](memory-injection-hardening.md) —
+- [../history/memory-injection-hardening.md](../history/memory-injection-hardening.md) —
   Pinned/Findings security model (v0.1.26)
 - `internal/memory/global_memory.go` — GlobalMemoryStore (NEW)
 - `internal/memory/session_memory.go` — SessionMemoryStore (NEW)

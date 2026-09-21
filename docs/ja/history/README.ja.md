@@ -3,8 +3,8 @@
 過去マイルストーンの設計メモを v0.2.0 rewrite の audit trail
 として保持。**一部は現在の挙動を反映していない**。
 v0.2.0 時点の正準資料は
-[`../architecture.ja.md`](../architecture.ja.md) と
-[`../memory-model.ja.md`](../memory-model.ja.md)。
+[`../reference/architecture.ja.md`](../reference/architecture.ja.md) と
+[`../reference/memory-model.ja.md`](../reference/memory-model.ja.md)。
 
 `../architecture.ja.md` §11 (英語版 `architecture.md` §11 を
 参照) に各 doc の現状適用度の注釈付き index あり。

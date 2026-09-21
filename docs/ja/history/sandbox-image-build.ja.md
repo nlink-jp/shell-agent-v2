@@ -84,7 +84,7 @@ mojibake を許容。どれも発見性が低い。
 ## 3. 詳細設計
 
 > 注: r3 の本文（§3.1〜§3.8）は EN 版
-> [docs/en/sandbox-image-build.md](../en/sandbox-image-build.md) に
+> [docs/en/history/sandbox-image-build.md](../../en/history/sandbox-image-build.md) に
 > 完全な記述があります。以下は要点の日本語サマリ。
 > r1/r2 から大きく変わったのは:
 >   - bundle の `embed.FS` 経路を撤廃、Dockerfile は単一

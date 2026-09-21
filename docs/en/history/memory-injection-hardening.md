@@ -1,6 +1,6 @@
 # Memory Injection Hardening — Design Document
 
-> **Top-level overview**: see [memory-model.md](memory-model.md)
+> **Top-level overview**: see [../reference/memory-model.md](../reference/memory-model.md)
 > for how the three memory facilities fit together. This
 > document is the deep dive on the Pinned/Findings security
 > model.

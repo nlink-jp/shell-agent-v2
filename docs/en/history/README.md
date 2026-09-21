@@ -3,8 +3,8 @@
 Design notes from previous milestones, kept for the audit trail
 behind the v0.2.0 rewrite. **Some of these no longer reflect
 current behaviour**; the canonical sources for v0.2.0 are
-[`../architecture.md`](../architecture.md) and
-[`../memory-model.md`](../memory-model.md).
+[`../reference/architecture.md`](../reference/architecture.md) and
+[`../reference/memory-model.md`](../reference/memory-model.md).
 
 `../architecture.md` §11 has an annotated index of which docs
 here still describe shipped behaviour and which have been

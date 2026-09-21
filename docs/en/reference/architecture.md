@@ -51,7 +51,7 @@ The project is a successor to shell-agent v1 (a Slack-driven
 agent) but shares no code. v1's heuristics about Hot/Warm/Cold
 memory tiers, /finding slash commands, and the global Pinned
 store have all been replaced — see the v0.2.0 entry in
-[`../../CHANGELOG.md`](../../CHANGELOG.md) for the breaking-change
+[`../../../CHANGELOG.md`](../../../CHANGELOG.md) for the breaking-change
 summary.
 
 ## 2. Process model

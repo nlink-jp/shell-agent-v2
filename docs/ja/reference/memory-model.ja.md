@@ -23,9 +23,9 @@ shell-agent-v2 v0.2.0 設計では **4 つの異なるメモリ機能** が
 
 詳細な設計根拠:
 
-- [memory-architecture-v2.ja.md](memory-architecture-v2.ja.md) —
+- [../history/memory-architecture-v2.ja.md](../history/memory-architecture-v2.ja.md) —
   Records / contextbuild 設計 (v0.1.x から不変)
-- [memory-injection-hardening.ja.md](memory-injection-hardening.ja.md) —
+- [../history/memory-injection-hardening.ja.md](../history/memory-injection-hardening.ja.md) —
   脅威モデルと防御 (v0.1.26 Security Round 3、v0.2.0 では
   Global Memory に適用)
 
@@ -104,9 +104,9 @@ object を運ぶ。Re-import されたセッションは fresh sess-id と
 fresh object ID を取得 (in-record の全参照は
 `internal/sessionio` rewriter で書き換え)。プライバシーフラグ
 は逐語保持される。詳細設計:
-[session-import-export.ja.md](session-import-export.ja.md)。
+[../adr/0001-session-import-export.ja.md](../adr/0001-session-import-export.ja.md)。
 
-**詳細**: [memory-architecture-v2.ja.md](memory-architecture-v2.ja.md)。
+**詳細**: [../history/memory-architecture-v2.ja.md](../history/memory-architecture-v2.ja.md)。
 
 ---
 
@@ -581,7 +581,7 @@ v0.1.26 の self-referential filter, category allowlist,
 `nlk/guard` wrap は **両方の**自動抽出ストリーム (Global Memory
 と Session Memory) に適用。
 
-**詳細**: [memory-injection-hardening.ja.md](memory-injection-hardening.ja.md)。
+**詳細**: [../history/memory-injection-hardening.ja.md](../history/memory-injection-hardening.ja.md)。
 
 ---
 
@@ -603,9 +603,9 @@ v0.1.26 の self-referential filter, category allowlist,
 
 ## 15. 参照
 
-- [memory-architecture-v2.ja.md](memory-architecture-v2.ja.md) —
+- [../history/memory-architecture-v2.ja.md](../history/memory-architecture-v2.ja.md) —
   Records / contextbuild (不変)
-- [memory-injection-hardening.ja.md](memory-injection-hardening.ja.md) —
+- [../history/memory-injection-hardening.ja.md](../history/memory-injection-hardening.ja.md) —
   Pinned/Findings セキュリティモデル (v0.1.26)
 - `internal/memory/global_memory.go` — GlobalMemoryStore (NEW)
 - `internal/memory/session_memory.go` — SessionMemoryStore (NEW)

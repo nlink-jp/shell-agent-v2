@@ -235,7 +235,7 @@ finalises its status. The pre-v0.4.1 behaviour (a fresh
 `tool_start` per window with no matching `tool_end`) left every
 window's pill stuck "running" forever — issue #5.
 
-Full design: [tool-progress-events.md](tool-progress-events.md).
+Full design: [../adr/0002-tool-progress-events.md](../adr/0002-tool-progress-events.md).
 
 ### 5.2 Configuration
 

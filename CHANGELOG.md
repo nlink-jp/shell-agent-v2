@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Documentation
+
+- **Every document reference resolves again.** The move into
+  `docs/{en,ja}/{reference,history,adr}/` left 46 links pointing at the old flat
+  paths — both READMEs' feature lists, the history index, and the cross-links
+  between the memory-model reference and its deep dives. Each now points at its
+  own language's copy, and the two labels that spelled a different path than
+  they linked were corrected with them. `check-org.sh` resolves these now, so
+  the next move is caught rather than discovered.
+
 ## [0.17.1] - 2026-07-12
 
 ### Changed

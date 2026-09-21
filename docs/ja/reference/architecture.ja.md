@@ -44,7 +44,7 @@ shell-agent-v2 は Wails v2 (Go バックエンド + React + TypeScript
 
 v0.1.x の Hot/Warm/Cold メモリ階層、`/finding` slash command、
 グローバル Pinned ストアは v0.2.0 で全面置き換え。詳細は
-[`../../CHANGELOG.md`](../../CHANGELOG.md) の v0.2.0 entry 参照。
+[`../../../CHANGELOG.md`](../../../CHANGELOG.md) の v0.2.0 entry 参照。
 
 ## 2. プロセスモデル
 
