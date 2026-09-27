@@ -7,6 +7,11 @@ build, run, modify, or extend the tool.
 
 For Japanese: [CONTRIBUTING.ja.md](CONTRIBUTING.ja.md) (full parity).
 
+> **Outside contributions:** please start with an issue. Outside pull requests
+> are read as proposals, and wanted changes are re-implemented by the maintainers
+> (with credit) rather than merged as they are — see the organization's
+> [contribution guide](https://github.com/nlink-jp/.github/blob/main/CONTRIBUTING.md).
+
 ## Where to start
 
 - **Use the tool** → [README.md](README.md) covers install, features,

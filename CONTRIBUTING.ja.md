@@ -8,6 +8,10 @@ Wails v2 (Go + React) デスクトップアプリケーションとして配布�
 
 英語版: [CONTRIBUTING.md](CONTRIBUTING.md) (full parity)。
 
+> **組織の外からの貢献について:** まず issue を立ててください。外部からのプルリクエストは
+> 提案として読み、取り込む変更はメンテナが書き直して（名前を残して）取り込みます。そのまま
+> マージはしません — 組織の[コントリビューションガイド](https://github.com/nlink-jp/.github/blob/main/CONTRIBUTING.ja.md)を参照してください。
+
 ## どこから読むか
 
 - **ツールを使いたい** → [README.ja.md](README.ja.md) に
