@@ -12,6 +12,15 @@ CODESIGN_IDENTITY ?= Developer ID Application
 NOTARY_PROFILE    ?= nlink-jp-notary
 ENTITLEMENTS      ?= ../scripts/entitlements.plist
 
+# Go toolchain for wails. The wails v2.12.0 CLI is built with
+# golang.org/x/tools v0.30.0, whose static analysis cannot read Go 1.27
+# export data: under go1.27 every `wails build` stops with "internal
+# error: package ... without types was imported from ...". Pin the
+# release toolchain until the wails CLI and module move past it.
+# Override with GOTOOLCHAIN=... on the command line.
+GOTOOLCHAIN ?= go1.26.4
+export GOTOOLCHAIN
+
 # Scripts live at the project root; app/ Makefile reaches up.
 CODESIGN_SCRIPT := ../scripts/codesign-darwin-app.sh
 NOTARIZE_SCRIPT := ../scripts/notarize-darwin-app.sh

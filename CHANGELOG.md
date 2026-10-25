@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Build
+
+- `make` pins `GOTOOLCHAIN=go1.26.4`. The wails v2.12.0 CLI's static analysis
+  (golang.org/x/tools v0.30.0) cannot read Go 1.27 export data, so under go1.27
+  every `wails build` stopped with `internal error: package ... without types
+  was imported from ...`. Override with `GOTOOLCHAIN=...` on the command line.
+
 ### Documentation
 
 - **Every document reference resolves again.** The move into
