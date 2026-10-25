@@ -29,13 +29,13 @@ Wails v2 (Go + React) デスクトップアプリケーションとして配布�
 Windows へのクロスコンパイルは可能ですが、定常的にはテストして
 いません。
 
-- **Go** — `app/go.mod` 記載のツールチェーンバージョン。`make` は
-  ビルドとテストを `GOTOOLCHAIN=go1.26.10` で実行します (`app/Makefile`
-  で設定、Go コマンドが取得)。wails v2.12.0 CLI は Go 1.27 の export
-  data を読めず、go1.27 のまま `wails build` すると `internal error:
-  package ... without types` で失敗するためです
+- **Go** — `app/go.mod` 記載のツールチェーンバージョン
 - **Node.js** — 18+ (React フロントエンドビルド用)
-- **Wails CLI** — `go install github.com/wailsapp/wails/v2/cmd/wails@latest`
+- **Wails CLI** — `app/go.mod` が要求する版:
+  `go install github.com/wailsapp/wails/v2/cmd/wails@<その版>`。
+  `make build` は別の版を拒否し、このコマンドを表示します。古い CLI は
+  新しい Go の export data を読めず、`internal error: package ...
+  without types` で失敗します
 - **podman** (推奨) または **docker** — per-session sandbox
   ランタイム
 - **python3** — 一部の統合テストでのみ必要 (不在時は clean に

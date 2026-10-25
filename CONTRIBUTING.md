@@ -27,13 +27,13 @@ For Japanese: [CONTRIBUTING.ja.md](CONTRIBUTING.ja.md) (full parity).
 Primary development target: macOS on Apple Silicon. Cross-compilation
 is possible but not regularly tested on Intel macOS, Linux, or Windows.
 
-- **Go** — toolchain version from `app/go.mod`. `make` runs the build
-  and tests under `GOTOOLCHAIN=go1.26.10` (set in `app/Makefile`; the Go
-  command fetches it): the wails v2.12.0 CLI cannot read Go 1.27 export
-  data, so a plain `wails build` under go1.27 fails with `internal error:
-  package ... without types`
+- **Go** — toolchain version from `app/go.mod`
 - **Node.js** — 18+ for the React frontend build
-- **Wails CLI** — `go install github.com/wailsapp/wails/v2/cmd/wails@latest`
+- **Wails CLI** — the version `app/go.mod` requires:
+  `go install github.com/wailsapp/wails/v2/cmd/wails@<that version>`.
+  `make build` refuses another version and prints the command; an older
+  CLI cannot read a newer Go's export data and fails with `internal
+  error: package ... without types`
 - **podman** (preferred) or **docker** — per-session sandbox runtime
 - **python3** — required only for some integration tests (cleanly
   skipped when absent)

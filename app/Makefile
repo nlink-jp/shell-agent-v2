@@ -12,23 +12,19 @@ CODESIGN_IDENTITY ?= Developer ID Application
 NOTARY_PROFILE    ?= nlink-jp-notary
 ENTITLEMENTS      ?= ../scripts/entitlements.plist
 
-# Go toolchain for wails. The wails v2.12.0 CLI is built with
-# golang.org/x/tools v0.30.0, whose static analysis cannot read Go 1.27
-# export data: under go1.27 every `wails build` stops with "internal
-# error: package ... without types was imported from ...". Pin the
-# newest Go 1.26 patch until the wails CLI and module move past it;
-# bump it with each 1.26 security release. A GOTOOLCHAIN exported in
-# the shell overrides this.
-GOTOOLCHAIN ?= go1.26.10
-export GOTOOLCHAIN
+# The wails CLI must match the wails module in go.mod. An older CLI
+# embeds an older golang.org/x/tools, whose static analysis cannot read a
+# newer Go's export data: wails v2.12.0 failed every build under go1.27
+# with "internal error: package ... without types was imported from ...".
+WAILS_VERSION := $(shell awk '$$1 == "github.com/wailsapp/wails/v2" { print $$2 }' go.mod)
 
 # Scripts live at the project root; app/ Makefile reaches up.
 CODESIGN_SCRIPT := ../scripts/codesign-darwin-app.sh
 NOTARIZE_SCRIPT := ../scripts/notarize-darwin-app.sh
 
-.PHONY: build build-all package verify-release dev test clean
+.PHONY: build build-all package verify-release dev test clean check-wails
 
-build:
+build: check-wails
 	wails build -platform darwin/arm64 -ldflags "$(LDFLAGS)"
 	@$(CODESIGN_SCRIPT) build/bin/$(APP).app "$(CODESIGN_IDENTITY)" "$(ENTITLEMENTS)"
 	mkdir -p dist
@@ -60,7 +56,14 @@ verify-release:
 	@../scripts/verify-app-zip.sh "dist/$(APP)-$(VERSION)-darwin-arm64.zip"
 	@echo "verify-release: OK ($(VERSION) — marker present, ticket stapled, zip clean)"
 
-dev:
+## check-wails: refuse to build with a wails CLI other than go.mod's version
+check-wails:
+	@wails version 2>/dev/null | grep -qx '$(WAILS_VERSION)' || { \
+		echo "wails CLI is $$(wails version 2>/dev/null | grep -m1 '^v'), go.mod needs $(WAILS_VERSION)."; \
+		echo "  go install github.com/wailsapp/wails/v2/cmd/wails@$(WAILS_VERSION)"; \
+		exit 1; }
+
+dev: check-wails
 	wails dev
 
 test:

@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Build
+
+- **Built with the current Go again.** Wails moved from v2.12.0 to v2.16.0,
+  whose CLI reads Go 1.27, so the `GOTOOLCHAIN=go1.26.10` pin in `app/Makefile`
+  is gone. In its place, `make build` / `make dev` refuse a wails CLI other than
+  the version in `app/go.mod` and print the install command — a stale CLI is
+  what broke the build.
+- **The release zip no longer carries macOS file metadata.** `make package`
+  zipped the app with plain `ditto -c -k`, which stores each file's extended
+  attributes as `._*` AppleDouble entries (9 of them in the v0.18.0 build).
+  It now passes `--norsrc --noextattr`, and `make verify-release` runs
+  `scripts/verify-app-zip.sh` — the org's copy — which refuses a zip with
+  metadata entries or without the app icon. The published v0.18.0 zip was
+  re-zipped this way from the same notarized app before upload; v0.17.1 and
+  earlier zips still carry the entries (the app inside is unaffected).
+
 ### Security
 
 - **The read tools can no longer write.** query-sql, quick-summary,
@@ -19,17 +35,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   anything executes. `DESCRIBE`, `SUMMARIZE`, `SHOW`, `FROM t` and `WITH …
   SELECT` still work; `EXPLAIN` and dynamic `PIVOT` are now refused. Reading
   files with `read_csv` & co. remains possible. See ADR-0034.
-
-### Build
-
-- **The release zip no longer carries macOS file metadata.** `make package`
-  zipped the app with plain `ditto -c -k`, which stores each file's extended
-  attributes as `._*` AppleDouble entries (9 of them in the v0.18.0 build).
-  It now passes `--norsrc --noextattr`, and `make verify-release` runs
-  `scripts/verify-app-zip.sh` — the org's copy — which refuses a zip with
-  metadata entries or without the app icon. The published v0.18.0 zip was
-  re-zipped this way from the same notarized app before upload; v0.17.1 and
-  earlier zips still carry the entries (the app inside is unaffected).
 
 ## [0.18.0] - 2026-10-26
 

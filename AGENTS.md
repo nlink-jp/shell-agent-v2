@@ -260,10 +260,11 @@ eliminated.
   test (`engine_typesweep_test.go`) shows any other driver drift.
 - Session databases created by DuckDB 2.0 cannot be opened by DuckDB
   1.x (older shell-agent-v2); files created earlier stay readable.
-- `app/Makefile` pins `GOTOOLCHAIN=go1.26.10`: the wails v2.12.0 CLI
-  (x/tools v0.30.0) cannot read Go 1.27 export data and `wails build`
-  fails with "internal error: package ... without types". Bump the pin
-  with each Go 1.26 security release; drop it once wails moves on.
+- The wails CLI must match the wails module in `app/go.mod`
+  (`make check-wails`, run by `build` and `dev`). An older CLI embeds an
+  older x/tools that cannot read a newer Go's export data: v2.12.0 failed
+  every build under go1.27 with "internal error: package ... without
+  types". Upgrade the module and the CLI together.
 - `wails build` outputs to `build/bin/`, Makefile copies to `dist/`
 - Local backend maps tool→user role (gemma-4 workaround)
 - Vertex AI uses native FunctionCall/FunctionResponse

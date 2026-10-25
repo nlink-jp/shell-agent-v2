@@ -6,7 +6,7 @@ require (
 	github.com/duckdb/duckdb-go/v2 v2.20000.0
 	github.com/google/uuid v1.6.0
 	github.com/nlink-jp/nlk v0.5.2
-	github.com/wailsapp/wails/v2 v2.12.0
+	github.com/wailsapp/wails/v2 v2.16.0
 	google.golang.org/genai v1.54.0
 )
 
