@@ -16,9 +16,10 @@ ENTITLEMENTS      ?= ../scripts/entitlements.plist
 # golang.org/x/tools v0.30.0, whose static analysis cannot read Go 1.27
 # export data: under go1.27 every `wails build` stops with "internal
 # error: package ... without types was imported from ...". Pin the
-# release toolchain until the wails CLI and module move past it.
-# Override with GOTOOLCHAIN=... on the command line.
-GOTOOLCHAIN ?= go1.26.4
+# newest Go 1.26 patch until the wails CLI and module move past it;
+# bump it with each 1.26 security release. A GOTOOLCHAIN exported in
+# the shell overrides this.
+GOTOOLCHAIN ?= go1.26.10
 export GOTOOLCHAIN
 
 # Scripts live at the project root; app/ Makefile reaches up.

@@ -35,15 +35,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   updated**: `golang.org/x/net` v0.60.0 (GO-2026-6617, -6612, -6611, -6610,
   -6603, -5026, -4918), `google.golang.org/grpc` v1.83.1 (GO-2026-6348,
   -6061), `golang.org/x/text` v0.42.0 (GO-2026-5970) and
-  `go.opentelemetry.io/otel` v1.44.0 (GO-2026-5506). `govulncheck` now reports
-  none reachable.
+  `go.opentelemetry.io/otel` v1.44.0 (GO-2026-5506), and `grpc` further to
+  v1.83.2 (GO-2026-6443). `govulncheck` now reports none reachable.
+- **Built with Go 1.26.10.** The previous release was built with Go 1.26.4,
+  whose standard library has reachable vulnerabilities in `net/http`,
+  `crypto/tls` and `crypto/x509` (fixed by 1.26.9 / 1.26.10).
 
 ### Build
 
 - `make build` / `make dev` no longer pass `-tags no_duckdb_arrow`: the new
   driver's Arrow interface is opt-in, so the tag does nothing and Arrow stays
   out of the binary as before.
-- `make` pins `GOTOOLCHAIN=go1.26.4`. The wails v2.12.0 CLI's static analysis
+- `make` pins `GOTOOLCHAIN=go1.26.10`. The wails v2.12.0 CLI's static analysis
   (golang.org/x/tools v0.30.0) cannot read Go 1.27 export data, so under go1.27
   every `wails build` stopped with `internal error: package ... without types
   was imported from ...`. Override with `GOTOOLCHAIN=...` on the command line.
