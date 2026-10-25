@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -20,7 +21,7 @@ import (
 // the canonical form for the six types Phase 1 fixed:
 // UUID, BLOB, DECIMAL, INTERVAL, MAP, TIME.
 //
-// Display-quality issues for LIST / STRUCT / JSON-as-VARCHAR are
+// Display-quality issues for LIST / STRUCT / JSON are
 // printed (not asserted) so future drift remains visible. New
 // DuckDB types or driver upgrades that change the rendering of an
 // asserted type fail the test — that is the intended retrofit gate.
@@ -313,4 +314,36 @@ func scanZero(ct *sql.ColumnType) any {
 		return reflect.New(t).Elem().Interface()
 	}
 	return nil
+}
+
+// TestNestedMapRendersLikeTopLevel pins a MAP inside a LIST and a STRUCT:
+// the driver hands those over as duckdb.OrderedMap, whose String() is a
+// debugging form, and CSV export formats nested values with %v.
+func TestNestedMapRendersLikeTopLevel(t *testing.T) {
+	tmpDir := t.TempDir()
+	e := &Engine{
+		sessionID: "nestedmap",
+		dbPath:    filepath.Join(tmpDir, "x.duckdb"),
+		tables:    make(map[string]*TableMeta),
+	}
+	defer e.Close()
+	if err := e.Open(); err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if _, err := e.db.Exec(`CREATE TABLE n AS SELECT [MAP {'k': 'v'}] AS l, {'m': MAP {'k': 'v'}} AS s`); err != nil {
+		t.Fatalf("CREATE: %v", err)
+	}
+	var buf bytes.Buffer
+	if _, _, err := e.QuerySQLToCSV("SELECT l, s FROM n", &buf); err != nil {
+		t.Fatalf("QuerySQLToCSV: %v", err)
+	}
+	body := buf.String()
+	if strings.Contains(body, "OrderedMap") {
+		t.Errorf("CSV carries the driver's debugging form:\n%s", body)
+	}
+	for _, want := range []string{"[map[k:v]]", "map[m:map[k:v]]"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("CSV missing %q; got:\n%s", want, body)
+		}
+	}
 }

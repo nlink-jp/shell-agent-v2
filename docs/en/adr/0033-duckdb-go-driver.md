@@ -36,19 +36,23 @@ targets (DuckDB `main`), so the CVE fix arrives as a patch bump.
 Changes it takes:
 
 - **MAP** now scans into `duckdb.OrderedMap` instead of `duckdb.Map`.
-  `renderScalar` converts it with `mapToStringKeyed`, so the UI, the
-  LLM tool result and CSV export show the same values as before. The
-  type-sweep test caught this as the only drift; every other type
-  scans into the same Go value as under v1.8.5.
+  `renderScalar` converts it with `mapToStringKeyed` — at the top level
+  and inside LIST / STRUCT values — so the UI, the LLM tool result and
+  CSV export show the same values as before. The type-sweep test's
+  assertions caught this; its logged output showed no other change in
+  the Go values, and the one driver-level difference seen (a JSON
+  column's `DatabaseTypeName` is now `JSON` instead of `VARCHAR`)
+  reaches no dispatch entry.
 - **Arrow is opt-in** (`-tags duckdb_arrow`) instead of opt-out, so the
   `no_duckdb_arrow` tag is dropped from the Makefile. Arrow stays out
   of the binary.
 - **Database files.** Session databases created before this release
   open and stay readable by older versions after DuckDB 2.0 writes to
-  them (measured: a v1.1.3 file written by v2.0.0 reopens in v1.1.3).
-  A database *created* by DuckDB 2.0 cannot be opened by DuckDB 1.x,
-  so a session made by this release — or a `.shellagent` bundle holding
-  one — does not open in v0.17.x.
+  them (measured: files created by v1.1.3 and by v1.4.1, then written
+  by v2.0.0, reopen in the version that created them). A database
+  *created* by DuckDB 2.0 cannot be opened by DuckDB 1.x (measured with
+  both versions), so a session made by this release — or a
+  `.shellagent` bundle holding one — does not open in v0.17.x.
 
 ## 3. Consequences
 

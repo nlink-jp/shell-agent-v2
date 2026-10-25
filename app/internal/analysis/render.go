@@ -71,6 +71,13 @@ func renderScalar(v any, dbTypeName string) any {
 			return mapToStringKeyed(m)
 		}
 	}
+	// LIST / STRUCT: a MAP nested inside arrives as duckdb.OrderedMap,
+	// whose String() is a debugging form; convert it the same way as a
+	// top-level MAP. Other nested types still pass through (ADR-0010 §2).
+	switch v.(type) {
+	case []any, map[string]any:
+		return unwrapOrderedMaps(v)
+	}
 	// VARCHAR (and any text-like type that arrives as []byte):
 	// preserve the existing convenience cast so json.Marshal emits
 	// readable text instead of base64. Restricted to types we
@@ -170,15 +177,38 @@ func formatInterval(iv duckdb.Interval) string {
 // mapToStringKeyed converts duckdb.OrderedMap to a map[string]any
 // that prints as map[k:v] (OrderedMap's own String() is a debugging
 // form) and marshals as a JSON object. Keys are rendered via fmt %v;
-// values are passed through (nested DuckDB types in values are not
-// re-dispatched in Phase 1 — see ADR-0010 §2 non-goals).
+// values pass through except nested MAPs (other nested DuckDB types
+// are not re-dispatched in Phase 1 — see ADR-0010 §2 non-goals).
 func mapToStringKeyed(m duckdb.OrderedMap) map[string]any {
 	keys, vals := m.Keys(), m.Values()
 	out := make(map[string]any, len(keys))
 	for i, k := range keys {
-		out[fmt.Sprintf("%v", k)] = vals[i]
+		out[fmt.Sprintf("%v", k)] = unwrapOrderedMaps(vals[i])
 	}
 	return out
+}
+
+// unwrapOrderedMaps replaces every duckdb.OrderedMap inside lists and
+// struct fields with its mapToStringKeyed form, leaving all other
+// values as they are.
+func unwrapOrderedMaps(v any) any {
+	switch d := v.(type) {
+	case duckdb.OrderedMap:
+		return mapToStringKeyed(d)
+	case []any:
+		out := make([]any, len(d))
+		for i, e := range d {
+			out[i] = unwrapOrderedMaps(e)
+		}
+		return out
+	case map[string]any:
+		out := make(map[string]any, len(d))
+		for k, e := range d {
+			out[k] = unwrapOrderedMaps(e)
+		}
+		return out
+	}
+	return v
 }
 
 // columnTypeNames extracts DatabaseTypeName for each column,

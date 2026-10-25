@@ -36,16 +36,18 @@ CVE の修正はパッチ版の更新で入る。
 これに伴う変更:
 
 - **MAP** は `duckdb.Map` ではなく `duckdb.OrderedMap` に Scan されるように
-  なった。`renderScalar` が `mapToStringKeyed` で変換するので、UI・LLM への
-  ツール結果・CSV 出力の値は従来どおり。型スイープテストが検出したずれは
-  これだけで、他の型は v1.8.5 と同じ Go の値に Scan される。
+  なった。`renderScalar` が `mapToStringKeyed` で変換する (最上位と、LIST /
+  STRUCT の中の両方) ので、UI・LLM へのツール結果・CSV 出力の値は従来どおり。
+  型スイープテストのアサーションがこれを検出した。ログ出力では他の Go の値に
+  変化は無く、ドライバ側で見えた唯一の違い (JSON 列の `DatabaseTypeName` が
+  `VARCHAR` から `JSON` になった) はどのディスパッチ項目にも当たらない。
 - **Arrow は opt-out から opt-in (`-tags duckdb_arrow`) になった**ので、
   Makefile から `no_duckdb_arrow` タグを外した。Arrow はバイナリに入らない
   ままである。
 - **データベースファイル。** 本リリースより前に作られたセッション DB は、
-  DuckDB 2.0 が書き込んだ後も旧版で開ける (実測: v1.1.3 で作り v2.0.0 で
-  書いたファイルを v1.1.3 で再度開けた)。DuckDB 2.0 が*新規作成*した DB は
-  DuckDB 1.x では開けないため、本リリースで作ったセッション — およびそれを
+  DuckDB 2.0 が書き込んだ後も旧版で開ける (実測: v1.1.3 と v1.4.1 でそれぞれ
+  作り v2.0.0 で書いたファイルを、作成した版で再度開けた)。DuckDB 2.0 が
+  *新規作成*した DB は DuckDB 1.x では開けない (両版で実測) ため、本リリースで作ったセッション — およびそれを
   含む `.shellagent` バンドル — は v0.17.x では開けない。
 
 ## 3. 結果

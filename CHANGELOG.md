@@ -14,7 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   DuckDB v1.1.3). The old module path no longer receives releases, so the
   analysis engine could never take a DuckDB fix. The UI, the LLM's tool results
   and CSV export render every type as before: MAP now arrives as an ordered map
-  and is converted to the same string-keyed form. See ADR-0033.
+  and is converted to the same string-keyed form, including a MAP inside a LIST
+  or STRUCT. See ADR-0033.
 - **Sessions created by this release do not open in older versions.** DuckDB 2.0
   writes a storage format DuckDB 1.x cannot read. Session databases created
   earlier keep working here and stay readable by v0.17.x after this release has
