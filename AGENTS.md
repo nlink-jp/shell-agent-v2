@@ -255,6 +255,12 @@ eliminated.
   (v2.20000.x bundles DuckDB v2.0; `marcboeker/go-duckdb` is frozen).
   Its Arrow interface is opt-in — never add `-tags duckdb_arrow` (Arrow
   collides with Wails); the old `no_duckdb_arrow` tag is a no-op now.
+- Agent-written SQL never runs on the read-write DuckDB instance
+  (`Engine.db`). Reads close it and use `openReaderLocked`: a throwaway
+  in-memory instance with the session file attached READ_ONLY;
+  save-query stages its result through such a reader. Every write path
+  must call `ensureWriterLocked` after taking `e.mu` — `e.db` may be nil
+  while the engine is open (`e.opened`). See ADR-0034.
 - MAP scans into `duckdb.OrderedMap`, whose `String()` is a debugging
   form; `renderScalar` turns it into `map[string]any`. The type-sweep
   test (`engine_typesweep_test.go`) shows any other driver drift.

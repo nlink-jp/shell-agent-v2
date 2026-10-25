@@ -32,14 +32,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   dropped the table), as did `WITH … INSERT`, `COPY … TO`, `ATTACH`, `SET`,
   `CALL` and `EXPLAIN ANALYZE`. The engine now enforces it in three layers: the
   query must be one statement of type SELECT as DuckDB's parser classifies it;
-  it runs in a `READ ONLY` transaction, which also refuses a data-modifying CTE
-  (`WITH d AS (DELETE … RETURNING *) SELECT …`); and the configuration is locked
-  with extension autoinstall/autoload off, which refuses `enable_profiling` /
-  `enable_logging` (both wrote files from a plain SELECT) and extension
-  installs. save_query runs its body nested, where DuckDB rejects a
-  data-modifying CTE. `DESCRIBE`, `SUMMARIZE`, `SHOW`, `FROM t` and `WITH …
-  SELECT` still work; `EXPLAIN` and dynamic `PIVOT` are now refused; reading
-  local files with `read_csv` & co. remains possible. See ADR-0034.
+  agent SQL runs on a throwaway in-memory instance with the session file
+  attached `READ_ONLY`, so DuckDB refuses every write to it — a data-modifying
+  CTE (`WITH d AS (DELETE … RETURNING *) SELECT …`), `dbgen` / `dsdgen`, and SQL
+  run through `json_execute_serialized_sql`, which a read-only transaction did
+  not stop; and the configuration is locked with extension autoinstall/autoload
+  off, which refuses `enable_profiling` / `enable_logging` (both wrote files
+  from a plain SELECT) and extension installs. save_query runs its body the same
+  way into a staging file and copies only the result table into the session.
+  `DESCRIBE`, `SUMMARIZE`, `SHOW`, `FROM t` and `WITH … SELECT` still work;
+  `EXPLAIN` and dynamic `PIVOT` are now refused; reading local files with
+  `read_csv` & co. remains possible. See ADR-0034.
 
 ## [0.18.0] - 2026-10-26
 

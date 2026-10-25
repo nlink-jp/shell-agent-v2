@@ -40,9 +40,15 @@ type TableMeta struct {
 type Engine struct {
 	sessionID string
 	dbPath    string
-	db        *sql.DB
-	tables    map[string]*TableMeta
-	mu        sync.Mutex
+	// db is the read-write instance. Agent SQL never runs on it: a
+	// read closes it and runs on a separate instance that attaches the
+	// file READ_ONLY (openReaderLocked, ADR-0034), and the next write
+	// reopens it (ensureWriterLocked). opened records that the session
+	// database is in use, whichever instance currently holds it.
+	db     *sql.DB
+	opened bool
+	tables map[string]*TableMeta
+	mu     sync.Mutex
 
 	// Row caps, configurable per session (ADR-0029). 0 → the
 	// package default (DefaultMaxQueryRows / DefaultMaxExportRows).
@@ -116,6 +122,20 @@ func (e *Engine) Open() error {
 		return fmt.Errorf("create session dir: %w", err)
 	}
 
+	if err := e.ensureWriterLocked(); err != nil {
+		return err
+	}
+	e.opened = true
+
+	return e.rebuildTableMeta()
+}
+
+// ensureWriterLocked opens the read-write instance if a read closed
+// it. The caller holds e.mu.
+func (e *Engine) ensureWriterLocked() error {
+	if e.db != nil {
+		return nil
+	}
 	db, err := sql.Open("duckdb", e.dbPath)
 	if err != nil {
 		return fmt.Errorf("open duckdb: %w", err)
@@ -125,8 +145,7 @@ func (e *Engine) Open() error {
 		return err
 	}
 	e.db = db
-
-	return e.rebuildTableMeta()
+	return nil
 }
 
 // Close releases the DuckDB connection.
@@ -134,10 +153,11 @@ func (e *Engine) Close() error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
+	e.opened = false
+	e.tables = make(map[string]*TableMeta)
 	if e.db != nil {
 		err := e.db.Close()
 		e.db = nil
-		e.tables = make(map[string]*TableMeta)
 		return err
 	}
 	return nil
@@ -161,7 +181,7 @@ func (e *Engine) OpenIfExists() error {
 func (e *Engine) IsOpen() bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return e.db != nil
+	return e.opened
 }
 
 // DBPath returns the path to the session's DuckDB file.
@@ -215,6 +235,9 @@ func (e *Engine) LoadCSV(tableName, filePath string) error {
 
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if err := e.ensureWriterLocked(); err != nil {
+		return err
+	}
 
 	query := fmt.Sprintf(
 		"CREATE OR REPLACE TABLE %s AS SELECT * FROM read_csv_auto('%s')",
@@ -239,6 +262,9 @@ func (e *Engine) LoadJSON(tableName, filePath string) error {
 
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if err := e.ensureWriterLocked(); err != nil {
+		return err
+	}
 
 	query := fmt.Sprintf(
 		"CREATE OR REPLACE TABLE %s AS SELECT * FROM read_json_auto('%s')",
@@ -263,6 +289,9 @@ func (e *Engine) LoadJSONL(tableName, filePath string) error {
 
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if err := e.ensureWriterLocked(); err != nil {
+		return err
+	}
 
 	query := fmt.Sprintf(
 		"CREATE OR REPLACE TABLE %s AS SELECT * FROM read_json_auto('%s', format='newline_delimited')",
@@ -288,10 +317,9 @@ func (e *Engine) LoadJSONL(tableName, filePath string) error {
 // (ADR §3.1, §6.6). The caller (toolSaveQuery) surfaces three
 // suggested alternative names so the LLM can retry.
 //
-// The body SQL must parse as a single SELECT statement
-// (requireSelect, ADR-0034) and runs nested as a subquery, where
-// DuckDB rejects a data-modifying CTE — so the only write is the
-// CREATE TABLE itself.
+// The body SQL must parse as a single SELECT statement and runs on a
+// reader against the read-only session database (saveQueryLocked,
+// ADR-0034) — so the only write is the CREATE TABLE itself.
 func (e *Engine) CreateFromQuery(name, query, description string) (*TableMeta, error) {
 	if !identifierRegex.MatchString(name) {
 		return nil, fmt.Errorf("table name must be alphanumeric and underscores only (starting with a letter or underscore); got: %q", name)
@@ -307,17 +335,8 @@ func (e *Engine) CreateFromQuery(name, query, description string) (*TableMeta, e
 		return nil, fmt.Errorf("name %q is already in use; try %s_v2, %s_filtered, or %s_derived instead", name, name, name, name)
 	}
 
-	conn, err := e.db.Conn(context.Background())
-	if err != nil {
+	if err := e.saveQueryLocked(name, query); err != nil {
 		return nil, err
-	}
-	defer conn.Close()
-	if err := requireSelect(conn, query); err != nil {
-		return nil, wrapQueryErr("save query", err)
-	}
-	ddl := fmt.Sprintf("CREATE TABLE %s AS %s", sanitizeIdentifier(name), nestedBody(query))
-	if _, err := conn.ExecContext(context.Background(), ddl); err != nil {
-		return nil, fmt.Errorf("save query: %w", err)
 	}
 
 	if err := e.refreshTableMeta(name); err != nil {
@@ -337,6 +356,53 @@ func (e *Engine) CreateFromQuery(name, query, description string) (*TableMeta, e
 	}
 
 	return e.tables[name], nil
+}
+
+// saveQueryLocked materialises query as table name. The body runs on a
+// reader — the session database READ_ONLY — into a fresh staging file,
+// and only the read-write instance copies the result table across, so
+// nothing the body does can reach the session database. The caller
+// holds e.mu.
+func (e *Engine) saveQueryLocked(name, query string) error {
+	ctx := context.Background()
+	stage := filepath.Join(filepath.Dir(e.dbPath),
+		fmt.Sprintf(".save-query-%d.duckdb", time.Now().UnixNano()))
+	defer os.Remove(stage + ".wal")
+	defer os.Remove(stage)
+
+	r, err := e.openReaderLocked(ctx, stage)
+	if err != nil {
+		return err
+	}
+	if err := requireSelect(r.conn, query); err != nil {
+		r.Close()
+		return wrapQueryErr("save query", err)
+	}
+	if _, err := r.conn.ExecContext(ctx, "CREATE TABLE stage.result AS "+query); err != nil {
+		r.Close()
+		return fmt.Errorf("save query: %w", err)
+	}
+	if err := r.Close(); err != nil {
+		return fmt.Errorf("save query: %w", err)
+	}
+
+	if err := e.ensureWriterLocked(); err != nil {
+		return err
+	}
+	conn, err := e.db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, "ATTACH '"+escapeSQLString(stage)+"' AS stage (READ_ONLY)"); err != nil {
+		return fmt.Errorf("save query: %w", err)
+	}
+	defer conn.ExecContext(ctx, "DETACH stage")
+	ddl := fmt.Sprintf("CREATE TABLE %s AS SELECT * FROM stage.result", sanitizeIdentifier(name))
+	if _, err := conn.ExecContext(ctx, ddl); err != nil {
+		return fmt.Errorf("save query: %w", err)
+	}
+	return nil
 }
 
 // validateFilePath ensures the path exists, is a regular file, and contains
@@ -448,13 +514,17 @@ func (e *Engine) QuerySQLToCSV(query string, w io.Writer) (columns []string, row
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	conn, err := beginRead(context.Background(), e.db, query)
+	ctx := context.Background()
+	r, err := e.openReaderLocked(ctx, "")
 	if err != nil {
+		return nil, 0, err
+	}
+	defer r.Close()
+	if err := requireSelect(r.conn, query); err != nil {
 		return nil, 0, wrapQueryErr("query", err)
 	}
-	defer conn.Close()
 
-	rows, err := conn.QueryContext(context.Background(), query)
+	rows, err := r.conn.QueryContext(ctx, query)
 	if err != nil {
 		return nil, 0, fmt.Errorf("query: %w", err)
 	}
@@ -560,6 +630,9 @@ func (e *Engine) PreviewTable(tableName string, limit int) (*TablePreview, error
 
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if err := e.ensureWriterLocked(); err != nil {
+		return nil, err
+	}
 
 	q := fmt.Sprintf("SELECT * FROM %s LIMIT %d", sanitizeIdentifier(tableName), limit)
 	rows, err := e.db.Query(q)
@@ -646,13 +719,17 @@ func (e *Engine) querySQLBounded(query string, maxRows int, hint string) ([]map[
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	conn, err := beginRead(context.Background(), e.db, query)
+	ctx := context.Background()
+	r, err := e.openReaderLocked(ctx, "")
 	if err != nil {
+		return nil, err
+	}
+	defer r.Close()
+	if err := requireSelect(r.conn, query); err != nil {
 		return nil, wrapQueryErr("query", err)
 	}
-	defer conn.Close()
 
-	rows, err := conn.QueryContext(context.Background(), query)
+	rows, err := r.conn.QueryContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("query: %w", err)
 	}
@@ -693,8 +770,11 @@ func (e *Engine) SetTableDescription(tableName, description string) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	if e.db == nil {
+	if !e.opened {
 		return fmt.Errorf("database not open")
+	}
+	if err := e.ensureWriterLocked(); err != nil {
+		return err
 	}
 
 	query := fmt.Sprintf("COMMENT ON TABLE %s IS '%s'",
@@ -715,8 +795,11 @@ func (e *Engine) Reset() error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	if e.db == nil {
+	if !e.opened {
 		return nil
+	}
+	if err := e.ensureWriterLocked(); err != nil {
+		return err
 	}
 
 	for name := range e.tables {

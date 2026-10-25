@@ -147,8 +147,9 @@ release order.
   into `OrderedMap`; sessions created by DuckDB 2.0 do not open in
   older versions (v0.18.0)
 - [`ADR-0034`](adr/0034-read-only-sql-by-statement-type.md) — Enforce
-  read-only agent SQL in the engine — single-SELECT statement type, a
-  READ ONLY transaction, and a locked configuration — instead of a
+  read-only agent SQL in the engine — single-SELECT statement type, the
+  session file attached READ_ONLY on a throwaway instance, and a locked
+  configuration — instead of a
   keyword prefix list, which let `SELECT 1; DROP TABLE t`, data-modifying
   CTEs, `COPY` and file-writing table functions through the read tools;
   file reads stay possible (accepted residual) (v0.18.1)

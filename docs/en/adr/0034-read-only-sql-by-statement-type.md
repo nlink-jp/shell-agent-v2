@@ -36,7 +36,12 @@ was itself measured past by the pre-release review:
 
 Both checks decided "does not write" from a stand-in (the text, then
 the statement type). Each stand-in let through the writes it did not
-describe.
+describe. A second review pass then broke a `READ ONLY` transaction
+too: `json_execute_serialized_sql(json_serialize_sql('<DELETE …>'))`
+runs its SQL on an internal connection outside the caller's
+transaction, and deleted the rows; in save_query, `dbgen` / `dsdgen`
+(TPC-H/DS, statically linked) created 8 and 24 tables next to the
+saved one.
 
 ## 2. Decision
 
@@ -51,22 +56,30 @@ others cannot:
    dynamic `PIVOT` before anything runs, with a message the agent can
    act on. `SELECT`, `FROM t`, `WITH … SELECT`, `VALUES`, `DESCRIBE`,
    `SUMMARIZE`, `SHOW` and `PIVOT … IN (…)` are type SELECT.
-2. **Read-only transaction** (`beginRead`). The read paths run the
-   query on a reserved connection inside `BEGIN TRANSACTION READ ONLY`
-   and roll back afterwards. DuckDB refuses any write to the database
-   in it — the data-modifying CTE included. A connection whose ROLLBACK
-   fails is discarded, not returned to the pool read-only.
-3. **Locked configuration** (`lockConfiguration`, at Open). Extension
-   autoinstall and autoload are switched off and `lock_configuration`
-   is set. DuckDB then refuses `enable_profiling` / `enable_logging`
-   from any query, and a URL read no longer installs an extension.
-   Nothing in the engine changes a setting after Open, and the formats
-   load-data reads (CSV, JSON) are built in.
+2. **Read-only database** (`openReaderLocked`). Agent SQL never runs on
+   the read-write instance. A read closes it and runs the query on a
+   throwaway in-memory instance that attaches the session file
+   `READ_ONLY` under its usual name and makes it the default. The
+   database itself is read-only there, so DuckDB refuses every write to
+   it from any connection — the data-modifying CTE, `dbgen`, and SQL run
+   by `json_execute_serialized_sql` alike. What such SQL can still
+   write lands in the throwaway instance's own in-memory catalog and is
+   discarded. The next write reopens the read-write instance; only one
+   instance has the file open at a time, under the engine's mutex.
+3. **Locked configuration** (`lockConfiguration`, on every instance).
+   Extension autoinstall and autoload are switched off and
+   `lock_configuration` is set. DuckDB then refuses `enable_profiling` /
+   `enable_logging` from any query, and a URL read no longer installs an
+   extension. Nothing in the engine changes a setting afterwards, and
+   the formats load-data reads (CSV, JSON) are built in.
 
-save_query must write, so it checks its body with layer 1 and runs
-`CREATE TABLE <name> AS SELECT * FROM (<body>)`. Nested, the body is
-bound as a subquery, where DuckDB rejects a data-modifying CTE; layer 3
-covers the table functions.
+save_query must write, so it runs its body the same way: on a reader,
+with a fresh staging file attached writable, as
+`CREATE TABLE stage.result AS <body>`. The read-write instance then
+attaches the staging file `READ_ONLY` and copies that one table in
+(`CREATE TABLE <name> AS SELECT * FROM stage.result`), and the staging
+file is deleted. Column types survive the copy; whatever else the body
+writes stays in the throwaway instance or the deleted staging file.
 
 A parse or bind error is DuckDB's own and is reported with the usual
 `query:` / `save query:` prefix; only layer 1's refusal uses its own
@@ -74,16 +87,24 @@ message.
 
 ## 3. Consequences
 
-- Whether agent SQL can write is decided by DuckDB's transaction and
-  configuration machinery, not by how the query is spelled.
+- Whether agent SQL can write is decided by DuckDB's access mode and
+  configuration lock, not by how the query is spelled or which function
+  it calls.
+- A read closes the read-write instance (a checkpoint) and the next
+  write reopens it. A run of queries costs one switch; alternating
+  reads and writes costs one each time.
 - `EXPLAIN` and dynamic `PIVOT` are refused where the old check let
   them through; `PIVOT … ON … IN (…)` and plain SELECTs cover the same
   ground.
-- The test drives each refused form — including leading writes in a
-  multi-statement query, the data-modifying CTEs and the file-writing
-  table functions — through all three read paths and save_query, and
-  checks the table, the attached databases and the files afterwards. A
-  control run with layers 2 and 3 removed fails it.
+- The test drives each refused form — leading writes in a
+  multi-statement query, the data-modifying CTEs, `dbgen` / `dsdgen`,
+  `json_execute_serialized_sql`, and the file-writing table functions —
+  through all three read paths and save_query, and checks the tables,
+  the attached databases and the files afterwards. A control run with
+  the session file attached writable, or with the lock removed, fails
+  it. A second test pins that writes after a read reopen the read-write
+  instance (Reset used to return early on a closed handle) and that
+  save_query keeps column types and leaves no staging file.
 
 ## 4. Accepted residual: reading files
 

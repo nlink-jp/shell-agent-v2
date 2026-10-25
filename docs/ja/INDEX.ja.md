@@ -143,7 +143,8 @@ shell-agent-v2 メンテナ向けドキュメントの入口。ユーザー向�
   Scan; DuckDB 2.0 が作ったセッションは旧版で開けない (v0.18.0)
 - [`ADR-0034`](adr/0034-read-only-sql-by-statement-type.ja.md) — LLM が書く
   SQL の読み取り専用を、キーワード接頭辞の一覧ではなくエンジンで強制する
-  (単一 SELECT の文の種別・READ ONLY トランザクション・設定のロック)。旧判定は
+  (単一 SELECT の文の種別・使い捨てインスタンスにセッションファイルを READ_ONLY で
+  ATTACH・設定のロック)。旧判定は
   `SELECT 1; DROP TABLE t`・データ変更 CTE・`COPY`・ファイルを書くテーブル関数を
   読み取りツールで通していた; ファイル読み取りは残す (受け入れた残余) (v0.18.1)
 

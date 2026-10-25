@@ -1,26 +1,26 @@
 // Package analysis — read-only enforcement for agent-written SQL.
 //
-// query-sql, quick-summary and export-sql-to-csv only read, and
-// create-from-query only adds a table. The SQL they run is written by
-// the LLM, so the engine enforces that, in three layers that each close
-// what the others cannot (ADR-0034):
+// query-sql, quick-summary, analyze-data and export-sql-to-csv only
+// read, and save-query only adds a table. The SQL they run is written
+// by the LLM, so the engine enforces that, in three layers (ADR-0034):
 //
 //  1. Statement type. DuckDB's parser must classify the query as exactly
 //     one SELECT statement. This refuses a second statement after a
 //     semicolon, INSERT/UPDATE/DELETE, COPY, ATTACH, SET, INSTALL, LOAD,
-//     CALL and EXPLAIN before anything runs.
-//  2. A read-only transaction. A data-modifying CTE at the top level
-//     (WITH d AS (DELETE … RETURNING *) SELECT …) is still type SELECT;
-//     DuckDB refuses its write when the transaction is READ ONLY.
-//  3. A locked configuration (lockConfiguration, at Open). Table
-//     functions such as enable_profiling / enable_logging write files
-//     from a plain SELECT, and reading a URL installs an extension;
-//     with the configuration locked and extension autoload/autoinstall
-//     off, DuckDB refuses both.
+//     CALL and EXPLAIN before anything runs, with a message the agent
+//     can act on.
+//  2. A read-only database. The query runs on a throwaway in-memory
+//     instance that attaches the session file READ_ONLY. DuckDB refuses
+//     every write to it — a data-modifying CTE, dbgen, and SQL run by
+//     functions on internal connections (json_execute_serialized_sql),
+//     which a READ ONLY transaction does not contain.
+//  3. A locked configuration with extension autoinstall/autoload off,
+//     on every instance. A plain SELECT of enable_profiling /
+//     enable_logging writes files, and reading a URL installs an
+//     extension; DuckDB refuses both.
 //
-// create-from-query must write, so it runs the body nested as
-// SELECT * FROM (<body>), where DuckDB's binder rejects a
-// data-modifying CTE.
+// save-query runs its body on such a reader into a separate staging
+// file, then copies the one result table into the session database.
 package analysis
 
 import (
@@ -29,14 +29,15 @@ import (
 	"database/sql/driver"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	duckdb "github.com/duckdb/duckdb-go/v2"
 )
 
 // lockStatements switch off extension autoinstall/autoload and lock
-// the configuration for the life of the database instance. Nothing in
-// the engine changes a setting after Open, and every format load-data
+// the configuration for the life of a database instance. Nothing in
+// the engine changes a setting afterwards, and every format load-data
 // reads (CSV, JSON) is built in.
 var lockStatements = []string{
 	"SET autoinstall_known_extensions = false",
@@ -73,7 +74,7 @@ func statementType(conn *sql.Conn, query string) (duckdb.StmtType, error) {
 }
 
 // errNotSelect is the gate's own refusal. Any other error from
-// readConn is DuckDB's parse or bind error for the query itself, which
+// requireSelect is DuckDB's parse or bind error for the query itself, which
 // callers report the way they report an execution error.
 var errNotSelect = errors.New("query must be a single SELECT statement; INSERT/UPDATE/DELETE/COPY/ATTACH/SET, other statements and a second statement after a semicolon are rejected")
 
@@ -95,49 +96,67 @@ func requireSelect(conn *sql.Conn, query string) error {
 	return nil
 }
 
-// readConn is a reserved connection inside a READ ONLY transaction, on
-// which query has passed requireSelect. Close rolls the transaction
-// back before returning the connection to the pool.
-type readConn struct {
-	*sql.Conn
+// reader is a throwaway in-memory DuckDB instance with the session
+// database attached READ_ONLY (and, for save-query, a writable staging
+// database), reserved to one connection on which it is the default.
+type reader struct {
+	db   *sql.DB
+	conn *sql.Conn
 }
 
-// beginRead reserves a connection, checks query, and opens a READ ONLY
-// transaction on it. The caller runs query on the returned connection
-// and closes it after the rows.
-func beginRead(ctx context.Context, db *sql.DB, query string) (*readConn, error) {
+// Close releases the reader's connection and instance.
+func (r *reader) Close() error {
+	return errors.Join(r.conn.Close(), r.db.Close())
+}
+
+// readerAlias names the attached session database the way DuckDB names
+// it when the file is opened directly (its file stem), so qualified
+// names in agent SQL resolve the same on both instances.
+func readerAlias(dbPath string) string {
+	stem := strings.TrimSuffix(filepath.Base(dbPath), filepath.Ext(dbPath))
+	switch strings.ToLower(stem) {
+	case "", "memory", "system", "temp", "stage":
+		return "session"
+	}
+	return stem
+}
+
+// openReaderLocked closes the read-write instance — so only one
+// instance has the file open — and returns a reader on the session
+// database. stage, if not empty, is attached writable as "stage". The
+// caller holds e.mu, has opened the engine, and closes the reader.
+func (e *Engine) openReaderLocked(ctx context.Context, stage string) (*reader, error) {
+	if e.db != nil {
+		err := e.db.Close()
+		e.db = nil
+		if err != nil {
+			return nil, fmt.Errorf("close read-write instance: %w", err)
+		}
+	}
+	db, err := sql.Open("duckdb", "")
+	if err != nil {
+		return nil, fmt.Errorf("open reader: %w", err)
+	}
 	conn, err := db.Conn(ctx)
 	if err != nil {
-		return nil, err
+		db.Close()
+		return nil, fmt.Errorf("open reader: %w", err)
 	}
-	if err := requireSelect(conn, query); err != nil {
-		conn.Close()
-		return nil, err
+	r := &reader{db: db, conn: conn}
+	alias := sanitizeIdentifier(readerAlias(e.dbPath))
+	stmts := []string{"ATTACH '" + escapeSQLString(e.dbPath) + "' AS " + alias + " (READ_ONLY)"}
+	if stage != "" {
+		stmts = append(stmts, "ATTACH '"+escapeSQLString(stage)+"' AS stage")
 	}
-	if _, err := conn.ExecContext(ctx, "BEGIN TRANSACTION READ ONLY"); err != nil {
-		conn.Close()
-		return nil, fmt.Errorf("begin read-only transaction: %w", err)
+	stmts = append(stmts, "USE "+alias)
+	stmts = append(stmts, lockStatements...)
+	for _, stmt := range stmts {
+		if _, err := conn.ExecContext(ctx, stmt); err != nil {
+			r.Close()
+			return nil, fmt.Errorf("open reader (%s): %w", stmt, err)
+		}
 	}
-	return &readConn{conn}, nil
-}
-
-// Close ends the read-only transaction and releases the connection. A
-// connection whose ROLLBACK failed may still be read-only, so it is
-// discarded rather than handed to the next writer.
-func (r *readConn) Close() error {
-	if _, err := r.ExecContext(context.Background(), "ROLLBACK"); err != nil {
-		_ = r.Raw(func(any) error { return driver.ErrBadConn })
-	}
-	return r.Conn.Close()
-}
-
-// nestedBody wraps a create-from-query body so that DuckDB binds it as
-// a subquery, where a data-modifying CTE is rejected. The body goes on
-// its own lines so a trailing line comment cannot swallow the closing
-// parenthesis, and a trailing semicolon is dropped.
-func nestedBody(query string) string {
-	body := strings.TrimRight(strings.TrimSpace(query), "; \t\r\n")
-	return "SELECT * FROM (\n" + body + "\n)"
+	return r, nil
 }
 
 // wrapQueryErr prefixes DuckDB's own error the way the caller reports

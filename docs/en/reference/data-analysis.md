@@ -113,10 +113,13 @@ through `Engine.QuerySQL` and share two guards:
 - **Read-only enforcement** (ADR-0034), in the engine: the query
   must be one statement of type SELECT as DuckDB's parser classifies
   it (`SELECT`, `FROM t`, `WITH … SELECT`, `VALUES`, `DESCRIBE`,
-  `SUMMARIZE`, `SHOW`); it runs inside a `READ ONLY` transaction,
-  which refuses data-modifying CTEs; and the configuration is locked
-  at Open, which refuses `enable_profiling` / `enable_logging` and
-  extension autoinstall. A second statement after a semicolon, `COPY`,
+  `SUMMARIZE`, `SHOW`); it runs on a throwaway in-memory instance with
+  the session file attached `READ_ONLY`, so DuckDB refuses any write to
+  it (data-modifying CTEs, `dbgen`, SQL run through
+  `json_execute_serialized_sql`); and the configuration is locked on
+  every instance, which refuses `enable_profiling` / `enable_logging`
+  and extension autoinstall. save_query runs its body the same way into
+  a staging file and copies the one result table in. A second statement after a semicolon, `COPY`,
   `ATTACH`, `SET`, `INSTALL`, `LOAD`, `CALL` and `EXPLAIN` are refused
   before anything runs. Reading local files with `read_csv` & co.
   stays possible, as it is through the read shell tools.
@@ -503,7 +506,7 @@ Both share the same path safety as their host counterparts;
 
 | Concern | Defence |
 |---------|---------|
-| Mutating SQL via prompt injection | Single-SELECT statement type, READ ONLY transaction, locked configuration (ADR-0034) |
+| Mutating SQL via prompt injection | Single-SELECT statement type, session file attached READ_ONLY for agent SQL, locked configuration (ADR-0034) |
 | Memory blow-up from unbounded SELECT | `MaxQueryRows = 10000` cap with explicit error |
 | Symlink-based exfiltration | `os.Lstat`-based symlink rejection in `validateFilePath` |
 | CSV-cell prompt injection | `nlk/guard.Tag.Wrap` around every analyze-data window |

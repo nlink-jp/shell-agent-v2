@@ -90,10 +90,12 @@ Findings のメモリ側 (per-session vs Global Memory): [`memory-model.ja.md`](
 - **read-only enforcement** (ADR-0034) をエンジンで行う: クエリは
   DuckDB のパーサーの分類で種別が SELECT の 1 文であること
   (`SELECT`・`FROM t`・`WITH … SELECT`・`VALUES`・`DESCRIBE`・
-  `SUMMARIZE`・`SHOW`)。`READ ONLY` トランザクションの中で実行され、
-  データ変更 CTE は拒否される。設定は Open 時にロックされ、
-  `enable_profiling` / `enable_logging` と拡張機能の自動インストールは
-  拒否される。セミコロンの後の 2 つ目の文、`COPY`、`ATTACH`、`SET`、
+  `SUMMARIZE`・`SHOW`)。セッションファイルを `READ_ONLY` で ATTACH した
+  使い捨てのインメモリインスタンスで実行されるので、DuckDB はそこへの書き込み
+  (データ変更 CTE、`dbgen`、`json_execute_serialized_sql` 経由の SQL) を
+  拒否する。設定は全インスタンスでロックされ、`enable_profiling` /
+  `enable_logging` と拡張機能の自動インストールは拒否される。save_query は
+  本体を同じ方法でステージングファイルに実行し、結果の 1 テーブルだけを写す。セミコロンの後の 2 つ目の文、`COPY`、`ATTACH`、`SET`、
   `INSTALL`、`LOAD`、`CALL`、`EXPLAIN` は何も実行される前に拒否される。
   `read_csv` などでのローカルファイル読み取りは、読み取り系シェルツール
   と同様に可能。
@@ -431,7 +433,7 @@ per-session store に残る (additive、move ではない)。
 
 | 懸念 | 防御 |
 |---------|---------|
-| prompt-injection 経由の mutating SQL | 単一 SELECT の文の種別・READ ONLY トランザクション・設定のロック (ADR-0034) |
+| prompt-injection 経由の mutating SQL | 単一 SELECT の文の種別・エージェントの SQL はセッションファイルを READ_ONLY で ATTACH して実行・設定のロック (ADR-0034) |
 | 無制限 SELECT による memory blow-up | `MaxQueryRows = 10000` cap + 明示エラー |
 | symlink ベースの exfiltration | `os.Lstat` で symlink 拒否 (`validateFilePath`) |
 | CSV-cell prompt injection | analyze-data 各ウィンドウを `nlk/guard.Tag.Wrap` |

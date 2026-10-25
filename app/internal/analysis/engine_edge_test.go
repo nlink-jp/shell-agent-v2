@@ -3,6 +3,7 @@ package analysis
 import (
 	"bytes"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -118,6 +119,10 @@ func TestReadOnlyGate(t *testing.T) {
 	}
 	unchanged := func(t *testing.T, q string) {
 		t.Helper()
+		// A read closes the read-write instance; reopen it to inspect.
+		if err := e.Open(); err != nil {
+			t.Fatalf("reopen: %v", err)
+		}
 		var n int
 		if err := e.db.QueryRow("SELECT count(*) FROM t").Scan(&n); err != nil || n != 1 {
 			t.Fatalf("after %q: table t changed (rows=%d, err=%v)", q, n, err)
@@ -167,6 +172,11 @@ func TestReadOnlyGate(t *testing.T) {
 		"SELECT * FROM enable_profiling(format='json', save_location='" + victim + "')",
 		"SELECT * FROM enable_logging(storage='file', storage_path='" + logDir + "')",
 		"SELECT * FROM sqlite_attach('" + filepath.Join(dir, "z.sqlite") + "')",
+		// Type SELECT; run SQL or write tables outside the caller's
+		// transaction, refused by the read-only attached database:
+		"SELECT * FROM json_execute_serialized_sql(json_serialize_sql('WITH d AS (DELETE FROM t RETURNING *) SELECT * FROM d'))",
+		"SELECT * FROM dbgen(sf=0)",
+		"SELECT * FROM dsdgen(sf=0)",
 		"WITH c AS (SELECT 2) INSERT INTO t SELECT * FROM c",
 		"INSERT INTO t VALUES (1)",
 		"  UPDATE t SET x = 1",
@@ -208,6 +218,31 @@ func TestReadOnlyGate(t *testing.T) {
 	if _, err := os.Stat(logDir); err == nil {
 		t.Errorf("enable_logging created %s", logDir)
 	}
+	// Contained rather than refused: these write, but only into the
+	// reader's throwaway in-memory catalog. They may succeed; the session
+	// database must gain nothing but save-query's own table.
+	for _, q := range []string{
+		"SELECT * FROM json_execute_serialized_sql(json_serialize_sql('SELECT * FROM dbgen(sf=0)'))",
+		"SELECT * FROM dbgen(sf=0, catalog='memory')",
+	} {
+		_, _ = e.QuerySQL(q)
+		unchanged(t, q)
+		_, _, _ = e.QuerySQLToCSV(q, io.Discard)
+		unchanged(t, q)
+		if _, err := e.CreateFromQuery("contained", q, ""); err == nil {
+			var tables int
+			e.db.QueryRow("SELECT count(*) FROM duckdb_tables()").Scan(&tables)
+			if tables != 2 {
+				t.Errorf("after save-query %q: %d tables, want t and contained only", q, tables)
+			}
+			if _, err := e.db.Exec("DROP TABLE contained"); err != nil {
+				t.Fatal(err)
+			}
+			delete(e.tables, "contained")
+		}
+		unchanged(t, q)
+	}
+
 	// A pooled connection must not be left read-only for the next writer.
 	if _, err := e.CreateFromQuery("after_reads", "SELECT 1 AS a", ""); err != nil {
 		t.Errorf("write after rejected reads: %v", err)
@@ -231,5 +266,74 @@ func TestReadOnlyGate(t *testing.T) {
 		if _, err := e.CreateFromQuery(name, body, ""); err != nil {
 			t.Errorf("CreateFromQuery(%q) = %v, want allowed", body, err)
 		}
+	}
+}
+
+// TestWritesAfterRead pins the engine's two instances: a read closes the
+// read-write instance, and every write afterwards must reopen it rather
+// than see a closed database (Reset used to return early when the
+// handle was nil). save-query must keep column types and leave no
+// staging file behind.
+func TestWritesAfterRead(t *testing.T) {
+	dir := t.TempDir()
+	e := &Engine{
+		sessionID: "rw",
+		dbPath:    filepath.Join(dir, "rw.duckdb"),
+		tables:    make(map[string]*TableMeta),
+	}
+	defer e.Close()
+	if err := e.Open(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.db.Exec(`CREATE TABLE t AS SELECT range AS x, uuid() AS u, INTERVAL 1 DAY AS iv, MAP {'k': range} AS m FROM range(3)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.refreshTableMeta("t"); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := e.QuerySQL("SELECT * FROM t"); err != nil {
+		t.Fatalf("QuerySQL: %v", err)
+	}
+	if !e.IsOpen() {
+		t.Fatal("IsOpen() = false after a read")
+	}
+	if err := e.SetTableDescription("t", "described"); err != nil {
+		t.Fatalf("SetTableDescription after read: %v", err)
+	}
+
+	if _, err := e.QuerySQL("SELECT 1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.CreateFromQuery("d", "SELECT x, u, iv, m FROM t WHERE x > 0", ""); err != nil {
+		t.Fatalf("CreateFromQuery: %v", err)
+	}
+	var types string
+	if err := e.db.QueryRow(`SELECT string_agg(data_type, ',' ORDER BY ordinal_position) FROM information_schema.columns WHERE table_name = 'd'`).Scan(&types); err != nil {
+		t.Fatal(err)
+	}
+	if want := "BIGINT,UUID,INTERVAL,MAP(VARCHAR, BIGINT)"; types != want {
+		t.Errorf("saved column types = %s, want %s", types, want)
+	}
+	ents, _ := os.ReadDir(dir)
+	for _, ent := range ents {
+		if strings.Contains(ent.Name(), "save-query") {
+			t.Errorf("staging file left behind: %s", ent.Name())
+		}
+	}
+
+	if _, err := e.QuerySQL("SELECT 1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Reset(); err != nil {
+		t.Fatalf("Reset after read: %v", err)
+	}
+	if err := e.Open(); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	e.db.QueryRow("SELECT count(*) FROM duckdb_tables()").Scan(&n)
+	if n != 0 {
+		t.Errorf("Reset after a read left %d tables", n)
 	}
 }
