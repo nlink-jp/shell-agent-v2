@@ -148,7 +148,9 @@ func (e *Engine) openReaderLocked(ctx context.Context, stage string) (*reader, e
 	if stage != "" {
 		stmts = append(stmts, "ATTACH '"+escapeSQLString(stage)+"' AS stage")
 	}
-	stmts = append(stmts, "USE "+alias)
+	// Spill next to the session file, as the read-write instance does,
+	// rather than into the process's working directory.
+	stmts = append(stmts, "USE "+alias, "SET temp_directory = '"+escapeSQLString(e.dbPath+".tmp")+"'")
 	stmts = append(stmts, lockStatements...)
 	for _, stmt := range stmts {
 		if _, err := conn.ExecContext(ctx, stmt); err != nil {

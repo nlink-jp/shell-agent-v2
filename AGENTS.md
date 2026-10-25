@@ -260,7 +260,9 @@ eliminated.
   in-memory instance with the session file attached READ_ONLY;
   save-query stages its result through such a reader. Every write path
   must call `ensureWriterLocked` after taking `e.mu` — `e.db` may be nil
-  while the engine is open (`e.opened`). See ADR-0034.
+  while the engine is open (`e.opened`). DuckDB lets two instances in one
+  process open the same file, so "one instance at a time" rests on
+  `e.mu` and on one Engine per session file. See ADR-0034.
 - MAP scans into `duckdb.OrderedMap`, whose `String()` is a debugging
   form; `renderScalar` turns it into `map[string]any`. The type-sweep
   test (`engine_typesweep_test.go`) shows any other driver drift.

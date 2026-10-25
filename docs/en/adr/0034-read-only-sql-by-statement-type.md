@@ -64,8 +64,11 @@ others cannot:
    it from any connection — the data-modifying CTE, `dbgen`, and SQL run
    by `json_execute_serialized_sql` alike. What such SQL can still
    write lands in the throwaway instance's own in-memory catalog and is
-   discarded. The next write reopens the read-write instance; only one
-   instance has the file open at a time, under the engine's mutex.
+   discarded; spills go to `<session file>.tmp`, as the read-write
+   instance's do. The next write reopens the read-write instance. Only
+   one instance has the file open at a time: DuckDB does not enforce
+   that within one process, so it rests on the engine's mutex and on
+   there being one Engine per session file.
 3. **Locked configuration** (`lockConfiguration`, on every instance).
    Extension autoinstall and autoload are switched off and
    `lock_configuration` is set. DuckDB then refuses `enable_profiling` /
@@ -108,8 +111,10 @@ message.
 
 ## 4. Accepted residual: reading files
 
-A SELECT can still read local files (`read_csv('<path>')`,
-`read_parquet(…)`). Closing that was measured and rejected:
+A SELECT can still read local files — `read_csv('<path>')`,
+`read_parquet(…)`, `read_text(…)`, `read_duckdb(…)` (other sessions'
+databases included) and `glob(…)` — anything the process can read.
+Closing that was measured and rejected:
 
 - DuckDB's `enable_external_access = false` cannot be relaxed while the
   database runs (`allowed_paths` cannot be changed once it is off), so

@@ -113,7 +113,10 @@ func (e *Engine) Open() error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	if e.db != nil {
+	// Already open, possibly with the read-write instance closed by a
+	// read: write paths reopen it themselves (ensureWriterLocked), so a
+	// run of reads does not bounce it.
+	if e.opened {
 		return nil
 	}
 

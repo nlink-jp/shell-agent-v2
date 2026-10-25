@@ -2,6 +2,7 @@ package analysis
 
 import (
 	"bytes"
+	"database/sql"
 	"errors"
 	"io"
 	"os"
@@ -97,6 +98,18 @@ func TestSetDescriptionOnClosedDB(t *testing.T) {
 	}
 }
 
+// writerDB reopens the read-write instance, which a read closes, so a
+// test can inspect the session database.
+func writerDB(t *testing.T, e *Engine) *sql.DB {
+	t.Helper()
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if err := e.ensureWriterLocked(); err != nil {
+		t.Fatalf("reopen writer: %v", err)
+	}
+	return e.db
+}
+
 // TestReadOnlyGate drives agent-written SQL through every read path and
 // create-from-query, and checks both the verdict and that the database
 // is unchanged afterwards — a guard that only says "rejected" while a
@@ -119,18 +132,15 @@ func TestReadOnlyGate(t *testing.T) {
 	}
 	unchanged := func(t *testing.T, q string) {
 		t.Helper()
-		// A read closes the read-write instance; reopen it to inspect.
-		if err := e.Open(); err != nil {
-			t.Fatalf("reopen: %v", err)
-		}
+		db := writerDB(t, e)
 		var n int
-		if err := e.db.QueryRow("SELECT count(*) FROM t").Scan(&n); err != nil || n != 1 {
+		if err := db.QueryRow("SELECT count(*) FROM t").Scan(&n); err != nil || n != 1 {
 			t.Fatalf("after %q: table t changed (rows=%d, err=%v)", q, n, err)
 		}
 		var tables int
-		e.db.QueryRow("SELECT count(*) FROM duckdb_tables()").Scan(&tables)
+		db.QueryRow("SELECT count(*) FROM duckdb_tables()").Scan(&tables)
 		var dbs int
-		e.db.QueryRow("SELECT count(*) FROM duckdb_databases() WHERE NOT internal").Scan(&dbs)
+		db.QueryRow("SELECT count(*) FROM duckdb_databases() WHERE NOT internal").Scan(&dbs)
 		if tables != 1 || dbs != 1 {
 			t.Fatalf("after %q: tables=%d attached databases=%d, want 1 and 1", q, tables, dbs)
 		}
@@ -295,6 +305,12 @@ func TestWritesAfterRead(t *testing.T) {
 	if _, err := e.QuerySQL("SELECT * FROM t"); err != nil {
 		t.Fatalf("QuerySQL: %v", err)
 	}
+	if _, err := e.QuerySQL("SELECT count(*) FROM t"); err != nil {
+		t.Fatalf("QuerySQL: %v", err)
+	}
+	if e.db != nil {
+		t.Error("a run of reads reopened the read-write instance")
+	}
 	if !e.IsOpen() {
 		t.Fatal("IsOpen() = false after a read")
 	}
@@ -328,11 +344,8 @@ func TestWritesAfterRead(t *testing.T) {
 	if err := e.Reset(); err != nil {
 		t.Fatalf("Reset after read: %v", err)
 	}
-	if err := e.Open(); err != nil {
-		t.Fatal(err)
-	}
 	var n int
-	e.db.QueryRow("SELECT count(*) FROM duckdb_tables()").Scan(&n)
+	writerDB(t, e).QueryRow("SELECT count(*) FROM duckdb_tables()").Scan(&n)
 	if n != 0 {
 		t.Errorf("Reset after a read left %d tables", n)
 	}
