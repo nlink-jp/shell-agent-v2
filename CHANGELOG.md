@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Build
+
+- **The release zip no longer carries macOS file metadata.** `make package`
+  zipped the app with plain `ditto -c -k`, which stores each file's extended
+  attributes as `._*` AppleDouble entries (9 of them in the v0.18.0 build).
+  It now passes `--norsrc --noextattr`, and `make verify-release` runs
+  `scripts/verify-app-zip.sh` — the org's copy — which refuses a zip with
+  metadata entries or without the app icon. The published v0.18.0 zip was
+  re-zipped this way from the same notarized app before upload; v0.17.1 and
+  earlier zips still carry the entries (the app inside is unaffected).
+
 ## [0.18.0] - 2026-10-26
 
 ### Changed

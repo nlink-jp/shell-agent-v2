@@ -45,7 +45,7 @@ build-all: build
 ## the now-stapled bundle for upload to GitHub Releases.
 package: build
 	@$(NOTARIZE_SCRIPT) dist/$(APP).app "$(NOTARY_PROFILE)"
-	cd dist && /usr/bin/ditto -c -k --keepParent $(APP).app $(APP)-$(VERSION)-darwin-arm64.zip
+	cd dist && /usr/bin/ditto -c -k --norsrc --noextattr --keepParent $(APP).app $(APP)-$(VERSION)-darwin-arm64.zip
 	@ls -la dist/$(APP)-$(VERSION)-darwin-arm64.zip
 
 ## verify-release: refuse to release an un-notarized build (marker + staple gate)
@@ -57,7 +57,8 @@ verify-release:
 	@xcrun stapler validate dist/$(APP).app
 	@test -f "dist/$(APP)-$(VERSION)-darwin-arm64.zip" || { \
 		echo "verify-release: FAIL — release zip missing: dist/$(APP)-$(VERSION)-darwin-arm64.zip"; exit 1; }
-	@echo "verify-release: OK ($(VERSION) — marker present, ticket stapled)"
+	@../scripts/verify-app-zip.sh "dist/$(APP)-$(VERSION)-darwin-arm64.zip"
+	@echo "verify-release: OK ($(VERSION) — marker present, ticket stapled, zip clean)"
 
 dev:
 	wails dev
