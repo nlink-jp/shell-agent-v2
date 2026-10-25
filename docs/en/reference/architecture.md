@@ -613,7 +613,7 @@ Defences:
 
 - `cd app && make build` → `dist/shell-agent-v2.app`. Never
   `go build` directly — the binary leaks into the project root.
-- `cd app && make test` → `go test -tags no_duckdb_arrow ./...`
+- `cd app && make test` → `go test ./...`
   for the standard suite. `lmstudio` / `vertexai` build tags
   enable integration tests against the live backends.
 - Frontend: `cd app/frontend && npm run build` for the

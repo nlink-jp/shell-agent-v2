@@ -14,15 +14,15 @@ MCP integration, and MITL (Man-In-The-Loop) approval system.
 cd app
 make build      # Build .app bundle → dist/shell-agent-v2.app
 make dev        # Wails dev server with hot reload
-make test       # go test ./... (add -tags no_duckdb_arrow for CGO builds)
+make test       # go test ./...
 make clean      # Remove build artifacts
 make verify-release  # gate: .notarized marker + stapler validate (run before upload)
 
 # Integration tests (require running services):
 go test ./internal/llm/ -tags lmstudio -v    # LM Studio LLM backend tests
-go test ./internal/agent/ -tags "lmstudio no_duckdb_arrow" -v -timeout 300s  # Agent loop + tool calling
-go test ./internal/agent/ -tags "lmstudio no_duckdb_arrow" -v -timeout 600s -run "Limit|Heavy|Chain"  # Limit/stress tests
-VERTEX_PROJECT=xxx go test ./internal/agent/ -tags "vertexai no_duckdb_arrow" -v -timeout 600s  # Vertex AI
+go test ./internal/agent/ -tags lmstudio -v -timeout 300s  # Agent loop + tool calling
+go test ./internal/agent/ -tags lmstudio -v -timeout 600s -run "Limit|Heavy|Chain"  # Limit/stress tests
+VERTEX_PROJECT=xxx go test ./internal/agent/ -tags vertexai -v -timeout 600s  # Vertex AI
 ```
 
 ## Module
@@ -251,7 +251,15 @@ eliminated.
 
 ## Gotchas
 
-- DuckDB requires CGO — use `-tags no_duckdb_arrow` for builds
+- DuckDB requires CGO. The driver is `github.com/duckdb/duckdb-go/v2`
+  (v2.20000.x bundles DuckDB v2.0; `marcboeker/go-duckdb` is frozen).
+  Its Arrow interface is opt-in — never add `-tags duckdb_arrow` (Arrow
+  collides with Wails); the old `no_duckdb_arrow` tag is a no-op now.
+- MAP scans into `duckdb.OrderedMap`, whose `String()` is a debugging
+  form; `renderScalar` turns it into `map[string]any`. The type-sweep
+  test (`engine_typesweep_test.go`) shows any other driver drift.
+- Session databases created by DuckDB 2.0 cannot be opened by DuckDB
+  1.x (older shell-agent-v2); files created earlier stay readable.
 - `wails build` outputs to `build/bin/`, Makefile copies to `dist/`
 - Local backend maps tool→user role (gemma-4 workaround)
 - Vertex AI uses native FunctionCall/FunctionResponse

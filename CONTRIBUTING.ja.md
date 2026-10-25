@@ -60,12 +60,13 @@ macOS は ad-hoc コード署名に拡張属性を使用し、`cp` はそれを
 ```sh
 cd app
 make test                                                # 全パッケージ
-go test -tags no_duckdb_arrow -count=1 ./internal/agent  # 1 パッケージ
+go test -count=1 ./internal/agent                        # 1 パッケージ
 ```
 
-DuckDB が依存グラフに入る場合 (大半のケース) は
-`no_duckdb_arrow` ビルドタグ必須です。これなしでは Arrow
-ライブラリが Wails と衝突します。Makefile が自動付与します。
+`-tags duckdb_arrow` を付けてビルドしないでください。DuckDB
+ドライバの Arrow インターフェースは opt-in で、埋め込まれる Arrow
+ライブラリが Wails と衝突します。(旧ドライバでは無効化に
+`-tags no_duckdb_arrow` が必要でしたが、現在このタグは効果がありません。)
 
 外部前提が不足するテストは clean に skip:
 

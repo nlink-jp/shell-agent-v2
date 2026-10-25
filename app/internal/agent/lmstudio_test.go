@@ -2,7 +2,7 @@
 // +build lmstudio
 
 // Agent-level integration tests against a running LM Studio server.
-// Run with: go test ./internal/agent/ -tags "lmstudio no_duckdb_arrow" -v -timeout 300s
+// Run with: go test ./internal/agent/ -tags lmstudio -v -timeout 300s
 package agent
 
 import (

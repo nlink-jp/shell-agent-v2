@@ -306,7 +306,7 @@ func writeFile(path, body string) error {
 	return os.WriteFile(path, []byte(body), 0644)
 }
 
-// scanZero peeks at what go-duckdb would Scan into when the column
+// scanZero peeks at what the driver would Scan into when the column
 // is read into an interface{}.
 func scanZero(ct *sql.ColumnType) any {
 	if t := ct.ScanType(); t != nil {

@@ -3,7 +3,7 @@
 
 // Heavy data analysis scenario test.
 // Simulates realistic tool result accumulation (analyze-data + query-sql).
-// Run with: go test ./internal/agent/ -tags "lmstudio no_duckdb_arrow" -v -timeout 600s -run "TestLMStudio_Heavy"
+// Run with: go test ./internal/agent/ -tags lmstudio -v -timeout 600s -run "TestLMStudio_Heavy"
 package agent
 
 import (

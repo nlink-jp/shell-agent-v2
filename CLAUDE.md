@@ -9,7 +9,7 @@ Wails v2 (Go + React) desktop application. Successor to shell-agent v1.
 
 - Always `cd app && make build`
 - Development: `cd app && make dev`
-- Tests: `cd app && make test` or `go test ./internal/... -tags no_duckdb_arrow`
+- Tests: `cd app && make test` or `go test ./internal/...`
 
 ## Architecture
 

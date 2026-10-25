@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/marcboeker/go-duckdb"
+	"github.com/duckdb/duckdb-go/v2"
 )
 
 // renderScalar dispatches on the DuckDB type name reported by the
@@ -34,7 +34,7 @@ func renderScalar(v any, dbTypeName string) any {
 	}
 	switch {
 	case dbTypeName == "UUID":
-		// go-duckdb v1.x returns UUID as the 16-byte binary form.
+		// The driver returns UUID as the 16-byte binary form.
 		// Format as canonical lowercase 8-4-4-4-12.
 		if b, ok := v.([]byte); ok && len(b) == 16 {
 			return formatUUID(b)
@@ -55,7 +55,7 @@ func renderScalar(v any, dbTypeName string) any {
 		}
 	case dbTypeName == "TIMESTAMPTZ":
 		// DuckDB normalises TIMESTAMPTZ to UTC at storage time;
-		// go-duckdb returns it as time.Time in UTC. Display in
+		// the driver returns it as time.Time in UTC. Display in
 		// the runtime's local TZ so the wall clock matches what
 		// users entered (overwhelming majority case for a
 		// local-first product). See ADR-0011.
@@ -67,7 +67,7 @@ func renderScalar(v any, dbTypeName string) any {
 			return formatDecimal(d)
 		}
 	case strings.HasPrefix(dbTypeName, "MAP"):
-		if m, ok := v.(duckdb.Map); ok {
+		if m, ok := v.(duckdb.OrderedMap); ok {
 			return mapToStringKeyed(m)
 		}
 	}
@@ -167,15 +167,16 @@ func formatInterval(iv duckdb.Interval) string {
 	return b.String()
 }
 
-// mapToStringKeyed converts duckdb.Map (map[any]any) to a
-// map[string]any that encoding/json can marshal. Keys are rendered
-// via fmt %v; values are passed through (nested DuckDB types in
-// values are not re-dispatched in Phase 1 — see ADR-0010 §2
-// non-goals).
-func mapToStringKeyed(m duckdb.Map) map[string]any {
-	out := make(map[string]any, len(m))
-	for k, v := range m {
-		out[fmt.Sprintf("%v", k)] = v
+// mapToStringKeyed converts duckdb.OrderedMap to a map[string]any
+// that prints as map[k:v] (OrderedMap's own String() is a debugging
+// form) and marshals as a JSON object. Keys are rendered via fmt %v;
+// values are passed through (nested DuckDB types in values are not
+// re-dispatched in Phase 1 — see ADR-0010 §2 non-goals).
+func mapToStringKeyed(m duckdb.OrderedMap) map[string]any {
+	keys, vals := m.Keys(), m.Values()
+	out := make(map[string]any, len(keys))
+	for i, k := range keys {
+		out[fmt.Sprintf("%v", k)] = vals[i]
 	}
 	return out
 }

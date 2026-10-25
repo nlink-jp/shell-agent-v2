@@ -55,12 +55,13 @@ uses extended attributes for ad-hoc code signing and `cp` strips them.
 ```sh
 cd app
 make test                                                # all packages
-go test -tags no_duckdb_arrow -count=1 ./internal/agent  # one package
+go test -count=1 ./internal/agent                        # one package
 ```
 
-The `no_duckdb_arrow` build tag is mandatory whenever DuckDB is in the
-dependency graph (nearly always); without it the embedded Arrow
-library collides with Wails. The Makefile sets it for you.
+Never build with `-tags duckdb_arrow`: the DuckDB driver's Arrow
+interface is opt-in, and the embedded Arrow library collides with
+Wails. (The old driver needed `-tags no_duckdb_arrow` to switch it off;
+that tag does nothing now.)
 
 Tests skip cleanly when external prerequisites are missing:
 

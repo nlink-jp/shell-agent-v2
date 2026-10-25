@@ -7,8 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **DuckDB driver moved to `github.com/duckdb/duckdb-go/v2` v2.20000.0, which
+  bundles DuckDB v2.0.0 LTS** (was `github.com/marcboeker/go-duckdb` v1.8.5 with
+  DuckDB v1.1.3). The old module path no longer receives releases, so the
+  analysis engine could never take a DuckDB fix. The UI, the LLM's tool results
+  and CSV export render every type as before: MAP now arrives as an ordered map
+  and is converted to the same string-keyed form. See ADR-0033.
+- **Sessions created by this release do not open in older versions.** DuckDB 2.0
+  writes a storage format DuckDB 1.x cannot read. Session databases created
+  earlier keep working here and stay readable by v0.17.x after this release has
+  used them; a new session — or a `.shellagent` bundle exported from one — does
+  not open in v0.17.x.
+
+### Security
+
+- **CVE-2026-111497 (Brotli decoder out-of-bounds write) is not fixed yet.**
+  DuckDB's parquet extension vendors Brotli 1.1.0, and every DuckDB release so
+  far — v2.0.0 included — still does; the upstream fix (duckdb/duckdb#27791) was
+  unmerged on 2026-10-25. It is reachable when the agent's SQL reads a crafted
+  Brotli-compressed Parquet file (`read_parquet`). This release moves the
+  analysis engine onto the maintained driver line so the fix lands as a
+  dependency bump once DuckDB ships it.
+
 ### Build
 
+- `make build` / `make dev` no longer pass `-tags no_duckdb_arrow`: the new
+  driver's Arrow interface is opt-in, so the tag does nothing and Arrow stays
+  out of the binary as before.
 - `make` pins `GOTOOLCHAIN=go1.26.4`. The wails v2.12.0 CLI's static analysis
   (golang.org/x/tools v0.30.0) cannot read Go 1.27 export data, so under go1.27
   every `wails build` stopped with `internal error: package ... without types

@@ -524,7 +524,7 @@ prompt-injection** で、ネットワーク露出ではない。
 
 - `cd app && make build` → `dist/shell-agent-v2.app`。
   `go build` 直接実行禁止 (バイナリが project root に流出)
-- `cd app && make test` → `go test -tags no_duckdb_arrow ./...`。
+- `cd app && make test` → `go test ./...`。
   `lmstudio` / `vertexai` build tag で integration test 有効化
 - Frontend: `cd app/frontend && npm run build`
 - リリース前手動 smoke test: CHANGELOG / RELEASE notes 参照

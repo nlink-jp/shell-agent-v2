@@ -28,7 +28,7 @@ NOTARIZE_SCRIPT := ../scripts/notarize-darwin-app.sh
 .PHONY: build build-all package verify-release dev test clean
 
 build:
-	wails build -platform darwin/arm64 -ldflags "$(LDFLAGS)" -tags no_duckdb_arrow
+	wails build -platform darwin/arm64 -ldflags "$(LDFLAGS)"
 	@$(CODESIGN_SCRIPT) build/bin/$(APP).app "$(CODESIGN_IDENTITY)" "$(ENTITLEMENTS)"
 	mkdir -p dist
 	# macOS preserves extended attributes (incl. code-sign
@@ -59,7 +59,7 @@ verify-release:
 	@echo "verify-release: OK ($(VERSION) — marker present, ticket stapled)"
 
 dev:
-	wails dev -tags no_duckdb_arrow
+	wails dev
 
 test:
 	go test ./...

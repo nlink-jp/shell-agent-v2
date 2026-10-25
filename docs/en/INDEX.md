@@ -140,6 +140,12 @@ release order.
   extraction's auto-dispatched SendWithAttachments both touched
   `a.session` without holding `a.mu`. Snapshot-under-lock pattern at
   both sites — minimal, no API change (v0.16.1)
+- [`ADR-0033`](adr/0033-duckdb-go-driver.md) — Move the DuckDB driver
+  from the frozen `marcboeker/go-duckdb` v1.8.5 (DuckDB 1.1.3) to
+  `duckdb-go/v2` v2.20000.0 (DuckDB 2.0.0 LTS) so DuckDB fixes — the
+  pending Brotli CVE-2026-111497 fix first — can land; MAP now scans
+  into `OrderedMap`; sessions created by DuckDB 2.0 do not open in
+  older versions (v0.18.0)
 
 ## History
 

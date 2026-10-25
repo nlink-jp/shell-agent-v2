@@ -136,6 +136,11 @@ shell-agent-v2 メンテナ向けドキュメントの入口。ユーザー向�
   goroutine と抽出の auto-dispatched SendWithAttachments の両者が
   `a.mu` を保持せずに `a.session` を触っていた。両箇所に lock 下
   スナップショットパターン適用 — 最小、API 変更なし (v0.16.1)
+- [`ADR-0033`](adr/0033-duckdb-go-driver.ja.md) — DuckDB ドライバを凍結
+  された `marcboeker/go-duckdb` v1.8.5 (DuckDB 1.1.3) から `duckdb-go/v2`
+  v2.20000.0 (DuckDB 2.0.0 LTS) へ移行し、DuckDB の修正 (まず保留中の
+  Brotli CVE-2026-111497 修正) が入るようにする; MAP は `OrderedMap` に
+  Scan; DuckDB 2.0 が作ったセッションは旧版で開けない (v0.18.0)
 
 ## History
 

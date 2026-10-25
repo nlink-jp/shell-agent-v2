@@ -2,7 +2,7 @@
 // +build vertexai
 
 // Agent-level integration tests against Vertex AI.
-// Run with: VERTEX_PROJECT=xxx go test ./internal/agent/ -tags "vertexai no_duckdb_arrow" -v -timeout 600s -run "TestVertex_Agent"
+// Run with: VERTEX_PROJECT=xxx go test ./internal/agent/ -tags vertexai -v -timeout 600s -run "TestVertex_Agent"
 //
 // Prerequisites:
 //   gcloud auth application-default login
