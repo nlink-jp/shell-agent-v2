@@ -30,6 +30,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   Brotli-compressed Parquet file (`read_parquet`). This release moves the
   analysis engine onto the maintained driver line so the fix lands as a
   dependency bump once DuckDB ships it.
+- **Go dependencies with known vulnerabilities reachable from the binary are
+  updated**: `golang.org/x/net` v0.60.0 (GO-2026-6617, -6612, -6611, -6610,
+  -6603, -5026, -4918), `google.golang.org/grpc` v1.83.1 (GO-2026-6348,
+  -6061), `golang.org/x/text` v0.42.0 (GO-2026-5970) and
+  `go.opentelemetry.io/otel` v1.44.0 (GO-2026-5506). `govulncheck` now reports
+  none reachable.
 
 ### Build
 
