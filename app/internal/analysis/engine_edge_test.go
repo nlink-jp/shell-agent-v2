@@ -1,8 +1,11 @@
 package analysis
 
 import (
+	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -93,31 +96,106 @@ func TestSetDescriptionOnClosedDB(t *testing.T) {
 	}
 }
 
-func TestIsReadOnlySQL(t *testing.T) {
-	readOnly := []string{
-		"SELECT * FROM t",
-		"  select count(*) from t",
-		"WITH cte AS (SELECT 1) SELECT * FROM cte",
+// TestReadOnlyGate drives agent-written SQL through every read path and
+// create-from-query, and checks both the verdict and that the database
+// is unchanged afterwards — a guard that only says "rejected" while a
+// leading statement already ran would pass a verdict-only test.
+func TestReadOnlyGate(t *testing.T) {
+	e := &Engine{
+		sessionID: "gate",
+		dbPath:    filepath.Join(t.TempDir(), "gate.duckdb"),
+		tables:    make(map[string]*TableMeta),
 	}
-	for _, q := range readOnly {
-		if !isReadOnlySQL(q) {
-			t.Errorf("expected read-only: %q", q)
+	defer e.Close()
+	if err := e.Open(); err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if _, err := e.db.Exec("CREATE TABLE t AS SELECT 1 AS x"); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.refreshTableMeta("t"); err != nil {
+		t.Fatal(err)
+	}
+	unchanged := func(t *testing.T, q string) {
+		t.Helper()
+		var n int
+		if err := e.db.QueryRow("SELECT count(*) FROM t").Scan(&n); err != nil || n != 1 {
+			t.Fatalf("after %q: table t changed (rows=%d, err=%v)", q, n, err)
+		}
+		var tables int
+		e.db.QueryRow("SELECT count(*) FROM duckdb_tables()").Scan(&tables)
+		var dbs int
+		e.db.QueryRow("SELECT count(*) FROM duckdb_databases() WHERE NOT internal").Scan(&dbs)
+		if tables != 1 || dbs != 1 {
+			t.Fatalf("after %q: tables=%d attached databases=%d, want 1 and 1", q, tables, dbs)
 		}
 	}
 
-	notReadOnly := []string{
+	reads := []string{
+		"SELECT * FROM t",
+		"  select count(*) from t",
+		"WITH cte AS (SELECT 1) SELECT * FROM cte",
+		"FROM t",
+		"DESCRIBE t",
+		"SUMMARIZE t",
+		"SELECT x FROM t;",
+		"PIVOT t ON x IN (1)",
+	}
+	for _, q := range reads {
+		if _, err := e.QuerySQL(q); err != nil {
+			t.Errorf("QuerySQL(%q) = %v, want allowed", q, err)
+		}
+	}
+
+	out := filepath.Join(t.TempDir(), "out.csv")
+	writes := []string{
+		"SELECT 1; DROP TABLE t",
+		"SELECT 1; INSERT INTO t VALUES (2)",
+		"WITH c AS (SELECT 2) INSERT INTO t SELECT * FROM c",
 		"INSERT INTO t VALUES (1)",
 		"  UPDATE t SET x = 1",
 		"DELETE FROM t",
 		"DROP TABLE t",
-		"CREATE TABLE t (id INT)",
-		"ALTER TABLE t ADD COLUMN x INT",
+		"CREATE TABLE u (id INT)",
+		"ALTER TABLE t ADD COLUMN y INT",
+		"COPY t TO '" + out + "'",
+		"ATTACH ':memory:' AS m",
+		"SET threads = 1",
 		"LOAD 'ext'",
 		"INSTALL 'ext'",
+		"CALL pragma_version()",
+		"EXPLAIN ANALYZE DELETE FROM t",
+		"SELECT * FROM query('DROP TABLE t')",
+		"",
 	}
-	for _, q := range notReadOnly {
-		if isReadOnlySQL(q) {
-			t.Errorf("expected not read-only: %q", q)
+	for _, q := range writes {
+		if _, err := e.QuerySQL(q); err == nil {
+			t.Errorf("QuerySQL(%q) = nil, want rejected", q)
 		}
+		unchanged(t, q)
+		var buf bytes.Buffer
+		if _, _, err := e.QuerySQLToCSV(q, &buf); err == nil {
+			t.Errorf("QuerySQLToCSV(%q) = nil, want rejected", q)
+		}
+		unchanged(t, q)
+		if _, err := e.CreateFromQuery("derived", q, ""); err == nil {
+			t.Errorf("CreateFromQuery(%q) = nil, want rejected", q)
+		}
+		unchanged(t, q)
+	}
+	if _, err := os.Stat(out); err == nil {
+		t.Errorf("COPY wrote %s", out)
+	}
+	// The refusal names what to change rather than echoing the driver's
+	// "try using PrepareContext"; a bind error stays DuckDB's own.
+	if _, err := e.QuerySQL("SELECT 1; DROP TABLE t"); !errors.Is(err, errNotSelect) {
+		t.Errorf("multi-statement error = %v, want errNotSelect", err)
+	}
+	if _, err := e.QuerySQL("SELECT no_such FROM t"); err == nil || errors.Is(err, errNotSelect) || !strings.HasPrefix(err.Error(), "query: ") {
+		t.Errorf("bind error = %v, want DuckDB's error prefixed with \"query: \"", err)
+	}
+
+	if _, err := e.CreateFromQuery("derived", "SELECT x * 2 AS y FROM t", ""); err != nil {
+		t.Errorf("CreateFromQuery(SELECT) = %v, want allowed", err)
 	}
 }

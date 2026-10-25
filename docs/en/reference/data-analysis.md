@@ -110,11 +110,15 @@ Format detection is by extension:
 All query tools (including `analyze-data` internally) flow
 through `Engine.QuerySQL` and share two guards:
 
-- **Read-only enforcement**: `isReadOnlySQL` rejects any query
-  whose first non-whitespace keyword is one of `INSERT`,
-  `UPDATE`, `DELETE`, `DROP`, `CREATE`, `ALTER`, `LOAD`,
-  `INSTALL`, `PRAGMA`. Belt-and-braces against an LLM coerced
-  into running mutating SQL via prompt injection.
+- **Read-only enforcement**: DuckDB's own parser classifies the
+  query (`requireSelect`, ADR-0034). It must be exactly one
+  statement of type SELECT — which covers `SELECT`, `FROM t`,
+  `WITH … SELECT`, `VALUES`, `DESCRIBE`, `SUMMARIZE` and `SHOW` —
+  so a second statement after a semicolon, `WITH … INSERT`,
+  `COPY`, `ATTACH`, `SET`, `INSTALL`, `LOAD`, `CALL` and
+  `EXPLAIN ANALYZE` are refused before anything runs. Reading
+  files with `read_csv` & co. stays possible, as it is through
+  the read shell tools.
 - **Row cap**: `MaxQueryRows = 10000`. When a SELECT would
   return more rows, the call returns an error rather than
   truncating silently — the LLM gets feedback and can re-issue
@@ -498,7 +502,7 @@ Both share the same path safety as their host counterparts;
 
 | Concern | Defence |
 |---------|---------|
-| Mutating SQL via prompt injection | `isReadOnlySQL` keyword denylist on every QuerySQL call |
+| Mutating SQL via prompt injection | DuckDB statement type must be a single SELECT on every query path (ADR-0034) |
 | Memory blow-up from unbounded SELECT | `MaxQueryRows = 10000` cap with explicit error |
 | Symlink-based exfiltration | `os.Lstat`-based symlink rejection in `validateFilePath` |
 | CSV-cell prompt injection | `nlk/guard.Tag.Wrap` around every analyze-data window |

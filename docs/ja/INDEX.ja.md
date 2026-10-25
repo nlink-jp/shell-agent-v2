@@ -141,6 +141,11 @@ shell-agent-v2 メンテナ向けドキュメントの入口。ユーザー向�
   v2.20000.0 (DuckDB 2.0.0 LTS) へ移行し、DuckDB の修正 (まず保留中の
   Brotli CVE-2026-111497 修正) が入るようにする; MAP は `OrderedMap` に
   Scan; DuckDB 2.0 が作ったセッションは旧版で開けない (v0.18.0)
+- [`ADR-0034`](adr/0034-read-only-sql-by-statement-type.ja.md) — LLM が書く
+  SQL が読み取り専用かを、キーワード接頭辞の一覧ではなく DuckDB の文の種別
+  (単一の SELECT) で判定する。旧判定は `SELECT 1; DROP TABLE t`・`WITH … INSERT`・
+  `COPY`・`ATTACH` を読み取りツールで通していた; ファイル読み取りは残す
+  (受け入れた残余) (v0.18.1)
 
 ## History
 

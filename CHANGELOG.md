@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Security
+
+- **The read tools can no longer write.** query-sql, quick-summary,
+  export-sql-to-csv and the body of create-from-query decided "read-only" by
+  checking that the SQL did not start with one of nine keywords. A second
+  statement after a semicolon passed and ran (`SELECT 1; DROP TABLE t` dropped
+  the table), as did `WITH … INSERT`, `COPY … TO`, `ATTACH`, `SET`, `CALL` and
+  `EXPLAIN ANALYZE`. DuckDB's own parser now decides: the query must be exactly
+  one statement of type SELECT, checked on the connection that runs it, before
+  anything executes. `DESCRIBE`, `SUMMARIZE`, `SHOW`, `FROM t` and `WITH …
+  SELECT` still work; `EXPLAIN` and dynamic `PIVOT` are now refused. Reading
+  files with `read_csv` & co. remains possible. See ADR-0034.
+
 ### Build
 
 - **The release zip no longer carries macOS file metadata.** `make package`

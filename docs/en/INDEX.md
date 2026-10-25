@@ -146,6 +146,11 @@ release order.
   pending Brotli CVE-2026-111497 fix first — can land; MAP now scans
   into `OrderedMap`; sessions created by DuckDB 2.0 do not open in
   older versions (v0.18.0)
+- [`ADR-0034`](adr/0034-read-only-sql-by-statement-type.md) — Decide
+  whether agent-written SQL is read-only by DuckDB's statement type (a
+  single SELECT) instead of a keyword prefix list, which let
+  `SELECT 1; DROP TABLE t`, `WITH … INSERT`, `COPY` and `ATTACH` through
+  the read tools; file reads stay possible (accepted residual) (v0.18.1)
 
 ## History
 

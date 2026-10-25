@@ -2,6 +2,7 @@
 package analysis
 
 import (
+	"context"
 	"database/sql"
 	"encoding/base64"
 	"encoding/csv"
@@ -283,16 +284,12 @@ func (e *Engine) LoadJSONL(tableName, filePath string) error {
 // (ADR §3.1, §6.6). The caller (toolSaveQuery) surfaces three
 // suggested alternative names so the LLM can retry.
 //
-// The body SQL is gated by isReadOnlySQL — only SELECT-shaped
-// statements pass. DDL prefixes that could mutate the schema
-// or load external data are rejected here, the same gate
-// query-sql / quick-summary use.
+// The body SQL must parse as a single SELECT statement
+// (requireSelect, ADR-0034) — the same gate query-sql /
+// quick-summary use — so the only write is the CREATE TABLE itself.
 func (e *Engine) CreateFromQuery(name, query, description string) (*TableMeta, error) {
 	if !identifierRegex.MatchString(name) {
 		return nil, fmt.Errorf("table name must be alphanumeric and underscores only (starting with a letter or underscore); got: %q", name)
-	}
-	if !isReadOnlySQL(query) {
-		return nil, fmt.Errorf("query must be a SELECT statement; INSERT/UPDATE/DELETE/DROP/etc. are rejected")
 	}
 	if err := e.Open(); err != nil {
 		return nil, err
@@ -305,8 +302,13 @@ func (e *Engine) CreateFromQuery(name, query, description string) (*TableMeta, e
 		return nil, fmt.Errorf("name %q is already in use; try %s_v2, %s_filtered, or %s_derived instead", name, name, name, name)
 	}
 
+	conn, err := selectConn(context.Background(), e.db, query)
+	if err != nil {
+		return nil, wrapQueryErr("save query", err)
+	}
+	defer conn.Close()
 	ddl := fmt.Sprintf("CREATE TABLE %s AS %s", sanitizeIdentifier(name), query)
-	if _, err := e.db.Exec(ddl); err != nil {
+	if _, err := conn.ExecContext(context.Background(), ddl); err != nil {
 		return nil, fmt.Errorf("save query: %w", err)
 	}
 
@@ -438,11 +440,13 @@ func (e *Engine) QuerySQLToCSV(query string, w io.Writer) (columns []string, row
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	if !isReadOnlySQL(query) {
-		return nil, 0, fmt.Errorf("only SELECT queries are allowed")
+	conn, err := selectConn(context.Background(), e.db, query)
+	if err != nil {
+		return nil, 0, wrapQueryErr("query", err)
 	}
+	defer conn.Close()
 
-	rows, err := e.db.Query(query)
+	rows, err := conn.QueryContext(context.Background(), query)
 	if err != nil {
 		return nil, 0, fmt.Errorf("query: %w", err)
 	}
@@ -634,11 +638,13 @@ func (e *Engine) querySQLBounded(query string, maxRows int, hint string) ([]map[
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	if !isReadOnlySQL(query) {
-		return nil, fmt.Errorf("only SELECT queries are allowed")
+	conn, err := selectConn(context.Background(), e.db, query)
+	if err != nil {
+		return nil, wrapQueryErr("query", err)
 	}
+	defer conn.Close()
 
-	rows, err := e.db.Query(query)
+	rows, err := conn.QueryContext(context.Background(), query)
 	if err != nil {
 		return nil, fmt.Errorf("query: %w", err)
 	}
@@ -776,17 +782,6 @@ func (e *Engine) refreshTableMeta(tableName string) error {
 
 	e.tables[tableName] = meta
 	return nil
-}
-
-func isReadOnlySQL(query string) bool {
-	q := strings.TrimSpace(strings.ToUpper(query))
-	dangerous := []string{"INSERT", "UPDATE", "DELETE", "DROP", "CREATE", "ALTER", "LOAD", "INSTALL", "PRAGMA"}
-	for _, kw := range dangerous {
-		if strings.HasPrefix(q, kw) {
-			return false
-		}
-	}
-	return true
 }
 
 func sanitizeIdentifier(name string) string {
