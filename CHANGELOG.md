@@ -25,16 +25,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Security
 
-- **The read tools can no longer write.** query-sql, quick-summary,
-  export-sql-to-csv and the body of create-from-query decided "read-only" by
-  checking that the SQL did not start with one of nine keywords. A second
-  statement after a semicolon passed and ran (`SELECT 1; DROP TABLE t` dropped
-  the table), as did `WITH … INSERT`, `COPY … TO`, `ATTACH`, `SET`, `CALL` and
-  `EXPLAIN ANALYZE`. DuckDB's own parser now decides: the query must be exactly
-  one statement of type SELECT, checked on the connection that runs it, before
-  anything executes. `DESCRIBE`, `SUMMARIZE`, `SHOW`, `FROM t` and `WITH …
-  SELECT` still work; `EXPLAIN` and dynamic `PIVOT` are now refused. Reading
-  files with `read_csv` & co. remains possible. See ADR-0034.
+- **The read tools can no longer write.** query_sql, quick_summary,
+  analyze_data, export-sql-to-csv and the body of save_query decided
+  "read-only" by checking that the SQL did not start with one of nine keywords.
+  A second statement after a semicolon passed and ran (`SELECT 1; DROP TABLE t`
+  dropped the table), as did `WITH … INSERT`, `COPY … TO`, `ATTACH`, `SET`,
+  `CALL` and `EXPLAIN ANALYZE`. The engine now enforces it in three layers: the
+  query must be one statement of type SELECT as DuckDB's parser classifies it;
+  it runs in a `READ ONLY` transaction, which also refuses a data-modifying CTE
+  (`WITH d AS (DELETE … RETURNING *) SELECT …`); and the configuration is locked
+  with extension autoinstall/autoload off, which refuses `enable_profiling` /
+  `enable_logging` (both wrote files from a plain SELECT) and extension
+  installs. save_query runs its body nested, where DuckDB rejects a
+  data-modifying CTE. `DESCRIBE`, `SUMMARIZE`, `SHOW`, `FROM t` and `WITH …
+  SELECT` still work; `EXPLAIN` and dynamic `PIVOT` are now refused; reading
+  local files with `read_csv` & co. remains possible. See ADR-0034.
 
 ## [0.18.0] - 2026-10-26
 

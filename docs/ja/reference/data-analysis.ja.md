@@ -87,14 +87,16 @@ Findings のメモリ側 (per-session vs Global Memory): [`memory-model.ja.md`](
 すべての query tool (analyze-data 内部含む) は `Engine.QuerySQL`
 を経由し、2 つの guard を共有:
 
-- **read-only enforcement**: DuckDB 自身のパーサーがクエリを
-  分類する (`requireSelect`、ADR-0034)。文がちょうど 1 つで、その
-  種別が SELECT であること — `SELECT`・`FROM t`・`WITH … SELECT`・
-  `VALUES`・`DESCRIBE`・`SUMMARIZE`・`SHOW` はこれに含まれる — を
-  要求するので、セミコロンの後の 2 つ目の文、`WITH … INSERT`、
-  `COPY`、`ATTACH`、`SET`、`INSTALL`、`LOAD`、`CALL`、
-  `EXPLAIN ANALYZE` は何も実行される前に拒否される。`read_csv`
-  などでのファイル読み取りは、読み取り系シェルツールと同様に可能。
+- **read-only enforcement** (ADR-0034) をエンジンで行う: クエリは
+  DuckDB のパーサーの分類で種別が SELECT の 1 文であること
+  (`SELECT`・`FROM t`・`WITH … SELECT`・`VALUES`・`DESCRIBE`・
+  `SUMMARIZE`・`SHOW`)。`READ ONLY` トランザクションの中で実行され、
+  データ変更 CTE は拒否される。設定は Open 時にロックされ、
+  `enable_profiling` / `enable_logging` と拡張機能の自動インストールは
+  拒否される。セミコロンの後の 2 つ目の文、`COPY`、`ATTACH`、`SET`、
+  `INSTALL`、`LOAD`、`CALL`、`EXPLAIN` は何も実行される前に拒否される。
+  `read_csv` などでのローカルファイル読み取りは、読み取り系シェルツール
+  と同様に可能。
 - **行数上限**: `MaxQueryRows = 10000`。それ以上返す SELECT は
   エラー (silent truncate ではない) — LLM がフィードバックを
   受けて `LIMIT` / `WHERE` で再発行できる。
@@ -429,7 +431,7 @@ per-session store に残る (additive、move ではない)。
 
 | 懸念 | 防御 |
 |---------|---------|
-| prompt-injection 経由の mutating SQL | 全クエリ経路で DuckDB の文の種別が単一の SELECT であることを要求 (ADR-0034) |
+| prompt-injection 経由の mutating SQL | 単一 SELECT の文の種別・READ ONLY トランザクション・設定のロック (ADR-0034) |
 | 無制限 SELECT による memory blow-up | `MaxQueryRows = 10000` cap + 明示エラー |
 | symlink ベースの exfiltration | `os.Lstat` で symlink 拒否 (`validateFilePath`) |
 | CSV-cell prompt injection | analyze-data 各ウィンドウを `nlk/guard.Tag.Wrap` |

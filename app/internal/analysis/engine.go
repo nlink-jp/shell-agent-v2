@@ -120,6 +120,10 @@ func (e *Engine) Open() error {
 	if err != nil {
 		return fmt.Errorf("open duckdb: %w", err)
 	}
+	if err := lockConfiguration(db); err != nil {
+		db.Close()
+		return err
+	}
 	e.db = db
 
 	return e.rebuildTableMeta()
@@ -285,8 +289,9 @@ func (e *Engine) LoadJSONL(tableName, filePath string) error {
 // suggested alternative names so the LLM can retry.
 //
 // The body SQL must parse as a single SELECT statement
-// (requireSelect, ADR-0034) — the same gate query-sql /
-// quick-summary use — so the only write is the CREATE TABLE itself.
+// (requireSelect, ADR-0034) and runs nested as a subquery, where
+// DuckDB rejects a data-modifying CTE — so the only write is the
+// CREATE TABLE itself.
 func (e *Engine) CreateFromQuery(name, query, description string) (*TableMeta, error) {
 	if !identifierRegex.MatchString(name) {
 		return nil, fmt.Errorf("table name must be alphanumeric and underscores only (starting with a letter or underscore); got: %q", name)
@@ -302,12 +307,15 @@ func (e *Engine) CreateFromQuery(name, query, description string) (*TableMeta, e
 		return nil, fmt.Errorf("name %q is already in use; try %s_v2, %s_filtered, or %s_derived instead", name, name, name, name)
 	}
 
-	conn, err := selectConn(context.Background(), e.db, query)
+	conn, err := e.db.Conn(context.Background())
 	if err != nil {
-		return nil, wrapQueryErr("save query", err)
+		return nil, err
 	}
 	defer conn.Close()
-	ddl := fmt.Sprintf("CREATE TABLE %s AS %s", sanitizeIdentifier(name), query)
+	if err := requireSelect(conn, query); err != nil {
+		return nil, wrapQueryErr("save query", err)
+	}
+	ddl := fmt.Sprintf("CREATE TABLE %s AS %s", sanitizeIdentifier(name), nestedBody(query))
 	if _, err := conn.ExecContext(context.Background(), ddl); err != nil {
 		return nil, fmt.Errorf("save query: %w", err)
 	}
@@ -440,7 +448,7 @@ func (e *Engine) QuerySQLToCSV(query string, w io.Writer) (columns []string, row
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	conn, err := selectConn(context.Background(), e.db, query)
+	conn, err := beginRead(context.Background(), e.db, query)
 	if err != nil {
 		return nil, 0, wrapQueryErr("query", err)
 	}
@@ -638,7 +646,7 @@ func (e *Engine) querySQLBounded(query string, maxRows int, hint string) ([]map[
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	conn, err := selectConn(context.Background(), e.db, query)
+	conn, err := beginRead(context.Background(), e.db, query)
 	if err != nil {
 		return nil, wrapQueryErr("query", err)
 	}

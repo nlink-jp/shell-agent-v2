@@ -147,10 +147,26 @@ func TestReadOnlyGate(t *testing.T) {
 		}
 	}
 
-	out := filepath.Join(t.TempDir(), "out.csv")
+	dir := t.TempDir()
+	out := filepath.Join(dir, "out.csv")
+	victim := filepath.Join(dir, "victim.txt")
+	if err := os.WriteFile(victim, []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	logDir := filepath.Join(dir, "logs")
 	writes := []string{
 		"SELECT 1; DROP TABLE t",
 		"SELECT 1; INSERT INTO t VALUES (2)",
+		"DROP TABLE t; SELECT 1",
+		"INSERT INTO t VALUES (2); SELECT * FROM t",
+		// Type SELECT, refused by the read-only transaction:
+		"WITH d AS (DELETE FROM t RETURNING *) SELECT count(*) FROM d",
+		"WITH i AS (INSERT INTO t VALUES (2) RETURNING x) SELECT x FROM i",
+		"WITH u AS (UPDATE t SET x = 9 RETURNING *) SELECT * FROM u",
+		// Type SELECT, refused by the locked configuration:
+		"SELECT * FROM enable_profiling(format='json', save_location='" + victim + "')",
+		"SELECT * FROM enable_logging(storage='file', storage_path='" + logDir + "')",
+		"SELECT * FROM sqlite_attach('" + filepath.Join(dir, "z.sqlite") + "')",
 		"WITH c AS (SELECT 2) INSERT INTO t SELECT * FROM c",
 		"INSERT INTO t VALUES (1)",
 		"  UPDATE t SET x = 1",
@@ -186,6 +202,16 @@ func TestReadOnlyGate(t *testing.T) {
 	if _, err := os.Stat(out); err == nil {
 		t.Errorf("COPY wrote %s", out)
 	}
+	if b, _ := os.ReadFile(victim); string(b) != "keep" {
+		t.Errorf("victim file overwritten: %.40q", b)
+	}
+	if _, err := os.Stat(logDir); err == nil {
+		t.Errorf("enable_logging created %s", logDir)
+	}
+	// A pooled connection must not be left read-only for the next writer.
+	if _, err := e.CreateFromQuery("after_reads", "SELECT 1 AS a", ""); err != nil {
+		t.Errorf("write after rejected reads: %v", err)
+	}
 	// The refusal names what to change rather than echoing the driver's
 	// "try using PrepareContext"; a bind error stays DuckDB's own.
 	if _, err := e.QuerySQL("SELECT 1; DROP TABLE t"); !errors.Is(err, errNotSelect) {
@@ -195,7 +221,15 @@ func TestReadOnlyGate(t *testing.T) {
 		t.Errorf("bind error = %v, want DuckDB's error prefixed with \"query: \"", err)
 	}
 
-	if _, err := e.CreateFromQuery("derived", "SELECT x * 2 AS y FROM t", ""); err != nil {
-		t.Errorf("CreateFromQuery(SELECT) = %v, want allowed", err)
+	for i, body := range []string{
+		"SELECT x * 2 AS y FROM t",
+		"SELECT x FROM t;",
+		"SELECT x FROM t -- trailing note",
+		"WITH c AS (SELECT x FROM t) SELECT * FROM c ORDER BY x",
+	} {
+		name := "derived_" + string(rune('a'+i))
+		if _, err := e.CreateFromQuery(name, body, ""); err != nil {
+			t.Errorf("CreateFromQuery(%q) = %v, want allowed", body, err)
+		}
 	}
 }
