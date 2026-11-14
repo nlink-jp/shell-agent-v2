@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.18.2] - 2026-11-14
+
+### Security
+
+- **`golang.org/x/net` is updated from v0.60.0 to v0.62.0**, with `x/text`
+  v0.43.0 and `x/crypto` v0.58.0. Nothing the app calls was affected:
+  `govulncheck` listed two advisories in `x/net/html`, a package this build
+  does not import. One advisory of the same kind remains, against
+  `x/crypto/openpgp` (unmaintained, no fixed release). The Vertex AI SDK is
+  unchanged (v1.54.0).
+- **Building needs Go 1.27.4 or later** (`go.mod`; it was 1.26.2), the release
+  whose standard library carries the fixes published so far. The app of
+  v0.18.1 was built with Go 1.27.3.
+- **Still waiting upstream: CVE-2026-111497** (the Brotli bundled in DuckDB's
+  parquet extension). Checked on 2026-11-14: DuckDB v2.0.0 and its main branch
+  still bundle Brotli 1.1.0, so there is no driver release to move to yet.
+
+### Changed
+
+- **`make package` runs the vulnerability check first** (`make vuln`), so a
+  release cannot be built past a finding.
+
 ## [0.18.1] - 2026-10-26
 
 ### Build
