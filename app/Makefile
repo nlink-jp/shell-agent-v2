@@ -22,7 +22,7 @@ WAILS_VERSION := $(shell awk '$$1 == "github.com/wailsapp/wails/v2" { print $$2 
 CODESIGN_SCRIPT := ../scripts/codesign-darwin-app.sh
 NOTARIZE_SCRIPT := ../scripts/notarize-darwin-app.sh
 
-.PHONY: build build-all package verify-release dev test clean check-wails
+.PHONY: build build-all package verify-release dev test clean check-wails vuln
 
 build: check-wails
 	wails build -platform darwin/arm64 -ldflags "$(LDFLAGS)"
@@ -37,9 +37,16 @@ build: check-wails
 
 build-all: build
 
+## vuln: known vulnerabilities in the modules and the standard library this
+## build uses (govulncheck). `package` depends on it, so a release cannot be
+## built past a finding. It needs the network, and its database changes under
+## an unchanged tree: a finding can appear without a commit.
+vuln:
+	govulncheck ./...
+
 ## package: build, notarize the .app (staples the ticket), then zip
 ## the now-stapled bundle for upload to GitHub Releases.
-package: build
+package: vuln build
 	@$(NOTARIZE_SCRIPT) dist/$(APP).app "$(NOTARY_PROFILE)"
 	cd dist && /usr/bin/ditto -c -k --norsrc --noextattr --keepParent $(APP).app $(APP)-$(VERSION)-darwin-arm64.zip
 	@ls -la dist/$(APP)-$(VERSION)-darwin-arm64.zip

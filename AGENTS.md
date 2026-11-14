@@ -16,6 +16,7 @@ make build      # Build .app bundle → dist/shell-agent-v2.app
 make dev        # Wails dev server with hot reload
 make test       # go test ./...
 make clean      # Remove build artifacts
+make vuln            # govulncheck over the build; `make package` runs it first and stops on a finding
 make verify-release  # gate: .notarized marker + stapler validate (run before upload)
 
 # Integration tests (require running services):
