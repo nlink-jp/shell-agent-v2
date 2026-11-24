@@ -128,4 +128,5 @@ Closing that was measured and rejected:
 URL reads now fail unless the extension is already installed, because
 autoinstall is off. The parquet path to CVE-2026-111497 (vendored
 Brotli 1.1.0) stays reachable for local files until DuckDB ships the
-fix (see the v0.18.0 CHANGELOG).
+fix (see the v0.18.0 CHANGELOG). *(2026-11-24: fixed in v0.18.3, which
+bundles DuckDB v2.0.1.)*

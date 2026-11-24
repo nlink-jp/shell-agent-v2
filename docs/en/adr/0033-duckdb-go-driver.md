@@ -58,6 +58,8 @@ Changes it takes:
 
 - The CVE remains open until DuckDB ships the Brotli fix; the CHANGELOG
   says so. Taking it is a `go get` of the next v2.2000x release.
+  *(2026-11-24: taken in v0.18.3 — duckdb-go v2.20001.0 bundles DuckDB
+  v2.0.1, which carries the fix.)*
 - DuckDB 2.0 parses with its new PEG parser by default. The test suite
   passes unchanged; LLM-written SQL that the old parser accepted and the
   new one rejects surfaces as a query error the agent can retry.

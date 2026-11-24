@@ -253,7 +253,7 @@ eliminated.
 ## Gotchas
 
 - DuckDB requires CGO. The driver is `github.com/duckdb/duckdb-go/v2`
-  (v2.20000.x bundles DuckDB v2.0; `marcboeker/go-duckdb` is frozen).
+  (v2.2000N.x bundles DuckDB v2.0.N; `marcboeker/go-duckdb` is frozen).
   Its Arrow interface is opt-in — never add `-tags duckdb_arrow` (Arrow
   collides with Wails); the old `no_duckdb_arrow` tag is a no-op now.
 - Agent-written SQL never runs on the read-write DuckDB instance
