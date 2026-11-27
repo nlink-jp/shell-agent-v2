@@ -1,5 +1,21 @@
 # shell-agent-v2
 
+> ## Archived
+>
+> This project is archived and no longer maintained. The repository is
+> read-only; nothing below will be corrected. There is no successor.
+>
+> Its MCP support starts the archived, frozen
+> [mcp-guardian](https://github.com/nlink-jp/mcp-guardian) as a child
+> process for each profile, so it cannot follow MCP forward without a
+> rewrite, and nlink-jp has consolidated its agents on the CLI runtimes
+> [gem-agent](https://github.com/nlink-jp/gem-agent) and
+> [lagent](https://github.com/nlink-jp/lagent).
+>
+> Known defect, left unfixed: the MCP client reads one line per call and
+> rejects it when the id does not match, so a single server notification
+> arriving before the response makes the call fail.
+
 macOS local-first chat & agent tool with interactive data analysis.
 
 Successor to [shell-agent](https://github.com/nlink-jp/shell-agent) v0.7.x,

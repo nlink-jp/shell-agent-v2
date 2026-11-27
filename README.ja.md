@@ -1,5 +1,19 @@
 # shell-agent-v2
 
+> ## アーカイブ済み
+>
+> 本プロジェクトはアーカイブされ、メンテナンスされていません。リポジトリは read-only であり、
+> 以下の記述が修正されることはありません。後継はありません。
+>
+> MCP 対応は、アーカイブ済みで凍結した
+> [mcp-guardian](https://github.com/nlink-jp/mcp-guardian) をプロファイルごとに子プロセスとして
+> 起動する方式のため、作り直さずに MCP の改訂へ追随することができません。また nlink-jp は
+> エージェントを CLI のランタイム [gem-agent](https://github.com/nlink-jp/gem-agent) と
+> [lagent](https://github.com/nlink-jp/lagent) に集約しました。
+>
+> 直さないまま残した既知の不具合: MCP クライアントは 1 回の呼び出しで 1 行だけを読み、
+> id が合わなければ失敗とするため、応答の前にサーバの通知が 1 つ届くだけで呼び出しが失敗します。
+
 macOS ローカルファースト チャット & エージェントツール（対話的データ分析機能付き）。
 
 [shell-agent](https://github.com/nlink-jp/shell-agent) v0.7.x の後継。
